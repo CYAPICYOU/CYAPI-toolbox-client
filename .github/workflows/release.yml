@@ -1,0 +1,175 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - 'ci-*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布的版本标签，例如 v1.1.0'
+        required: true
+        type: string
+      dry-run:
+        description: '只构建并上传产物，不创建 Release'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  # A ci-* tag or a dry run only builds the artifacts, so a test never
+  # publishes a release by accident.
+  DRY_RUN: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry-run) || startsWith(github.ref_name, 'ci-') }}
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows ships the NSIS installer and the portable EXE.
+          - os: windows-latest
+            asset: windows
+            platform: x64
+          # macOS ships a DMG installer per architecture.
+          - os: macos-latest
+            asset: macos-arm64
+            platform: aarch64
+          - os: macos-26-intel
+            asset: macos-x64
+            platform: x86_64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry-run && inputs.tag || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install the Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Add the macOS Rust target
+        if: runner.os == 'macOS'
+        run: rustup target add ${{ matrix.platform }}-apple-darwin
+
+      - name: Cache the Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Check the version against the tag
+        if: env.DRY_RUN != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          if [ "v$version" != "$RELEASE_TAG" ]; then
+            echo "::error::Tag $RELEASE_TAG does not match source v$version"
+            exit 1
+          fi
+
+      - name: Run the frontend tests
+        run: npm test
+
+      - name: Run the native tests
+        shell: bash
+        run: |
+          if cargo test --locked --lib --manifest-path src-tauri/Cargo.toml > native-tests.log 2>&1; then
+            cat native-tests.log
+          else
+            cat native-tests.log
+            node --input-type=module -e '
+              import { readFileSync } from "node:fs";
+              const log = readFileSync("native-tests.log", "utf8");
+              const detail = log.slice(log.lastIndexOf("failures:")).slice(-20000);
+              console.log("::error::" + detail.replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A"));
+            '
+            exit 1
+          fi
+
+      # Windows: build both bundles and collect the release files.
+      - name: Build the installer and the portable EXE
+        if: runner.os == 'Windows'
+        run: npm run desktop:build
+
+      # macOS: build with the collect step, then mark the artifacts.
+      - name: Build and collect the macOS packages
+        if: runner.os == 'macOS'
+        run: npm run desktop:build:macos
+
+      - name: Mark the macOS artifacts
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          mv "release/CYAPI-Toolbox_${version}-macos.dmg" "release/CYAPI-Toolbox_${version}-${{ matrix.asset }}.dmg"
+          mv "release/CYAPI-Toolbox_${version}-macos.zip" "release/CYAPI-Toolbox_${version}-${{ matrix.asset }}.zip"
+
+      - name: Upload the artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.asset }}
+          # Windows ships installer and portable EXE; macOS ships only the
+          # DMG, the portable ZIP bundle was retired.
+          path: |
+            ${{ runner.os == 'Windows' && 'release/CYAPI-Toolbox_*.exe' || 'release/CYAPI-Toolbox_*.dmg' }}
+          if-no-files-found: error
+
+  release:
+    name: Publish the release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry-run && inputs.tag || github.sha }}
+
+      # The dry run still validates the publish pipeline up to the checksums,
+      # only the release itself is skipped.
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Require all platform installers
+        run: node scripts/release-assets.mjs assets "$(node -p "require('./package.json').version")"
+
+      - name: Write the checksums
+        run: |
+          set -euo pipefail
+          cd assets
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -print0 \
+            | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create the release
+        if: env.DRY_RUN != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          body_path: RELEASE_NOTES.md
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            assets/*

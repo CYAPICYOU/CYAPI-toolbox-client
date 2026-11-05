@@ -1,0 +1,66 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "CYAPI Toolbox",
+  "version": "2.0.0",
+  "identifier": "com.cyapi.toolbox",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "CYAPI Toolbox",
+        "width": 1320,
+        "height": 880,
+        "minWidth": 1000,
+        "minHeight": 700,
+        "center": true,
+        "backgroundColor": "#f7f8f6",
+        "hiddenTitle": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost https://api.cyapi.cyou http://127.0.0.1:47821 http://127.0.0.1:18733; frame-src https://api.cyapi.cyou http://127.0.0.1:47821 http://127.0.0.1:18733; media-src 'self' asset: http://asset.localhost blob:; font-src 'self'; object-src 'none'; base-uri 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "shortDescription": "本地优先的 AI Skill 工具箱",
+    "category": "DeveloperTool",
+    "windows": {
+      "nsis": {
+        "displayLanguageSelector": false,
+        "languages": ["SimpChinese"],
+        "installMode": "currentUser"
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "10.15",
+      "dmg": {
+        "appPosition": {
+          "x": 180,
+          "y": 170
+        },
+        "applicationFolderPosition": {
+          "x": 480,
+          "y": 170
+        },
+        "windowSize": {
+          "width": 660,
+          "height": 400
+        }
+      },
+      "signingIdentity": "-"
+    }
+  }
+}

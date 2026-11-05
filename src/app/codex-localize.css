@@ -1,0 +1,129 @@
+/* Codex localisation: one status card and the two lifecycle actions. */
+.n-localize {
+  display: grid;
+  gap: 16px;
+  max-width: 860px;
+}
+.n-localize-hero {
+  display: grid;
+  gap: 14px;
+}
+.n-localize-hero h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.n-localize-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: #fff;
+  font-size: 11px;
+  font-weight: 500;
+}
+.n-localize-state.on {
+  color: #2f6242;
+  border-color: #cfe3d5;
+  background: #f1f8f3;
+}
+.n-localize-state.warn {
+  color: #7b5a1e;
+  border-color: #ecdcb8;
+  background: #fdf7e9;
+}
+.n-localize-checks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+.n-localize-checks > div {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfa;
+}
+.n-localize-checks dt {
+  color: var(--muted);
+  font-size: 11px;
+}
+.n-localize-checks dd {
+  margin: 4px 0 0;
+  font-size: 12px;
+  word-break: break-all;
+}
+.n-localize-checks dd.ok {
+  color: #2f6242;
+  font-weight: 500;
+}
+.n-localize-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.n-localize-restart {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.n-localize-restart input {
+  accent-color: var(--green-solid);
+}
+.n-localize-keep {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #ecdcb8;
+  border-radius: 8px;
+  background: #fdf7e9;
+  color: #6f5320;
+  font-size: 12px;
+  line-height: 1.65;
+}
+.n-localize-keep.on {
+  border-color: #cfe3d5;
+  background: #f1f8f3;
+  color: #2f6242;
+}
+.n-localize-keep svg {
+  flex: none;
+  margin-top: 3px;
+}
+.n-localize-hero code,
+.n-localize-help code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--workspace-tint);
+  font-size: 11px;
+  word-break: break-all;
+}
+.n-localize-help {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.n-localize-help > summary {
+  cursor: pointer;
+  color: var(--ink, #253029);
+  font-weight: 500;
+}
+.n-localize-help ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
