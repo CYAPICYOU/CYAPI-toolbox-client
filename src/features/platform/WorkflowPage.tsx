@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -15,6 +15,8 @@ import {
 import type { MockDraft } from './mockTasks';
 import type { WorkflowTemplate } from './library';
 import { WorkflowIcon } from './WorkflowLibrary';
+import { getWorkflowPriceCatalog } from './api';
+import { formatWorkflowUsd, workflowReferencePrice } from './workflowPrice';
 
 export function WorkflowPage({
   draft,
@@ -45,6 +47,20 @@ export function WorkflowPage({
 }) {
   const [fileError, setFileError] = useState('');
   const [dragging, setDragging] = useState(false);
+  const [price, setPrice] = useState<number | null>(null);
+  const [priceLoading, setPriceLoading] = useState(template.source === 'server');
+  useEffect(() => {
+    let cancelled = false;
+    setPrice(null);
+    if (template.source !== 'server') { setPriceLoading(false); return; }
+    setPriceLoading(true);
+    void getWorkflowPriceCatalog().then(catalog => {
+      if (!cancelled) setPrice(workflowReferencePrice(catalog, template.id));
+    }).catch(() => {
+      if (!cancelled) setPrice(null);
+    }).finally(() => { if (!cancelled) setPriceLoading(false); });
+    return () => { cancelled = true; };
+  }, [template.id, template.source]);
   const fileInput = useRef<HTMLInputElement>(null);
   const latest = useRef(draft);
   const fileRequest = useRef(0);
@@ -337,6 +353,13 @@ export function WorkflowPage({
           )}
         </section>
         <aside className="pfx-workflow-aside">
+          <section className="pfx-card" aria-label="工作流价格">
+            <h2>价格参考</h2>
+            <strong>{priceLoading ? '正在获取价格…' : price === null ? '价格暂不可用' : `${formatWorkflowUsd(price)} / 次`}</strong>
+            <p className="pfx-hint">{template.source === 'personal'
+              ? '个人工作流的价格取决于实际节点和输入，暂无法在此预估。'
+              : '按当前 sub2api 扣费单元换算的模板能力参考价，不代表完整节点图总价；请以运行前确认的完整工作流报价及实际账单为准。'}</p>
+          </section>
           <section className="pfx-card">
             <h2>工作流信息</h2>
             <dl>
@@ -363,7 +386,7 @@ export function WorkflowPage({
               <div>
                 <strong>运行会提交真实任务</strong>
                 <p>
-                  任务由服务端提交到 CYAPI Bridge，完成后在「结果」中查看图片或视频。免费能力不产生费用；关闭客户端不会取消服务端任务。
+                  完整工作流由 Worker ComfyUI 执行，CYAPI 节点在执行时调用 Bridge；提交前会确认报价，关闭客户端不会取消服务端任务。
                 </p>
               </div>
             </section>

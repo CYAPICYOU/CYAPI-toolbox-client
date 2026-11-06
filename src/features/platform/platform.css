@@ -138,7 +138,7 @@
   margin: 16px 0;
   padding: 0;
   display: grid;
-  gap: 8px;
+  gap: var(--page-heading-gap, 12px 20px);
 }
 .pfx-key-list li {
   display: flex;
@@ -276,6 +276,12 @@
   flex-wrap: wrap;
   gap: 9px;
 }
+.pfx-top-actions > button {
+  min-height: var(--page-control-height, 36px);
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-weight: 500;
+}
 .pfx-library-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -288,6 +294,7 @@
   display: flex;
   gap: 8px;
   align-items: center;
+  min-height: var(--page-control-height, 36px);
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--surface, white);
@@ -314,6 +321,7 @@
 }
 .pfx-filters button {
   border: 1px solid transparent;
+  min-height: var(--page-control-height, 36px);
   padding: 8px 12px;
   border-radius: 7px;
   background: transparent;
@@ -921,22 +929,38 @@
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 12px 20px;
-  padding: 14px 24px;
+  gap: 8px;
+  min-height: var(--page-heading-height, 80px);
+  padding: 12px var(--page-heading-padding-x, 32px);
   background: var(--surface, #fff);
   border-bottom: 1px solid var(--line);
 }
 
 .pfx-heading h1 {
   margin: 0;
-  font-size: 17px;
-  letter-spacing: 0.01em;
+  font-size: var(--page-heading-title-size, 20px);
+  font-weight: 600;
+  letter-spacing: var(--page-heading-title-tracking, -0.4px);
+  line-height: 1.2;
+}
+.pfx-heading {
+  flex: 1 1 0;
+  min-width: 0;
+  transform: translateY(10px);
 }
 
 .pfx-heading p {
   margin: 4px 0 0;
   font-size: 12px;
   color: var(--muted);
+}
+@media (max-width: 900px) {
+  .pfx-heading {
+    transform: none;
+  }
+  .pfx-heading p {
+    display: none;
+  }
 }
 
 .pfx-keys {
@@ -992,7 +1016,7 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 20px 24px 32px;
+  padding: var(--page-content-padding-y, 28px) var(--page-content-padding-x, 32px) 32px;
   display: flex;
   flex-direction: column;
   gap: 14px;

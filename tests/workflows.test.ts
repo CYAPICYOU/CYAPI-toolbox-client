@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import test from 'node:test';
-import { groupIdenticalImages, saveArtifact } from '../src/features/platform/artifactDisplay.ts';
+import { artifactSourceLabel, groupIdenticalImages, saveArtifact } from '../src/features/platform/artifactDisplay.ts';
+import { formatWorkflowUsd, workflowReferencePrice } from '../src/features/platform/workflowPrice.ts';
 import {
   createEditorLauncher,
   editorLaunchPending,
@@ -28,9 +29,32 @@ import {
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const exists = (path: string) => existsSync(new URL(`../${path}`, import.meta.url));
 
+test('workflow reference prices accept only the matching verified USD catalog value', () => {
+  const catalog = { templates: [{ id: 'test', display: { price: { amount: 0, currency: 'USD', unit: '次' } } }] };
+  assert.equal(workflowReferencePrice(catalog, 'test'), 0);
+  assert.equal(workflowReferencePrice(catalog, 'other'), null);
+  assert.equal(workflowReferencePrice({ templates: [catalog.templates[0], catalog.templates[0]] }, 'test'), null);
+  assert.equal(workflowReferencePrice({ templates: [{ id: 'test', display: { price: { amount: '0.01', currency: 'USD', unit: '次' } } }] }, 'test'), null);
+  assert.equal(workflowReferencePrice({ templates: [{ id: 'test', display: { price: { amount: -1, currency: 'USD', unit: '次' } } }] }, 'test'), null);
+  assert.equal(formatWorkflowUsd(0.00000001), '$0.00000001 USD');
+  assert.equal(formatWorkflowUsd(0), '$0 USD');
+});
+
+test('workflow execution uses the complete Worker pipeline and asks for confirmation', () => {
+  const api = read('src/features/platform/api.ts');
+  const page = read('src/features/platform/PlatformWorkbench.tsx');
+  assert.match(api, /\/pipeline-quote/);
+  assert.match(api, /\/pipeline-run/);
+  assert.match(page, /window\.confirm\(`将由 Worker ComfyUI/);
+  assert.match(page, /提交状态可能未知/);
+  assert.match(page, /个人工作流暂不支持/);
+  assert.match(page, /暂不支持从此处上传素材/);
+});
+
 test('tool selector retains the desktop model integrations', () => {
   const app = read('src/app/App.tsx');
   for (const name of ['DeepSeek Harness', 'WorkBuddy', 'Pi Coding Agent', 'MiniMax Code']) assert.ok(app.includes(name));
+  for (const hint of ["id: 'dsh', name: 'DeepSeek Harness', hint: 'Deepseek'", "id: 'workbuddy', name: 'WorkBuddy', hint: 'Tencent'", "id: 'pi', name: 'Pi Coding Agent', hint: '开源'", "id: 'minimax', name: 'MiniMax Code', hint: 'Mininax'"]) assert.ok(app.includes(hint));
   assert.match(app, /<DesktopModelSettings key=\{desktopTool\} tool=\{desktopTool\}/);
   const service = read('src-tauri/src/service.rs');
   assert.match(service, /desktop-model-read/);
@@ -51,6 +75,13 @@ test('identical editor images group without losing either original', () => {
   assert.deepEqual(groupIdenticalImages([preview, unknown], { '/preview': 'same', '/unknown': 'same' }), [[preview], [unknown]]);
   const video = { id: 'video', kind: 'video', download: '/video' };
   assert.deepEqual(groupIdenticalImages([preview, video], { '/preview': 'same', '/video': 'same' }), [[preview], [video]]);
+});
+
+test('source labels show the recorded node name and explicitly mark missing history', () => {
+  const output = { id: 'x', kind: 'image', download: '/x' };
+  assert.equal(artifactSourceLabel({ ...output, sourceNode: { id: '3', type: 'SaveImage', title: '最终图片' } }), '来源节点：最终图片 · SaveImage（ID 3）');
+  assert.equal(artifactSourceLabel({ ...output, sourceNode: { id: '4', type: 'PreviewImage' } }), '来源节点：PreviewImage（ID 4）');
+  assert.match(artifactSourceLabel(output), /未知/);
 });
 
 test('native artifact save returns cancellation and propagates write errors', async () => {
@@ -282,10 +313,10 @@ test('workflow library is server-fed and uses compact cards instead of hardcoded
     /request<WorkflowCatalog>\('\/public\/catalog'\)/,
   );
   assert.doesNotMatch(page + library, /const examples|体验任务流|体验工作流|本地模拟|pfx-cover/);
-  assert.doesNotMatch(page, /执行费|启动工作区|停止工作区|重启工作区|getBilling/);
+  assert.doesNotMatch(page, /启动工作区|停止工作区|重启工作区|getBilling/);
   const editor = read('src/features/platform/WorkflowPage.tsx');
   assert.match(editor, /运行会提交真实任务/);
-  assert.match(editor, /提交到 CYAPI Bridge/);
+  assert.match(editor, /Worker ComfyUI 执行/);
   assert.doesNotMatch(editor, /<Modal/);
   assert.doesNotMatch(page, /<Modal title=\{.*editor/);
   for (const label of ['填写输入', '流程详情', '拖拽文件', '保存草稿', '在 ComfyUI 中打开'])

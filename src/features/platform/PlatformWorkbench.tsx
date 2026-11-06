@@ -49,7 +49,8 @@ import type { EditorLaunchNoticeState } from './EditorLaunchNotice';
 import { logWorkflowLaunch } from '../../lib/api/diagnostics';
 import { invoke } from '@tauri-apps/api/core';
 import { nativeAvailable } from '../../lib/api/native';
-import { groupIdenticalImages, imagePixelHash, saveArtifact } from './artifactDisplay';
+import { artifactSourceLabel, groupIdenticalImages, imagePixelHash, saveArtifact } from './artifactDisplay';
+import { formatWorkflowUsd } from './workflowPrice';
 import './platform.css';
 
 const errorText = (error: unknown) =>
@@ -273,7 +274,7 @@ export function PlatformWorkbench({
   useEffect(() => {
     let cancelled = false;
     for (const task of tasks) {
-      if (task.source !== 'editor' || task.outputs.filter(output => output.kind === 'image').length < 2) continue;
+      if (task.source !== 'editor' && task.mode !== 'worker' || task.outputs.filter(output => output.kind === 'image').length < 2) continue;
       for (const output of task.outputs) {
         const url = artifacts[output.download];
         if (output.kind !== 'image' || !url || imageHashes[output.download]) continue;
@@ -443,18 +444,26 @@ export function PlatformWorkbench({
       return;
     }
     if (!requireKey()) return;
+    if (item.fileData) { setMockError('完整工作流暂不支持从此处上传素材，请在 ComfyUI 编辑器中添加素材并运行。'); return; }
+    if (template.source === 'personal') { setMockError('个人工作流暂不支持从此处直接运行，请打开 ComfyUI 编辑器运行。'); return; }
     setSubmitting(true);
     setMockError('');
     try {
       // The server owns the template graph: create a draft from the published
-      // template, fill the prompt, quote, then submit to Bridge.
+      // template, fill the prompt, quote, then submit the full graph to ComfyUI.
       const draft = await createWorkflowDraft(activeKey, template.id);
       const saved = await saveWorkflowDraft(activeKey, draft.id, {
         revision: draft.revision,
         description: item.prompt.trim(),
       });
       const quote = await quoteWorkflowDraft(activeKey, draft.id);
-      await runWorkflowDraft(activeKey, draft.id, saved.revision, quote);
+      if (taskIdentity.current !== activeKey) throw new Error('Key 已更换，请重新操作');
+      if (!window.confirm(`将由 Worker ComfyUI 执行完整工作流。\nAI 节点预估费用：${formatWorkflowUsd(quote.amount)}\n工作流执行费：${formatWorkflowUsd(quote.runFee)}\n节点实际费用受确认报价上限约束。是否继续？`)) return;
+      try {
+        await runWorkflowDraft(activeKey, draft.id, saved.revision, quote);
+      } catch (cause) {
+        throw new Error(`${errorText(cause)}。提交状态可能未知，请先检查任务列表和工作区队列，勿重复运行以免重复扣费。`);
+      }
       if (mock.drafts.some((entry) => entry.id === item.id))
         saveMock({ drafts: mock.drafts.filter((entry) => entry.id !== item.id) });
       setEditor(null);
@@ -766,21 +775,22 @@ export function PlatformWorkbench({
               )
             ) : null}
             {view === 'results' ? (
-              <>{saveNotice && <div className="pfx-alert" role="status">{saveNotice}</div>}{tasks.some((task) => task.status === 'succeeded' && (task.outputs.length > 0 || task.source === 'editor')) ? (
+              <>{saveNotice && <div className="pfx-alert" role="status">{saveNotice}</div>}{tasks.some((task) => task.status === 'succeeded' && (task.outputs.length > 0 || task.source === 'editor' || task.mode === 'worker')) ? (
                 tasks
-                  .filter((task) => task.status === 'succeeded' && (task.outputs.length > 0 || task.source === 'editor'))
+                  .filter((task) => task.status === 'succeeded' && (task.outputs.length > 0 || task.source === 'editor' || task.mode === 'worker'))
                   .map((task) => (
                     <article key={task.id} className="pfx-card pfx-mock-result">
                       <div className="pfx-mock-row">
                         <strong>{task.name}</strong>
                         <small>{new Date(task.createdAt).toLocaleString()}</small>
                       </div>
-                      {task.source === 'editor' && task.message && <small>{task.message}</small>}
-                      {task.source === 'editor' && task.outputs.length === 0 && <p>没有可下载的归档文件。请检查编辑器中的输出；需要保留结果时，请连接对应的保存节点。中间计算结果不会自动保存。</p>}
+                      {(task.source === 'editor' || task.mode === 'worker') && task.message && <small>{task.message}</small>}
+                      {(task.source === 'editor' || task.mode === 'worker') && task.outputs.length === 0 && <p>没有可下载的归档文件。请检查编辑器中的输出；需要保留结果时，请连接对应的保存节点。中间计算结果不会自动保存。</p>}
                       <div className="pfx-results">
-                        {(task.source === 'editor' ? groupIdenticalImages(task.outputs, imageHashes) : task.outputs.map(output => [output])).map((group) => { const output = group[0]; return (
+                        {(task.source === 'editor' || task.mode === 'worker' ? groupIdenticalImages(task.outputs, imageHashes) : task.outputs.map(output => [output])).map((group) => { const output = group[0]; return (
                           <figure key={output.id} className="pfx-result">
-                            {task.source === 'editor' && <small>{output.role === 'preview' ? '预览图（临时文件，可能不是原始质量）' : output.role === 'file' ? '输出文件' : output.role === 'temporary' ? '临时文件（来源节点未确认为预览）' : '历史文件（来源类型未知）'}</small>}
+                            {(task.source === 'editor' || task.mode === 'worker') && <small>{output.role === 'preview' ? '预览图（临时文件，可能不是原始质量）' : output.role === 'file' ? '输出文件' : output.role === 'temporary' ? '临时文件（来源节点未确认为预览）' : '历史文件（来源类型未知）'}</small>}
+                            {(task.source === 'editor' || task.mode === 'worker') && group.map(item => <small key={item.id}>{artifactSourceLabel(item)}</small>)}
                             {artifacts[output.download] ? (
                               output.kind === 'video' ? (
                                 <video src={artifacts[output.download]} controls playsInline />
@@ -819,8 +829,8 @@ export function PlatformWorkbench({
                       {task.billing && (
                         <small>
                           {task.billing.amount > 0
-                            ? `本次费用 ${task.billing.amount} ${task.billing.unit}`
-                            : '未产生费用'}
+                            ? `${task.billing.status === 'quoted' || task.mode === 'worker' ? '预估费用' : '本次费用'} ${task.billing.amount} ${task.billing.unit}`
+                            : task.mode === 'worker' ? '预估费用 0 USD，实际费用请查看账单' : '未产生费用'}
                         </small>
                       )}
                     </article>

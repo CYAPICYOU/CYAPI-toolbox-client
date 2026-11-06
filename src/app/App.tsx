@@ -111,10 +111,10 @@ const agents = [
   { id: 'codex', name: 'Codex', hint: 'OpenAI' },
   { id: 'claude', name: 'Claude Code', hint: 'Anthropic' },
   { id: 'opencode', name: 'OpenCode', hint: '开源' },
-  { id: 'dsh', name: 'DeepSeek Harness', hint: '官方桌面版 · 模型接入' },
-  { id: 'workbuddy', name: 'WorkBuddy', hint: '腾讯桌面版 · 模型接入' },
-  { id: 'pi', name: 'Pi Coding Agent', hint: '官方 CLI · 模型接入' },
-  { id: 'minimax', name: 'MiniMax Code', hint: '官方桌面版 · 模型接入' },
+  { id: 'dsh', name: 'DeepSeek Harness', hint: 'Deepseek' },
+  { id: 'workbuddy', name: 'WorkBuddy', hint: 'Tencent' },
+  { id: 'pi', name: 'Pi Coding Agent', hint: '开源' },
+  { id: 'minimax', name: 'MiniMax Code', hint: 'Mininax' },
 ] as const;
 const targetLabels = {
   codex: 'Codex',

@@ -4,6 +4,15 @@ export interface DisplayArtifact {
   download: string;
   storageType?: string;
   role?: 'preview' | 'file' | 'temporary';
+  sourceNode?: { id: string; type?: string; title?: string };
+}
+
+export function artifactSourceLabel(output: DisplayArtifact): string {
+  const source = output.sourceNode;
+  if (!source?.id) return '来源节点：未知（历史记录未保存）';
+  const name = source.title || source.type;
+  const type = source.title && source.type && source.title !== source.type ? ` · ${source.type}` : '';
+  return `来源节点：${name || '名称未知'}${type}（ID ${source.id}）`;
 }
 
 // Group only pixel-identical images from the same execution. Every original

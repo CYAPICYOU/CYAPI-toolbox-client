@@ -161,3 +161,29 @@ test('the native window background follows the page surface', () => {
   assert.equal(WINDOW_BACKGROUND.light, surface.light);
   assert.equal(WINDOW_BACKGROUND.dark, surface.surface);
 });
+
+test('tools and workflow pages share title, spacing, and control dimensions', () => {
+  const native = read('native.css');
+  const platform = read('../features/platform/platform.css');
+  for (const token of [
+    '--page-heading-height: 80px',
+    '--page-heading-gap: 12px 20px',
+    '--page-heading-padding-x: 32px',
+    '--page-content-padding-x: 32px',
+    '--page-content-padding-y: 28px',
+    '--page-control-height: 36px',
+    '--page-heading-title-size: 20px',
+    '--page-heading-title-tracking: -0.4px',
+  ]) {
+    assert.ok(native.includes(token), `missing shared layout token ${token}`);
+  }
+  assert.match(native, /\.n-page-heading\s*\{[^}]*flex-wrap:\s*wrap;[^}]*min-height:\s*var\(--page-heading-height\)/s);
+  assert.match(native, /\.n-page-heading h1\s*\{[^}]*font-size:\s*var\(--page-heading-title-size\)/s);
+  assert.match(native, /\.n-button\s*\{[^}]*min-height:\s*var\(--page-control-height\)/s);
+  assert.match(platform, /\.pfx-top\s*\{[^}]*flex-wrap:\s*wrap;[^}]*min-height:\s*var\(--page-heading-height/);
+  assert.match(platform, /\.pfx-heading h1\s*\{[^}]*font-size:\s*var\(--page-heading-title-size/);
+  assert.match(platform, /\.pfx-heading\s*\{[^}]*transform:\s*translateY\(10px\)/);
+  assert.match(platform, /@media \(max-width: 900px\)\s*\{\s*\.pfx-heading\s*\{\s*transform:\s*none/s);
+  assert.match(platform, /\.pfx-top-actions > button\s*\{[^}]*min-height:\s*var\(--page-control-height/);
+  assert.match(platform, /\.pfx-body\s*\{[^}]*padding:\s*var\(--page-content-padding-y/);
+});

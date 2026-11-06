@@ -305,7 +305,7 @@ export const removeNode = (key: string, name: string) =>
 
 // ---------------------------------------------------------------------------
 // Real workflow execution. These routes live at the server root (`/api/workflows`)
-// and submit through Bridge, so the client no longer simulates tasks locally.
+// and submit complete graphs to Worker ComfyUI.
 // ---------------------------------------------------------------------------
 const WORKFLOW_API_PATH = '/api/workflows';
 
@@ -329,6 +329,7 @@ export interface WorkflowTaskOutput {
   bytes?: number;
   storageType?: string;
   role?: 'preview' | 'file' | 'temporary';
+  sourceNode?: { id: string; type?: string; title?: string };
 }
 
 export interface WorkflowTask {
@@ -336,6 +337,7 @@ export interface WorkflowTask {
   draftId: string;
   name: string;
   source?: 'editor';
+  mode?: string;
   description: string;
   status: WorkflowTaskStatus;
   message?: string;
@@ -354,13 +356,13 @@ export interface WorkflowDraft {
 }
 
 export interface WorkflowQuote {
-  mode: 'real-provider' | 'test-adapter';
+  mode: 'worker';
   draftId: string;
   revision: number;
   amount: number;
   unit: string;
-  items?: unknown[];
-  bridgeQuote?: unknown;
+  items: { nodeId: string; title?: string; classType: string; amount: number; unit: string }[];
+  runFee: number;
 }
 
 async function workflowRequest<T>(
@@ -377,6 +379,7 @@ async function workflowRequest<T>(
 
 export const listWorkflowTasks = (key: string, limit = 50) =>
   workflowRequest<{ tasks: WorkflowTask[]; total: number }>(`/tasks?limit=${limit}`, { key });
+export const getWorkflowPriceCatalog = () => workflowRequest<unknown>('/catalog', { timeoutMs: 30_000 });
 export const getWorkflowTask = (key: string, id: string) =>
   workflowRequest<WorkflowTask>(`/tasks/${encodeURIComponent(id)}`, { key });
 export const cancelWorkflowTask = (key: string, id: string) =>
@@ -398,19 +401,18 @@ export const saveWorkflowDraft = (
     body: input,
   });
 export const quoteWorkflowDraft = (key: string, id: string) =>
-  workflowRequest<WorkflowQuote>(`/drafts/${encodeURIComponent(id)}/quote`, { key });
+  workflowRequest<WorkflowQuote>(`/drafts/${encodeURIComponent(id)}/pipeline-quote`, { key, timeoutMs: 180_000 });
 export const runWorkflowDraft = (
   key: string,
   id: string,
   revision: number,
   quote: WorkflowQuote,
 ) =>
-  workflowRequest<WorkflowTask>(`/drafts/${encodeURIComponent(id)}/run`, {
+  workflowRequest<WorkflowTask>(`/drafts/${encodeURIComponent(id)}/pipeline-run`, {
     method: 'POST',
     key,
     body: { revision, quote },
-    // Bridge submits the provider call before answering.
-    timeoutMs: 120_000,
+    timeoutMs: 180_000,
   });
 
 /** Private result URLs need the Key; return an object URL for the renderer. */
