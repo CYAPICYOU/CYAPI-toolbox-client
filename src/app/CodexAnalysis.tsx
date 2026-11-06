@@ -11,7 +11,7 @@ import {
   LoaderCircle,
   Search,
 } from 'lucide-react';
-import { LogCoverage, LogDetailModal, LogEvents, LogFilters, LogHeader, LogTabs } from './LogAnalysisShared';
+import { LogCoverage, LogDetailModal, LogEvents, LogFilters, LogHeader, LogTabs, RequestIps } from './LogAnalysisShared';
 import type { LogTab } from './LogAnalysisShared';
 import { nativeAvailable } from '../lib/api/native';
 import {
@@ -113,6 +113,7 @@ function EventList({
 }) {
   return <LogEvents rows={events.map(e => ({
     id: e.id, time: e.time, sessionId: e.threadId, model: e.model,
+    requestIps: e.http?.requestIps, request: !!e.http || e.kind === 'request',
     severity: (e.http && !e.http.ok) || e.level === 'ERROR' ? 'error' : e.level === 'WARN' ? 'warn' : '',
     label: String(e.http ? e.http.status ?? (e.http.timeout ? '超时' : '连接失败') : kinds[e.kind] ?? e.kind),
     summary: requests && e.http ? `${e.http.method} ${e.http.host}${e.http.path}` : e.summary,
@@ -960,11 +961,13 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
           level: detail.event.level, content: detail.message, context: detail.span, note: detail.note,
           copy: `${date(detail.event.time)} ${detail.event.location.path} ${detail.event.location.position}\n${JSON.stringify(detail.event, null, 2)}\n${detail.message}${detail.span ? `\n${detail.span}` : ''}`,
           facts: <>
+            {(detail.event.http || detail.event.kind === 'request') && <><dt>请求 IP</dt><dd><RequestIps ips={detail.event.http?.requestIps} /></dd></>}
             {detail.event.model && <><dt>模型</dt><dd>{detail.event.model}</dd></>}
             {detail.event.http && <><dt>请求结果</dt><dd>{detail.event.http.status ?? (detail.event.http.timeout ? '超时' : '连接失败')} · {detail.event.http.method} {detail.event.http.host}{detail.event.http.path}</dd></>}
             {detail.event.threadId && <><dt>会话</dt><dd><button className="x-link ca-mono" onClick={() => { closeEvidence(); openSession(detail.event.threadId!); }}>{detail.event.threadId}</button></dd></>}
           </>,
           metadata: <>
+            {!!detail.event.http?.requestIps?.length && <><dt>IP 记录依据</dt><dd>{detail.event.http.requestIps.map((ip, i) => <code key={i}>{ip.ip}{ip.port ? ` · 端口 ${ip.port}` : ''} · {ip.source}</code>)}</dd></>}
             <dt>来源</dt><dd>{roles[detail.event.location.sourceRole]}<code>{detail.event.location.path}</code><code>{detail.event.location.position}</code></dd>
             {detail.event.mirrors.length > 0 && <><dt>合并的记录位置</dt><dd>{detail.event.mirrors.map((m, i) => <code key={i}>{m.path} · {m.position}</code>)}</dd></>}
             <dt>模块</dt><dd>{detail.event.target || '未记录'}</dd>

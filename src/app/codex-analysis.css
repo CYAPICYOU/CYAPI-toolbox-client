@@ -289,6 +289,19 @@
   font-size: 11px;
   line-height: 1.8;
 }
+.ca-request-ip {
+  margin-top: 7px;
+  font-size: 11px;
+}
+.ca-request-ips {
+  display: grid;
+  gap: 4px;
+  color: var(--green);
+  overflow-wrap: anywhere;
+}
+.ca-request-ips code {
+  font-weight: 600;
+}
 .ca-tag {
   display: inline-flex;
   font-size: 10px;

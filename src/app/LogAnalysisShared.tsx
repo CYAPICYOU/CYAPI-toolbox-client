@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Activity, AlertCircle, Copy, Download, LoaderCircle, Pause, Play, RefreshCw, Search } from 'lucide-react';
 import { Modal } from '../components/Primitives';
+import type { RequestIp } from '../lib/api/requestNetwork';
 
 export type LogTab = 'overview' | 'sessions' | 'activity' | 'issues' | 'events' | 'sources';
 export const logDate = (ms: number) => ms ? new Date(ms).toLocaleString('zh-CN', { hour12: false }) : '未记录';
@@ -53,6 +54,14 @@ export function LogCoverage({ count, generatedAt, partial, onSources }: { count:
 export interface LogRow {
   id: string; time: number; label: string; summary: string; model?: string;
   severity: 'error' | 'warn' | ''; sessionId?: string;
+  requestIps?: RequestIp[];
+  request?: boolean;
+}
+export function RequestIps({ ips = [] }: { ips?: RequestIp[] }) {
+  if (!ips.length) return <span className="ca-muted">请求 IP：未记录</span>;
+  return <span className="ca-request-ips">{ips.map((ip, index) => <span key={`${ip.kind}:${ip.ip}:${ip.port}:${index}`} title={`来源：${ip.source}${ip.port ? ` · 端口 ${ip.port}` : ''}`}>
+    {ip.kind === 'target' ? '目标 IP（连接未确认）' : ip.kind === 'upstream' ? '上游 IP' : '远端 IP'}：<code>{ip.ip}</code>
+  </span>)}</span>;
 }
 export function LogEvents({ rows, onOpen, onSession }: { rows: LogRow[]; onOpen: (id: string) => void; onSession: (id: string) => void }) {
   if (!rows.length) return <div className="ca-empty">没有匹配的记录，可调整筛选或时间范围。</div>;
@@ -61,7 +70,8 @@ export function LogEvents({ rows, onOpen, onSession }: { rows: LogRow[]; onOpen:
     <tbody>{rows.map(row => <tr key={row.id}>
       <td><time>{logDate(row.time)}</time></td>
       <td><div className="ca-event-title"><span className={`ca-tag ${row.severity ? `ca-tag-${row.severity}` : ''}`}>{row.label}</span><span title={row.summary}>{row.summary}</span></div>
-        {row.model && <small>{row.model}</small>}</td>
+        {row.model && <small>{row.model}</small>}
+        {(row.request || !!row.requestIps?.length) && <div className="ca-request-ip"><RequestIps ips={row.requestIps} /></div>}</td>
       <td>{row.sessionId ? <button className="x-link ca-mono" title={row.sessionId} onClick={() => onSession(row.sessionId!)}>{row.sessionId.slice(0, 8)}</button> : <span className="ca-muted">未关联</span>}</td>
       <td><button className="x-link" onClick={() => onOpen(row.id)}>查看</button></td>
     </tr>)}</tbody>
@@ -75,7 +85,7 @@ export function LogFilters({ search, onSearch, session, onSession, sessions, adv
 }) {
   return <div className="ca-filter-group">
     <div className="ca-filters">
-      <label className="ca-search"><Search size={15} /><input aria-label="搜索事件" placeholder="搜索关键词、模型或请求 ID" value={search} onChange={e => onSearch(e.target.value)} /></label>
+      <label className="ca-search"><Search size={15} /><input aria-label="搜索事件" placeholder="搜索关键词、模型、IP 或请求 ID" value={search} onChange={e => onSearch(e.target.value)} /></label>
       <select aria-label="筛选会话" value={session} onChange={e => onSession(e.target.value)}><option value="">全部会话</option>{sessions.map(s => <option key={s.id} value={s.id}>{s.title.trim() || s.id.slice(0, 8)}</option>)}</select>
       {onFailed && <label className="ca-check"><input type="checkbox" checked={failed} onChange={e => onFailed(e.target.checked)} />只看失败</label>}
       <button className="x-link" disabled={!active} onClick={onReset}>清除筛选</button>

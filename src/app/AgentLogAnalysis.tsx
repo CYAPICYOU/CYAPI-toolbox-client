@@ -8,7 +8,7 @@ import {
   LoaderCircle,
   Search,
 } from 'lucide-react';
-import { LogCoverage, LogDetailModal, LogEvents, LogFilters, LogHeader, LogTabs } from './LogAnalysisShared';
+import { LogCoverage, LogDetailModal, LogEvents, LogFilters, LogHeader, LogTabs, RequestIps } from './LogAnalysisShared';
 import type { LogTab } from './LogAnalysisShared';
 import { localAgentLogClient } from '../lib/api/agentLogs';
 import type {
@@ -95,6 +95,7 @@ function Events({
 }) {
   return <LogEvents rows={events.map(e => ({
     id: e.id, time: e.time, sessionId: e.sessionId, model: e.model,
+    requestIps: e.requestIps, request: ['response', 'api_error', 'http'].includes(e.kind),
     severity: e.failed || e.level === 'ERROR' ? 'error' : e.level === 'WARN' ? 'warn' : '',
     label: String(e.status ?? kinds[e.kind] ?? e.kind), summary: e.summary,
   }))} onOpen={onOpen} onSession={onSession} />;
@@ -817,6 +818,7 @@ export function AgentLogAnalysis({
           content: JSON.stringify({ evidence: detail.evidence, ...(detail.event.usage ? { tokens: detail.event.usage } : {}) }, null, 2),
           copy: JSON.stringify(detail, null, 2),
           facts: <>
+            {(['response', 'api_error', 'http'].includes(detail.event.kind) || !!detail.event.requestIps?.length) && <><dt>请求 IP</dt><dd><RequestIps ips={detail.event.requestIps} /></dd></>}
             {detail.event.model && <><dt>模型 / 服务商</dt><dd>{detail.event.model} · {detail.event.provider || '未记录'}</dd></>}
             {detail.event.status != null && <><dt>状态</dt><dd>{detail.event.status}</dd></>}
             {detail.event.durationMs != null && <><dt>耗时</dt><dd>{num(detail.event.durationMs)} ms</dd></>}
@@ -824,6 +826,7 @@ export function AgentLogAnalysis({
             {detail.event.sessionId && <><dt>会话</dt><dd><button className="x-link ca-mono" onClick={() => { closeEvidence(); openSession(detail.event.sessionId!); }}>{detail.event.sessionId}</button></dd></>}
           </>,
           metadata: <>
+            {!!detail.event.requestIps?.length && <><dt>IP 记录依据</dt><dd>{detail.event.requestIps.map((ip, i) => <code key={i}>{ip.ip}{ip.port ? ` · 端口 ${ip.port}` : ''} · {ip.source}</code>)}</dd></>}
             <dt>来源</dt><dd><code>{detail.event.location.path}</code><code>{detail.event.location.position}</code></dd>
             {detail.event.mirrors.length > 0 && <><dt>合并的记录位置</dt><dd>{detail.event.mirrors.map((m, i) => <code key={i}>{m.path} · {m.position}</code>)}</dd></>}
             <dt>模块</dt><dd>{detail.event.target || '未记录'}</dd>

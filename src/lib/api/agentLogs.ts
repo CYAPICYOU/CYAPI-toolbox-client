@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { nativeAvailable } from './native';
+import type { RequestIp } from './requestNetwork';
 
 export type LogWorkspace = 'claude' | 'opencode';
 export interface LogTokens {
@@ -55,6 +56,7 @@ export interface AgentLogEvent {
   failed: boolean;
   status?: number;
   requestId?: string;
+  requestIps?: RequestIp[];
   durationMs?: number;
   usage?: LogTokens;
   location: LogLocation;

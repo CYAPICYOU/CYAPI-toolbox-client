@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { nativeAvailable } from './native';
+import type { RequestIp } from './requestNetwork';
 
 export interface CodexLogSource {
   path: string;
@@ -39,6 +40,7 @@ export interface CodexLogSources {
   codexHome: string;
 }
 export interface CodexHttpInfo {
+  requestIps?: RequestIp[];
   method: string;
   url: string;
   scheme: string;

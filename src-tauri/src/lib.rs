@@ -21,6 +21,7 @@ mod external_tools;
 mod installed;
 mod integrations;
 mod logging;
+mod request_network;
 mod mcp;
 mod model_list;
 mod model_selection;

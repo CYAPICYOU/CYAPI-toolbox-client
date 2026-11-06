@@ -242,6 +242,7 @@ pub(super) fn line(
             let category = error_category(status, &format!("{} {}", v["error"], text(v, "error")));
             b.add(format!("{id}:api:{uuid}"),Event {
                 kind:"api_error".into(),level:"ERROR".into(),failed:true,status,category:category.into(),
+                request_ips:crate::request_network::from_value(v),
                 summary:format!("API 错误 · {}",advice(category).0),
                 evidence:json!({"recordType":typ,"synthetic":true,"messageId":msg,"status":status,"errorCategory":category}),..base
             });
@@ -251,6 +252,7 @@ pub(super) fn line(
         let request_id = nonempty(text(v, "requestId"));
         b.add(format!("{id}:response:{msg}"),Event {
             kind:"response".into(),message_id:Some(msg.into()),model:short(model),usage,
+            request_ips:crate::request_network::from_value(v),
             request_id:request_id.clone(),summary:format!("模型响应 · {} · {}",if model.is_empty(){"未记录模型"}else{model},if text(m,"stop_reason").is_empty(){"未记录结束原因"}else{text(m,"stop_reason")}),
             evidence:json!({"recordType":typ,"messageId":msg,"model":model,"requestId":request_id,"stopReason":m["stop_reason"]}),..base.clone()
         });
@@ -319,6 +321,7 @@ pub(super) fn line(
             let error_type = runtime::error_type(&v["error"]);
             b.add(format!("{id}:api:{uuid}"),Event {
                 kind:"api_error".into(),failed:true,level:"ERROR".into(),status,category:category.into(),request_id:nonempty(text(&v["error"],"request_id")),
+                request_ips:crate::request_network::from_value(v),
                 summary:format!("API 错误 · {}{}",advice(category).0,status.map(|s|format!(" · HTTP {s}")).unwrap_or_default()),
                 evidence:json!({"recordType":typ,"subtype":subtype,"errorType":error_type,"status":status,"retryAttempt":retry,"retryInMs":v["retryInMs"].as_u64(),"maxRetries":v["maxRetries"].as_u64()}),..base.clone()
             });

@@ -160,6 +160,7 @@ struct Event {
     failed: bool,
     status: Option<u16>,
     request_id: Option<String>,
+    request_ips: Vec<crate::request_network::RequestIp>,
     duration_ms: Option<u64>,
     usage: Option<Tokens>,
     location: Location,
@@ -496,6 +497,8 @@ impl Builder {
         }
         event.id = digest(&format!("{}:{key}", self.snapshot.workspace));
         if let Some(old) = self.events.get_mut(&key) {
+            crate::request_network::merge(&mut event.request_ips, &old.request_ips);
+            crate::request_network::merge(&mut old.request_ips, &event.request_ips);
             self.snapshot.mirrored += 1;
             let mut mirrors = old.mirrors.clone();
             if old.location != event.location {
@@ -535,6 +538,7 @@ impl Builder {
     }
     fn finish(mut self) -> Snapshot {
         let mut events: Vec<_> = self.events.into_values().collect();
+        associate_request_ips(&mut events);
         events.sort_by(newest);
         if events.len() > MAX_EVENTS {
             self.snapshot.partial = true;
@@ -750,6 +754,28 @@ struct Query {
     level: Option<String>,
     failed: Option<bool>,
 }
+// Associate only an explicit request ID within the same explicit session.
+// Session-wide or time-neighbour guesses would assign the wrong IP on retries.
+fn associate_request_ips(events: &mut [Event]) {
+    let mut peers: HashMap<(String, String), Vec<crate::request_network::RequestIp>> = HashMap::new();
+    for e in events.iter() {
+        if let (Some(session), Some(request)) = (&e.session_id, &e.request_id) {
+            if !session.is_empty() && !request.is_empty() && !e.request_ips.is_empty() {
+                crate::request_network::merge(peers.entry((session.clone(), request.clone())).or_default(), &e.request_ips);
+            }
+        }
+    }
+    for e in events {
+        if e.request_ips.is_empty() && matches!(e.kind.as_str(), "response" | "api_error" | "http") {
+            if let (Some(session), Some(request)) = (&e.session_id, &e.request_id) {
+                if let Some(ips) = peers.get(&(session.clone(), request.clone())) {
+                    e.request_ips = ips.iter().cloned().map(|mut ip| { ip.source = format!("同会话 request-id={request} 关联 · {}", ip.source); ip }).collect();
+                }
+            }
+        }
+    }
+}
+
 static CACHE: OnceLock<Mutex<VecDeque<Arc<Snapshot>>>> = OnceLock::new();
 fn matches(e: &Event, q: &Query) -> bool {
     if q.session_id
@@ -768,7 +794,7 @@ fn matches(e: &Event, q: &Query) -> bool {
     }
     !q.search.as_ref().is_some_and(|s| {
         !format!(
-            "{} {} {} {} {} {} {} {}",
+            "{} {} {} {} {} {} {} {} {}",
             e.summary,
             e.target,
             e.session_id.as_deref().unwrap_or(""),
@@ -776,7 +802,8 @@ fn matches(e: &Event, q: &Query) -> bool {
             e.request_id.as_deref().unwrap_or(""),
             e.model,
             e.provider,
-            e.evidence
+            e.evidence,
+            e.request_ips.iter().map(|ip| ip.ip.as_str()).collect::<Vec<_>>().join(" ")
         )
         .to_lowercase()
         .contains(&s.trim().to_lowercase())

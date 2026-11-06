@@ -402,6 +402,8 @@ fn message(
         let completed = at(&v["time"]["completed"]) > 0;
         b.add(format!("{sid}:{kind}:{id}"), Event {
             kind: if kind == "assistant" { "response" } else { "compaction" }.into(),
+            request_ips: crate::request_network::from_value(v),
+            request_id: crate::request_network::request_id(v),
             summary: format!("{} · {}", if kind == "compaction" { "上下文压缩" } else { "模型响应" }, if failed { advice(category).0 } else if completed || text(v, "status") == "completed" { "已记录完成" } else { "未记录完成状态" }),
             failed, level: if failed { "ERROR" } else { "INFO" }.into(), status, category: category.into(), usage: tokens(&v["tokens"]), duration_ms: elapsed(&v["time"]),
             evidence: json!({"recordType":kind,"messageId":id,"completed":completed,"finish":finish,"status":status,"errorType":error_type,"compactionStatus":if kind == "compaction" { Some(short(text(v,"status"))) } else { None }}), ..base.clone()

@@ -388,6 +388,7 @@ fn event(
         failed,
         status,
         request_id: (!request.is_empty()).then_some(request.clone()),
+        request_ips: crate::request_network::from_fields(f.iter().map(|(k, v)| (k.as_str(), v.as_str()))),
         duration_ms: duration,
         location: locate(src, path, format!("字节偏移 {offset}")),
         sequence: offset,

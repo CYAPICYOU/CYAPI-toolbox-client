@@ -64,6 +64,7 @@ pub struct ConfigInfo {
 #[derive(Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct HttpInfo {
+    pub request_ips: Vec<crate::request_network::RequestIp>,
     pub method: String,
     pub url: String,
     pub scheme: String,
@@ -635,6 +636,7 @@ fn parse_http(message: &str) -> Option<HttpInfo> {
         ..Default::default()
     };
     let mut head = rest;
+    let mut trailing = "";
     if let Some((json, after)) = take_json_object(rest) {
         head = rest[..rest.find(json).unwrap_or(0)].trim_end();
         if let Ok(serde_json::Value::Object(headers)) =
@@ -651,7 +653,7 @@ fn parse_http(message: &str) -> Option<HttpInfo> {
             info.server = get("server");
             info.content_type = get("content-type");
         }
-        let _ = after;
+        trailing = after.split(" body=").next().unwrap_or("");
     }
     if let Some(url) = first_capture(&patterns().url, head) {
         info.url = url;
@@ -679,6 +681,11 @@ fn parse_http(message: &str) -> Option<HttpInfo> {
         if let Ok(parsed) = reqwest::Url::parse(&info.url) {
             info.path = parsed.path().to_string();
         }
+    }
+    info.request_ips = crate::request_network::from_logfmt(head.split(" body=").next().unwrap_or(""));
+    crate::request_network::merge(&mut info.request_ips, &crate::request_network::from_logfmt(trailing));
+    if let Some(ip) = crate::request_network::target_url(&info.url) {
+        info.request_ips.push(ip);
     }
     // "completed" means an HTTP response arrived, including 401/429/5xx.
     info.ok = ok
