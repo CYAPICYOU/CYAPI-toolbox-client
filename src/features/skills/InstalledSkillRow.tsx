@@ -3,7 +3,14 @@ import { canManageInstallation, canRemoveInstallation } from '../../lib/installa
 import type { NativeRecord } from '../../lib/api/native';
 import type { InstalledSkill } from './collections';
 
-const targetLabels = { codex: 'Codex', claude: 'Claude Code', opencode: 'OpenCode' };
+const targetLabels = {
+  codex: 'Codex',
+  claude: 'Claude Code',
+  opencode: 'OpenCode',
+  dsh: 'DeepSeek Harness',
+  pi: 'Pi Coding Agent',
+  workbuddy: 'WorkBuddy',
+};
 const sourceLabels = { codex: 'Codex 自带', system: '系统环境', managed: '工具箱共享' };
 
 export function InstalledSkillRow({

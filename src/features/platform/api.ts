@@ -327,12 +327,15 @@ export interface WorkflowTaskOutput {
   url: string;
   download: string;
   bytes?: number;
+  storageType?: string;
+  role?: 'preview' | 'file' | 'temporary';
 }
 
 export interface WorkflowTask {
   id: string;
   draftId: string;
   name: string;
+  source?: 'editor';
   description: string;
   status: WorkflowTaskStatus;
   message?: string;

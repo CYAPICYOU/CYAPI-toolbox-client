@@ -2174,6 +2174,10 @@ code {
 .n-workspace-dot.opencode {
   background: var(--agent-opencode);
 }
+.n-workspace-dot.dsh { background: var(--agent-dsh); }
+.n-workspace-dot.workbuddy { background: var(--agent-workbuddy); }
+.n-workspace-dot.pi { background: var(--agent-pi); }
+.n-workspace-dot.minimax { background: var(--agent-minimax); }
 .n-workspace-menu {
   position: absolute;
   z-index: 30;
@@ -2276,12 +2280,6 @@ code {
   font-size: 10px;
   color: var(--workspace-sidebar-faint);
 }
-.n-creation-note {
-  margin: 20px 12px 0;
-  font-size: 11px;
-  line-height: 1.9;
-  color: var(--workspace-sidebar-faint);
-}
 .n-workflow-mode {
   font-size: 11px;
   color: var(--muted);
@@ -2329,7 +2327,6 @@ code {
   }
   .n-workbenches > button > span,
   .n-nav-label,
-  .n-creation-note,
   .n-workflow-mode {
     display: none;
   }

@@ -160,7 +160,7 @@ export interface NativeRecord {
   title: string;
   version: string;
   revision: string;
-  target: 'codex' | 'claude' | 'opencode';
+  target: 'codex' | 'claude' | 'opencode' | 'dsh' | 'pi' | 'workbuddy';
   scope: 'global' | 'project';
   path: string;
   installedAt: number;
@@ -516,6 +516,8 @@ const quietActions = [
   'codex-i18n-status',
   'claude-read',
   'opencode-read',
+  'desktop-model-read',
+  'pi-mcp-read',
   'models-list',
   'configuration-read',
   'mcp-view',

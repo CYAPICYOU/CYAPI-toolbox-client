@@ -140,6 +140,20 @@ test('workspace accents follow system appearance without overriding explicit lig
   assert.doesNotMatch(css, /--t-|--surface-muted|--line:/);
 });
 
+test('model-only tools have distinct identities and control the active theme', () => {
+  const tools = ['dsh', 'workbuddy', 'pi', 'minimax'];
+  const marks = tools.map((tool) => workspaceVariables(tool, 'light').mark);
+  assert.equal(new Set(marks).size, tools.length);
+  const css = read('native.css');
+  for (const tool of tools) {
+    assert.ok(css.includes(`.n-workspace-dot.${tool}`));
+    assert.ok(css.includes(`var(--agent-${tool})`));
+  }
+  const app = read('App.tsx');
+  assert.match(app, /dataset\.workspace = desktopTool \?\? workspace/);
+  assert.match(app, /\[workbench, workspace, desktopTool\]/);
+});
+
 test('the native window background follows the page surface', () => {
   const palette = collectPalette();
   const surface = palette.get('f7f8f6');

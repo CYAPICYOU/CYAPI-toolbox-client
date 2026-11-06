@@ -13,8 +13,8 @@ export function Workflows({
   onEditorLaunchChange,
 }: {
   visible: boolean;
-  view: 'library' | 'drafts' | 'queue' | 'results' | 'nodes';
-  onViewChange: (view: 'library' | 'drafts' | 'queue' | 'results' | 'nodes') => void;
+  view: 'library' | 'drafts' | 'queue' | 'results';
+  onViewChange: (view: 'library' | 'drafts' | 'queue' | 'results') => void;
   onEditorLaunchChange: (notice: EditorLaunchNoticeState | null) => void;
 }) {
   return (

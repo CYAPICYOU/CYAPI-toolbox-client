@@ -115,6 +115,56 @@ export const WORKSPACE_PALETTES = {
   },
 };
 
+// Additional model-only tools keep the same readable navigation structure,
+// while having their own identity in both the selector and selected workspace.
+const additionalPalettes = {
+  dsh: {
+    accent: '#2457a1', solid: '#285da8', hover: '#204a88', tint: '#eaf1fb',
+    'tint-ink': '#3e618e', 'tint-border': '#8daacb', focus: '#7099ca',
+    sidebar: '#263c59', 'sidebar-hover': '#304966', 'sidebar-active': '#385775',
+    'sidebar-control': '#2d4663', 'sidebar-control-hover': '#395573', mark: '#8cbcff',
+    darkAccent: '#91bdf6', darkTint: '#26354b', darkTintInk: '#b8d1f2',
+  },
+  workbuddy: {
+    accent: '#316a4b', solid: '#326f4e', hover: '#28583e', tint: '#eaf5ed',
+    'tint-ink': '#416c50', 'tint-border': '#93bea0', focus: '#72aa83',
+    sidebar: '#29483b', 'sidebar-hover': '#345749', 'sidebar-active': '#3d6553',
+    'sidebar-control': '#315343', 'sidebar-control-hover': '#3d6551', mark: '#a6e6b6',
+    darkAccent: '#91d8aa', darkTint: '#263a2e', darkTintInk: '#b5dcc1',
+  },
+  pi: {
+    accent: '#6c4a92', solid: '#70509a', hover: '#593e7d', tint: '#f1edf8',
+    'tint-ink': '#6e5789', 'tint-border': '#af9bc8', focus: '#a489c0',
+    sidebar: '#3b304c', 'sidebar-hover': '#493b5c', 'sidebar-active': '#59476d',
+    'sidebar-control': '#453856', 'sidebar-control-hover': '#554466', mark: '#cfb3f3',
+    darkAccent: '#c5a9e8', darkTint: '#352c40', darkTintInk: '#d3c0e9',
+  },
+  minimax: {
+    accent: '#a03d48', solid: '#a3434d', hover: '#83323c', tint: '#faeeee',
+    'tint-ink': '#93545b', 'tint-border': '#ca9b9e', focus: '#bf858a',
+    sidebar: '#4b3035', 'sidebar-hover': '#5b3a40', 'sidebar-active': '#6b454b',
+    'sidebar-control': '#57383d', 'sidebar-control-hover': '#684349', mark: '#ffadb1',
+    darkAccent: '#f0a3a8', darkTint: '#402c30', darkTintInk: '#e8b9bc',
+  },
+};
+for (const [name, p] of Object.entries(additionalPalettes)) {
+  WORKSPACE_PALETTES[name] = {
+    light: {
+      ...WORKSPACE_PALETTES.opencode.light,
+      accent: p.accent, solid: p.solid, hover: p.hover, tint: p.tint,
+      'tint-ink': p['tint-ink'], 'tint-border': p['tint-border'], focus: p.focus,
+      sidebar: p.sidebar, 'sidebar-hover': p['sidebar-hover'], 'sidebar-active': p['sidebar-active'],
+      'sidebar-control': p['sidebar-control'], 'sidebar-control-hover': p['sidebar-control-hover'],
+      'sidebar-ink': '#e5e9ee', 'sidebar-muted': '#d4dbe3', 'sidebar-faint': '#c2cbd5',
+      mark: p.mark, 'mark-ink': '#20252b',
+    },
+    dark: {
+      accent: p.darkAccent, solid: p.solid, hover: p.hover, tint: p.darkTint,
+      'tint-ink': p.darkTintInk, 'tint-border': p['tint-border'], focus: p.focus,
+    },
+  };
+}
+
 export function workspaceVariables(workspace, appearance) {
   const palette = WORKSPACE_PALETTES[workspace];
   return appearance === 'dark' ? { ...palette.light, ...palette.dark } : palette.light;

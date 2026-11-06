@@ -169,6 +169,9 @@ export function CollectionDialog({
                   <option value="codex">Codex</option>
                   <option value="claude">Claude Code</option>
                   <option value="opencode">OpenCode</option>
+                  <option value="dsh">DeepSeek Harness</option>
+                  <option value="pi">Pi Coding Agent</option>
+                  <option value="workbuddy">WorkBuddy</option>
                 </select>
               </label>
               <label className="n-field-label">

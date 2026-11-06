@@ -153,6 +153,7 @@ pub struct Request {
     pub codex: Option<crate::codex_config::Input>,
     pub claude: Option<crate::claude_config::Input>,
     pub opencode: Option<crate::opencode_config::Input>,
+    pub desktop_model: Option<crate::desktop_model_config::Input>,
     pub configuration_revision: Option<String>,
     pub integration_id: Option<String>,
     pub workspace: Option<String>,

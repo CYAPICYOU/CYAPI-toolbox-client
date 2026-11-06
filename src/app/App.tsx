@@ -21,7 +21,6 @@ import {
   LoaderCircle,
   Package,
   Plug,
-  Puzzle,
   RefreshCw,
   Search,
   Server,
@@ -42,6 +41,8 @@ import { CodexSettings } from './CodexSettings';
 import { CodexLocalize } from './CodexLocalize';
 import { ClaudeSettings } from './ClaudeSettings';
 import { OpenCodeSettings } from './OpenCodeSettings';
+import { DesktopModelSettings } from './DesktopModelSettings';
+import { PiMcpManager } from './PiMcpManager';
 import { CodexDiagnostics } from './CodexDiagnostics';
 import { ClaudeLogs } from './ClaudeLogs';
 import { OpenCodeLogs } from './OpenCodeLogs';
@@ -110,11 +111,18 @@ const agents = [
   { id: 'codex', name: 'Codex', hint: 'OpenAI' },
   { id: 'claude', name: 'Claude Code', hint: 'Anthropic' },
   { id: 'opencode', name: 'OpenCode', hint: '开源' },
+  { id: 'dsh', name: 'DeepSeek Harness', hint: '官方桌面版 · 模型接入' },
+  { id: 'workbuddy', name: 'WorkBuddy', hint: '腾讯桌面版 · 模型接入' },
+  { id: 'pi', name: 'Pi Coding Agent', hint: '官方 CLI · 模型接入' },
+  { id: 'minimax', name: 'MiniMax Code', hint: '官方桌面版 · 模型接入' },
 ] as const;
 const targetLabels = {
   codex: 'Codex',
   claude: 'Claude Code',
   opencode: 'OpenCode',
+  dsh: 'DeepSeek Harness',
+  pi: 'Pi Coding Agent',
+  workbuddy: 'WorkBuddy',
 } as const;
 const workspaceFromStorage = (): Workspace => {
   const saved = localStorage.getItem('cyapi.workspace');
@@ -175,16 +183,17 @@ export default function App() {
   const [workbench, setWorkbench] = useState<Workbench>(savedNavigation?.workbench || 'tools');
   const [toolPage, setToolPage] = useState<ToolPage>(savedNavigation?.toolPage || 'codex');
   const [creationOpened, setCreationOpened] = useState(savedNavigation?.workbench === 'create');
-  const [creationView, setCreationView] = useState<'library' | 'drafts' | 'queue' | 'results' | 'nodes'>('library');
+  const [creationView, setCreationView] = useState<'library' | 'drafts' | 'queue' | 'results'>('library');
   const [page, setPage] = useState<Page>(workbench === 'create' ? 'workflows' : toolPage);
   function switchWorkbench(next: Workbench) {
     setWorkspaceOpen(false);
     setWorkbench(next);
     if (next === 'create') setCreationOpened(true);
-    setPage(next === 'create' ? 'workflows' : toolPage);
+    setPage(next === 'create' ? 'workflows' : desktopTool ? 'codex' : toolPage);
   }
   const [mcpFocus, setMcpFocus] = useState<{ query: string; tab: 'catalog' | 'installed' }>();
   const [workspace, setWorkspace] = useState<Workspace>(workspaceFromStorage);
+  const [desktopTool, setDesktopTool] = useState<'dsh' | 'workbuddy' | 'pi' | 'minimax' | null>(null);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const workspaceMenu = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<NativeStatus>();
@@ -202,7 +211,7 @@ export default function App() {
     location: CollectionLocation;
     installedEntries?: InstalledSkill[];
   }>();
-  const [target, setTarget] = useState<'codex' | 'claude' | 'opencode'>('codex');
+  const [target, setTarget] = useState<NativeRecord['target']>('codex');
   const [scope, setScope] = useState<'global' | 'project'>('global');
   const [projectPath, setProjectPath] = useState('');
   const [plan, setPlan] = useState<NativePlan>();
@@ -231,7 +240,8 @@ export default function App() {
     onBusy: setBusy,
     onStatus: (next, target, installedEntries) => {
       setStatus(next);
-      setWorkspace(target);
+      if (target === 'dsh' || target === 'pi' || target === 'workbuddy') setDesktopTool(target);
+      else { setDesktopTool(null); setWorkspace(target); }
       setSelectedCollection((current) => (current ? { ...current, installedEntries } : current));
     },
     installedEntriesFor: (next, collectionId, target, scope, skillPath) => {
@@ -270,7 +280,6 @@ export default function App() {
     main.current?.scrollTo({ top: 0 });
   }, [page, workspace]);
   useEffect(() => {
-    document.documentElement.dataset.workspace = workspace;
     localStorage.setItem('cyapi.workspace', workspace);
     setTarget(workspace);
     // The localisation page belongs to Codex only.
@@ -281,8 +290,8 @@ export default function App() {
   useEffect(() => {
     // Creation has its own neutral/green identity, never the selected Agent's colour.
     if (workbench === 'create') delete document.documentElement.dataset.workspace;
-    else document.documentElement.dataset.workspace = workspace;
-  }, [workbench, workspace]);
+    else document.documentElement.dataset.workspace = desktopTool ?? workspace;
+  }, [workbench, workspace, desktopTool]);
   useEffect(() => {
     if (isToolPage(page)) setToolPage(page);
   }, [page]);
@@ -421,7 +430,8 @@ export default function App() {
         projectPath,
       });
       setCompleted(record);
-      setWorkspace(record.target);
+      if (record.target === 'dsh' || record.target === 'pi' || record.target === 'workbuddy') setDesktopTool(record.target);
+      else { setDesktopTool(null); setWorkspace(record.target); }
       setStatus(await nativeCall<NativeStatus>('status'));
     } catch (e) {
       setNotice({ text: errorText(e), error: true });
@@ -435,7 +445,7 @@ export default function App() {
     try {
       const record = await nativeCall<NativeRecord>('update-skill', {
         skillId,
-        target: workspace,
+        target: desktopTool === 'dsh' || desktopTool === 'pi' || desktopTool === 'workbuddy' ? desktopTool : workspace,
         scope: 'global',
         projectPath: '',
       });
@@ -483,7 +493,7 @@ export default function App() {
   }
   function select(skill: ServerSkill) {
     setCompleted(undefined);
-    setTarget(workspace);
+    setTarget(desktopTool === 'dsh' || desktopTool === 'pi' || desktopTool === 'workbuddy' ? desktopTool : workspace);
     setSelected(skill);
     setNotice(undefined);
   }
@@ -528,8 +538,9 @@ export default function App() {
       setUpdateError(errorText(e));
     }
   }
+  const skillWorkspace = desktopTool === 'dsh' || desktopTool === 'pi' || desktopTool === 'workbuddy' ? desktopTool : workspace;
   const workspaceInstalled = (status?.installed ?? []).filter((entry) =>
-    visibleInWorkspace(entry, workspace),
+    visibleInWorkspace(entry, skillWorkspace),
   );
   const workspacePaths = new Set(
     workspaceInstalled.map(({ record }) => normalizePath(record.path)),
@@ -548,7 +559,7 @@ export default function App() {
   const manageCollection = (
     collection: SkillCollection,
     location: CollectionLocation = {
-      target: workspace,
+      target: skillWorkspace,
       scope: 'global',
       projectPath: '',
     },
@@ -561,7 +572,7 @@ export default function App() {
     <InstalledSkillRow
       key={entry.record.id}
       entry={entry}
-      workspace={workspace}
+      workspace={skillWorkspace}
       busy={!!busy}
       configurable={Boolean(
         entry.record.configuration ||
@@ -666,9 +677,13 @@ export default function App() {
       </section>
     );
 
-  const agent = agents.find((item) => item.id === workspace) ?? agents[0];
+  const agent = agents.find((item) => item.id === (desktopTool ?? workspace)) ?? agents[0];
   // The localisation controls only exist for Codex Desktop.
-  const toolsNav: { id: ToolPage; icon: LucideIcon; label: string }[] = [
+  const toolsNav: { id: ToolPage; icon: LucideIcon; label: string }[] = desktopTool ? [
+    { id: 'codex', icon: SquareTerminal, label: '模型接入' },
+    ...(desktopTool === 'dsh' || desktopTool === 'pi' || desktopTool === 'workbuddy' ? [{ id: 'catalog' as const, icon: Grid2X2, label: 'Skill 管理' }] : []),
+    ...(desktopTool === 'pi' ? [{ id: 'mcp' as const, icon: Server, label: 'MCP 管理' }] : []),
+  ] : [
     { id: 'codex', icon: SquareTerminal, label: '模型接入' },
     ...(workspace === 'codex'
       ? [{ id: 'localize' as const, icon: Languages, label: '本地化' }]
@@ -733,7 +748,7 @@ export default function App() {
               aria-expanded={workspaceOpen}
               onClick={() => setWorkspaceOpen(!workspaceOpen)}
             >
-              <span className={`n-workspace-dot ${workspace}`} />
+              <span className={`n-workspace-dot ${desktopTool ?? workspace}`} />
               <span>{agent.name}</span>
               <ChevronDown size={14} className={workspaceOpen ? 'open' : ''} />
             </button>
@@ -743,10 +758,16 @@ export default function App() {
                   <button
                     key={item.id}
                     role="option"
-                    aria-selected={workspace === item.id}
-                    className={workspace === item.id ? 'active' : ''}
+                    aria-selected={(desktopTool ?? workspace) === item.id}
+                    className={(desktopTool ?? workspace) === item.id ? 'active' : ''}
                     onClick={() => {
-                      setWorkspace(item.id);
+                      if (item.id === 'dsh' || item.id === 'workbuddy' || item.id === 'pi' || item.id === 'minimax') {
+                        setDesktopTool(item.id);
+                        setPage('codex');
+                      } else {
+                        setDesktopTool(null);
+                        setWorkspace(item.id);
+                      }
                       setWorkspaceOpen(false);
                     }}
                   >
@@ -755,7 +776,7 @@ export default function App() {
                       <strong>{item.name}</strong>
                       <small>{item.hint}</small>
                     </span>
-                    {workspace === item.id && <Check size={14} />}
+                    {(desktopTool ?? workspace) === item.id && <Check size={14} />}
                   </button>
                 ))}
               </div>
@@ -787,12 +808,6 @@ export default function App() {
                   <Icon size={18} /><span>{label}</span>
                 </button>
               ))}
-              <button className={page === 'workflows' && creationView === 'nodes' ? 'active' : ''} aria-current={page === 'workflows' && creationView === 'nodes' ? 'page' : undefined} onClick={() => { setPage('workflows'); setCreationView('nodes'); }}>
-                <Puzzle size={18} /><span>节点管理</span>
-              </button>
-              <p className="n-creation-note">
-                找到适合你的工作流
-              </p>
             </>
           ) : (
             toolsNav.map(({ id, icon: Icon, label }) => {
@@ -927,7 +942,9 @@ export default function App() {
             )}
 
             {page === 'codex' &&
-              (workspace === 'claude' ? (
+              (desktopTool ? (
+                <DesktopModelSettings key={desktopTool} tool={desktopTool} />
+              ) : workspace === 'claude' ? (
                 <ClaudeSettings />
               ) : workspace === 'opencode' ? (
                 <OpenCodeSettings />
@@ -948,7 +965,7 @@ export default function App() {
               ) : (
                 <CodexDiagnostics />
               ))}
-            {page === 'mcp' && <McpManager workspace={workspace} focus={mcpFocus} />}
+            {page === 'mcp' && (desktopTool === 'pi' ? <PiMcpManager /> : <McpManager workspace={workspace} focus={mcpFocus} />)}
             {page === 'integrations' && (
               <Integrations
                 workspace={workspace}
@@ -1045,7 +1062,7 @@ export default function App() {
                           );
                           manageCollection(
                             item.collection,
-                            { target: workspace, scope: 'global', projectPath: '' },
+                            { target: skillWorkspace, scope: 'global', projectPath: '' },
                             existing?.kind === 'collection' ? existing.entries : undefined,
                           );
                         }}
@@ -1131,13 +1148,13 @@ export default function App() {
                             <span>
                               已安装 {item.entries.filter((entry) => entry.exists).length} 个模块
                             </span>
-                            {item.entries[0].record.target !== workspace && (
+                            {item.entries[0].record.target !== skillWorkspace && (
                               <span>在原工作区管理</span>
                             )}
                           </>
                         }
                         onManage={
-                          item.entries[0].record.target === workspace
+                          item.entries[0].record.target === skillWorkspace
                             ? () =>
                                 manageCollection(
                                   item.collection,
@@ -1147,7 +1164,7 @@ export default function App() {
                                     projectPath:
                                       item.entries[0].record.scope === 'project'
                                         ? item.root.replace(
-                                            /\/\.(agents|claude|opencode)\/skills$/i,
+                                            /\/\.(agents|claude|opencode|dsh|pi|workbuddy)\/skills$/i,
                                             '',
                                           )
                                         : '',
@@ -1165,9 +1182,9 @@ export default function App() {
                 {!workspaceInstalled.length && (
                   <div className="n-empty">
                     <Package size={28} />
-                    <h2>{targetLabels[workspace]} 暂无安装记录</h2>
+                    <h2>{targetLabels[skillWorkspace]} 暂无安装记录</h2>
                     <p className="n-config-note">
-                      当前工作区显示 {targetLabels[workspace]} 可读取的 Skill。
+                      当前工作区显示 {targetLabels[skillWorkspace]} 可读取的 Skill。
                     </p>
                     <button className="n-button n-primary" onClick={() => setPage('catalog')}>
                       去安装 Skill <ArrowRight size={15} />
@@ -1306,7 +1323,8 @@ export default function App() {
                   className="n-button n-primary"
                   onClick={() => {
                     setSelected(undefined);
-                    setWorkspace(completed.target);
+                    if (completed.target === 'dsh' || completed.target === 'pi' || completed.target === 'workbuddy') setDesktopTool(completed.target);
+                    else { setDesktopTool(null); setWorkspace(completed.target); }
                     setPage('installed');
                     setConfiguration({ title: completed.title, recordId: completed.id });
                   }}
@@ -1320,7 +1338,8 @@ export default function App() {
                 className="n-button n-primary"
                 onClick={() => {
                   setSelected(undefined);
-                  setWorkspace(completed.target);
+                  if (completed.target === 'dsh' || completed.target === 'pi' || completed.target === 'workbuddy') setDesktopTool(completed.target);
+                  else { setDesktopTool(null); setWorkspace(completed.target); }
                   setPage('installed');
                 }}
               >
@@ -1359,6 +1378,9 @@ export default function App() {
                       <option value="codex">Codex</option>
                       <option value="claude">Claude Code</option>
                       <option value="opencode">OpenCode</option>
+                      <option value="dsh">DeepSeek Harness</option>
+                      <option value="pi">Pi Coding Agent</option>
+                      <option value="workbuddy">WorkBuddy</option>
                     </select>
                   </div>
                   <div>
@@ -1549,9 +1571,6 @@ export default function App() {
               </p>
               <p>
                 工作流使用独立的 CYAPI API Key，不读取或改变工具接入中的 Key。
-              </p>
-              <p>
-                第三方扩展可在侧栏的节点管理中添加，请仅安装可信来源。
               </p>
               <h3>工具接入</h3>
               <p>

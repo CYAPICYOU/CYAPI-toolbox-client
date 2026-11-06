@@ -27,7 +27,7 @@ uuid = { version = "1", features = ["v4"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rcgen = { version = "0.13", features = ["x509-parser"] }
-windows-sys = { version = "0.61", features = ["Win32_Networking_WinInet", "Win32_Foundation"] }
+windows-sys = { version = "0.61", features = ["Win32_Networking_WinInet", "Win32_Foundation", "Win32_UI_Controls_Dialogs"] }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 jsonc-parser = { version = "0.34.0", features = ["cst", "serde"] }
 chrono = { version = "0.4", default-features = false, features = ["std"] }

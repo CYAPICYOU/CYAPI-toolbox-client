@@ -12,6 +12,10 @@ mod configuration;
 mod cyapi_balance;
 mod cyapi_routes;
 mod diagnostics;
+mod desktop_model_config;
+mod pi_model_config;
+mod minimax_model_config;
+mod pi_mcp_config;
 mod external_tools;
 mod installed;
 mod integrations;
@@ -143,6 +147,50 @@ async fn cyapi_download(
     tauri::async_runtime::spawn_blocking(move || network::download(&server_url, request))
         .await
         .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn save_workflow_artifact(window: tauri::WebviewWindow, filename: String, base64: String) -> Result<bool, String> {
+    use base64::Engine;
+    #[cfg(target_os = "windows")]
+    let owner = window.hwnd().map_err(|_| "无法获取主窗口")?.0 as isize;
+    #[cfg(not(target_os = "windows"))]
+    let owner = { let _ = window; 0isize };
+    if base64.len() > 45 * 1024 * 1024 { return Err("产物超过保存大小限制".into()); }
+    let filename = std::path::Path::new(&filename).file_name().and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty()).unwrap_or("workflow-result").to_owned();
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = base64::engine::general_purpose::STANDARD.decode(base64).map_err(|_| "产物数据无效")?;
+        let Some(path) = artifact_save_dialog(&filename, owner)? else { return Ok(false); };
+        std::fs::write(path, bytes).map_err(|e| format!("保存失败：{e}"))?;
+        Ok(true)
+    }).await.map_err(|e| format!("保存操作失败：{e}"))?
+}
+
+#[cfg(target_os = "windows")]
+fn artifact_save_dialog(filename: &str, owner: isize) -> Result<Option<std::path::PathBuf>, String> {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use windows_sys::Win32::UI::Controls::Dialogs::{CommDlgExtendedError, GetSaveFileNameW, OPENFILENAMEW, OFN_EXPLORER, OFN_OVERWRITEPROMPT, OFN_PATHMUSTEXIST};
+    let mut buffer = vec![0u16; 32768];
+    let name: Vec<u16> = std::ffi::OsStr::new(filename).encode_wide().take(buffer.len() - 1).collect();
+    buffer[..name.len()].copy_from_slice(&name);
+    let mut dialog = OPENFILENAMEW::default();
+    dialog.lStructSize = std::mem::size_of::<OPENFILENAMEW>() as u32;
+    dialog.hwndOwner = owner as _;
+    dialog.lpstrFile = buffer.as_mut_ptr();
+    dialog.nMaxFile = buffer.len() as u32;
+    dialog.Flags = OFN_EXPLORER | OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+    if unsafe { GetSaveFileNameW(&mut dialog) } == 0 {
+        let code = unsafe { CommDlgExtendedError() };
+        return if code == 0 { Ok(None) } else { Err(format!("无法打开保存对话框（{code}）")) };
+    }
+    let end = buffer.iter().position(|c| *c == 0).unwrap_or(buffer.len());
+    Ok(Some(std::path::PathBuf::from(std::ffi::OsString::from_wide(&buffer[..end]))))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn artifact_save_dialog(_filename: &str, _owner: isize) -> Result<Option<std::path::PathBuf>, String> {
+    Err("当前系统暂不支持保存产物".into())
 }
 
 /// Open the hosted ComfyUI editor in its own WebView. The URL carries a
@@ -287,6 +335,8 @@ async fn toolbox(
             | "codex-read"
             | "claude-read"
             | "opencode-read"
+            | "desktop-model-read"
+            | "pi-mcp-read"
             | "configuration-read"
             | "models-list"
             | "update-check"
@@ -366,6 +416,9 @@ async fn toolbox(
                 logging::register_secret(&input.auth_token);
             }
             if let Some(input) = &request.opencode {
+                logging::register_secret(&input.api_key);
+            }
+            if let Some(input) = &request.desktop_model {
                 logging::register_secret(&input.api_key);
             }
             if let Some(key) = &request.api_key {
@@ -556,6 +609,7 @@ pub fn run() {
             cyapi_routes,
             cyapi_request,
             cyapi_download,
+            save_workflow_artifact,
             open_workflow_editor,
             cyapi_balance::cyapi_balance,
             usage::usage_stats,

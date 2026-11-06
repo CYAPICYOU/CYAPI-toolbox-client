@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import test from 'node:test';
+import { groupIdenticalImages, saveArtifact } from '../src/features/platform/artifactDisplay.ts';
 import {
   createEditorLauncher,
   editorLaunchPending,
@@ -26,6 +27,63 @@ import {
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const exists = (path: string) => existsSync(new URL(`../${path}`, import.meta.url));
+
+test('tool selector retains the desktop model integrations', () => {
+  const app = read('src/app/App.tsx');
+  for (const name of ['DeepSeek Harness', 'WorkBuddy', 'Pi Coding Agent', 'MiniMax Code']) assert.ok(app.includes(name));
+  assert.match(app, /<DesktopModelSettings key=\{desktopTool\} tool=\{desktopTool\}/);
+  const service = read('src-tauri/src/service.rs');
+  assert.match(service, /desktop-model-read/);
+  assert.match(service, /desktop-model-save/);
+  for (const module of ['desktop_model_config', 'pi_model_config', 'minimax_model_config']) assert.ok(service.includes(module));
+});
+
+test('identical editor images group without losing either original', () => {
+  const preview = { id: 'preview', kind: 'image', download: '/preview', storageType: 'temp', role: 'preview' as const };
+  const saved = { id: 'saved', kind: 'image', download: '/saved', storageType: 'output', role: 'file' as const };
+  const other = { id: 'other', kind: 'image', download: '/other', storageType: 'output', role: 'file' as const };
+  assert.deepEqual(groupIdenticalImages([preview, saved, other], { '/preview': 'same', '/saved': 'same', '/other': 'different' }), [[saved, preview], [other]]);
+  assert.deepEqual(groupIdenticalImages([preview], {}), [[preview]]);
+  assert.deepEqual(groupIdenticalImages([saved], {}), [[saved]]);
+  assert.deepEqual(groupIdenticalImages([preview, saved], {}), [[saved], [preview]]);
+  assert.deepEqual(groupIdenticalImages([saved, other], { '/saved': 'same', '/other': 'same' }), [[saved], [other]]);
+  const unknown = { id: 'unknown', kind: 'image', download: '/unknown' };
+  assert.deepEqual(groupIdenticalImages([preview, unknown], { '/preview': 'same', '/unknown': 'same' }), [[preview], [unknown]]);
+  const video = { id: 'video', kind: 'video', download: '/video' };
+  assert.deepEqual(groupIdenticalImages([preview, video], { '/preview': 'same', '/video': 'same' }), [[preview], [video]]);
+});
+
+test('native artifact save returns cancellation and propagates write errors', async () => {
+  const url = URL.createObjectURL(new Blob(['example']));
+  try {
+    assert.equal(await saveArtifact(url, 'example.png', true, async (name, data) => {
+      assert.equal(name, 'example.png');
+      assert.equal(atob(data), 'example');
+      return false;
+    }), false);
+    await assert.rejects(saveArtifact(url, 'example.png', true, async () => { throw new Error('disk full'); }), /disk full/);
+    assert.equal(await saveArtifact(url, 'example.png', true, async () => true), true);
+  } finally { URL.revokeObjectURL(url); }
+});
+
+test('missing result previews stay isolated from task queue and drafts', () => {
+  const page = read('src/features/platform/PlatformWorkbench.tsx');
+  assert.match(page, /view !== 'results'\) return;/);
+  assert.match(page, /artifactErrors\[id\]/);
+  assert.match(page, /setArtifactErrors\(\(current\)/);
+  assert.match(page, /\(view === 'queue' \|\| view === 'results'\) && taskError/);
+  assert.match(page, /产物无法加载/);
+  assert.match(page, /typeof error === 'string'/);
+  assert.doesNotMatch(page, /setTaskError\(errorText\(cause\)\);\s*\}\);\s*\}\s*\}\s*\}, \[tasks, view/);
+});
+
+test('task responses and visible results are scoped to the active Key', () => {
+  const page = read('src/features/platform/PlatformWorkbench.tsx');
+  assert.match(page, /taskState\.key === activeKey \? taskState\.tasks : \[\]/);
+  assert.match(page, /const generation = taskGeneration\.current/);
+  assert.match(page, /if \(taskGeneration\.current !== generation\) return;\s*setTaskState\(\{ key: activeKey, tasks: result\.tasks \}\)/);
+  assert.match(page, /if \(taskGeneration\.current === generation\) setTaskError/);
+});
 
 test('workflows ship in standard builds with no research switch', () => {
   const pkg = JSON.parse(read('package.json'));
@@ -159,6 +217,7 @@ test('desktop CSP allows the canvas origin and blob media, and nothing broader',
   }
   assert.ok(img.includes('blob:'));
   assert.ok(media.includes('blob:'));
+  assert.ok(connect.includes('blob:'));
   assert.doesNotMatch(frame, /frame-src 'none'/);
   assert.doesNotMatch(frame, /\s\*\s*;|frame-src \*/);
   assert.doesNotMatch(csp, /unsafe-eval/);
@@ -211,7 +270,8 @@ test('desktop workflow copy never claims server mode or shares tool credentials'
 test('workflow library is server-fed and uses compact cards instead of hardcoded examples', () => {
   const app = read('src/app/App.tsx');
   const page = read('src/features/platform/PlatformWorkbench.tsx');
-  assert.match(app, /节点管理/);
+  assert.doesNotMatch(app, /节点管理|第三方扩展可在侧栏/);
+  assert.doesNotMatch(page, /添加节点|第三方节点|view === 'nodes'/);
   assert.match(app, /工作流库/);
   const library = read('src/features/platform/WorkflowLibrary.tsx');
   for (const label of ['推荐工作流', '我的工作流', '搜索工作流', '查看流程', '使用模板'])
@@ -232,7 +292,7 @@ test('workflow library is server-fed and uses compact cards instead of hardcoded
     assert.ok(editor.includes(label));
 });
 
-test('hosted Key management is optional for browsing and guards node changes', () => {
+test('hosted Key management is optional for browsing and guards authenticated actions', () => {
   const page = read('src/features/platform/PlatformWorkbench.tsx');
   assert.match(page, /title="Key 管理"/);
   assert.match(page, /浏览工作流无需配置/);

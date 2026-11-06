@@ -18,15 +18,11 @@ import {
   editorToken,
   getActivation,
   getWorkflowCatalog,
-  installNode,
-  listNodes,
   listWorkflowTasks,
   openEditorWindow,
   quoteWorkflowDraft,
-  removeNode,
   runWorkflowDraft,
   saveWorkflowDraft,
-  type NodeInstall,
   type WorkflowTask,
 } from './api';
 import { addKey, loadKeys, maskKey, saveKeys, type StoredKeyState } from './keyStore';
@@ -51,16 +47,13 @@ import { WorkflowPage } from './WorkflowPage';
 import { createEditorLauncher, editorLaunchPending, type EditorLaunchState } from './editorLaunch';
 import type { EditorLaunchNoticeState } from './EditorLaunchNotice';
 import { logWorkflowLaunch } from '../../lib/api/diagnostics';
+import { invoke } from '@tauri-apps/api/core';
+import { nativeAvailable } from '../../lib/api/native';
+import { groupIdenticalImages, imagePixelHash, saveArtifact } from './artifactDisplay';
 import './platform.css';
 
 const errorText = (error: unknown) =>
-  error instanceof Error ? error.message : '操作失败，请稍后重试';
-const nodeStatus: Record<NodeInstall['status'], string> = {
-  queued: '排队中',
-  running: '安装中',
-  completed: '已安装',
-  failed: '安装失败',
-};
+  error instanceof Error ? error.message : typeof error === 'string' && error.trim() ? error : '操作失败，请稍后重试';
 const taskStatusLabel: Record<string, string> = {
   submitting: '提交中',
   queued: '排队中',
@@ -81,7 +74,6 @@ const viewContent = {
   drafts: { title: '草稿', description: '保存并继续编辑尚未提交的任务' },
   queue: { title: '任务队列', description: '查看任务的排队和运行进度' },
   results: { title: '结果', description: '查看和下载任务产物' },
-  nodes: { title: '节点管理', description: '管理你的第三方扩展节点' },
 } as const;
 
 export function PlatformWorkbench({
@@ -102,8 +94,6 @@ export function PlatformWorkbench({
   const [keyError, setKeyError] = useState('');
   const [category, setCategory] = useState('all');
   const [query, setQuery] = useState('');
-  const [repo, setRepo] = useState('');
-  const [nodes, setNodes] = useState<NodeInstall[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [connected, setConnected] = useState(false);
@@ -112,9 +102,12 @@ export function PlatformWorkbench({
   const [editor, setEditor] = useState<MockDraft | null>(null);
   const [mockError, setMockError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [tasks, setTasks] = useState<WorkflowTask[]>([]);
+  const [taskState, setTaskState] = useState<{ key: string; tasks: WorkflowTask[] }>({ key: '', tasks: [] });
   const [taskError, setTaskError] = useState('');
   const [artifacts, setArtifacts] = useState<Record<string, string>>({});
+  const [artifactErrors, setArtifactErrors] = useState<Record<string, string>>({});
+  const [imageHashes, setImageHashes] = useState<Record<string, string>>({});
+  const [saveNotice, setSaveNotice] = useState('');
   const [catalog, setCatalog] = useState<WorkflowCatalog | null>(null);
   const [catalogError, setCatalogError] = useState('');
   const [catalogLoading, setCatalogLoading] = useState(true);
@@ -136,6 +129,19 @@ export function PlatformWorkbench({
   const editorStarting = editorLaunchPending(editorLaunch);
   const importFile = useRef<HTMLInputElement>(null);
   const activeKey = keys.keys.find((entry) => entry.id === keys.activeId)?.key ?? '';
+  const tasks = taskState.key === activeKey ? taskState.tasks : [];
+  const taskGeneration = useRef(0);
+  const taskIdentity = useRef('');
+
+  useEffect(() => {
+    taskGeneration.current += 1;
+    taskIdentity.current = activeKey;
+    setTaskError('');
+    return () => {
+      taskGeneration.current += 1;
+      taskIdentity.current = '';
+    };
+  }, [activeKey]);
 
   useEffect(() => {
     onEditorLaunchChange(
@@ -187,16 +193,17 @@ export function PlatformWorkbench({
   }, [view]);
 
   const loadTasks = useCallback(async () => {
-    if (!activeKey) {
-      setTasks([]);
+    if (!activeKey || taskIdentity.current !== activeKey) {
       return;
     }
+    const generation = taskGeneration.current;
     try {
       const result = await listWorkflowTasks(activeKey);
-      setTasks(result.tasks);
+      if (taskGeneration.current !== generation) return;
+      setTaskState({ key: activeKey, tasks: result.tasks });
       setTaskError('');
     } catch (cause) {
-      setTaskError(errorText(cause));
+      if (taskGeneration.current === generation) setTaskError(errorText(cause));
     }
   }, [activeKey]);
 
@@ -215,35 +222,78 @@ export function PlatformWorkbench({
 
   const artifactPending = useRef(new Set<string>());
   const artifactUrls = useRef<string[]>([]);
-  // Result URLs are private; fetch each artifact once and keep the blob URL.
+  const artifactGeneration = useRef(0);
+  // Results belong to the active identity and must not leak across Key changes.
   useEffect(() => {
-    if (!activeKey || (view !== 'queue' && view !== 'results')) return;
+    artifactGeneration.current += 1;
+    setTaskError('');
+    setArtifacts({});
+    setArtifactErrors({});
+    setImageHashes({});
+    setSaveNotice('');
+    artifactPending.current.clear();
+    return () => {
+      artifactGeneration.current += 1;
+      for (const url of artifactUrls.current) URL.revokeObjectURL(url);
+      artifactUrls.current = [];
+    };
+  }, [activeKey]);
+
+  // Load previews only on the results page. A missing file affects its own
+  // card, not the task list, drafts, or other results.
+  useEffect(() => {
+    if (!visible || !activeKey || view !== 'results') return;
+    const generation = artifactGeneration.current;
     for (const task of tasks) {
       if (task.status !== 'succeeded') continue;
       for (const output of task.outputs) {
-        if (!['image', 'video'].includes(output.kind)) continue;
-        if (artifacts[output.id] || artifactPending.current.has(output.id)) continue;
-        artifactPending.current.add(output.id);
+        const id = output.download;
+        if (artifacts[id] || artifactErrors[id] || artifactPending.current.has(id)) continue;
+        artifactPending.current.add(id);
         void downloadWorkflowArtifact(activeKey, output.download)
           .then((url) => {
+            if (artifactGeneration.current !== generation) {
+              URL.revokeObjectURL(url);
+              return;
+            }
             artifactUrls.current.push(url);
-            setArtifacts((current) => ({ ...current, [output.id]: url }));
+            setArtifacts((current) => ({ ...current, [id]: url }));
           })
           .catch((cause) => {
-            artifactPending.current.delete(output.id);
-            setTaskError(errorText(cause));
+            if (artifactGeneration.current === generation)
+              setArtifactErrors((current) => ({ ...current, [id]: errorText(cause) }));
+          })
+          .finally(() => {
+            if (artifactGeneration.current === generation) artifactPending.current.delete(id);
           });
       }
     }
-  }, [tasks, view, activeKey, artifacts]);
+  }, [tasks, view, visible, activeKey, artifacts, artifactErrors]);
 
-  useEffect(
-    () => () => {
-      for (const url of artifactUrls.current) URL.revokeObjectURL(url);
-      artifactUrls.current = [];
-    },
-    [],
-  );
+  useEffect(() => {
+    let cancelled = false;
+    for (const task of tasks) {
+      if (task.source !== 'editor' || task.outputs.filter(output => output.kind === 'image').length < 2) continue;
+      for (const output of task.outputs) {
+        const url = artifacts[output.download];
+        if (output.kind !== 'image' || !url || imageHashes[output.download]) continue;
+        void imagePixelHash(url).then(hash => {
+          if (!cancelled) setImageHashes(current => ({ ...current, [output.download]: hash }));
+        }).catch(() => {});
+      }
+    }
+    return () => { cancelled = true; };
+  }, [tasks, artifacts, imageHashes]);
+
+  async function saveOutput(output: { id: string; download: string }) {
+    const generation = artifactGeneration.current;
+    setSaveNotice('');
+    try {
+      const saved = await saveArtifact(artifacts[output.download], output.id, nativeAvailable,
+        (filename, base64) => invoke<boolean>('save_workflow_artifact', { filename, base64 }));
+      if (artifactGeneration.current === generation) setSaveNotice(nativeAvailable ? (saved ? '已保存产物。' : '已取消保存。') : '已发起浏览器下载，请查看浏览器下载列表。');
+    } catch (cause) { if (artifactGeneration.current === generation) setSaveNotice(`保存失败：${errorText(cause)}`); }
+  }
 
   function saveMock(next: MockState) {
     try {
@@ -453,41 +503,6 @@ export function PlatformWorkbench({
     };
   }, [activeKey, visible, retry, view]);
 
-  const refreshNodes = useCallback(async () => {
-    if (activeKey) setNodes((await listNodes(activeKey)).data);
-  }, [activeKey]);
-  useEffect(() => {
-    setNodes([]);
-    setRepo('');
-  }, [activeKey]);
-
-  useEffect(() => {
-    if (!visible || view !== 'nodes' || !activeKey) return;
-    let cancelled = false;
-    listNodes(activeKey)
-      .then((result) => {
-        if (!cancelled) setNodes(result.data);
-      })
-      .catch((cause) => {
-        if (!cancelled) setError(errorText(cause));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [visible, view, activeKey]);
-  useEffect(() => {
-    if (
-      !visible ||
-      view !== 'nodes' ||
-      !nodes.some((node) => node.status === 'queued' || node.status === 'running')
-    )
-      return;
-    const timer = window.setTimeout(() => {
-      void refreshNodes().catch(() => {});
-    }, 3000);
-    return () => window.clearTimeout(timer);
-  }, [nodes, refreshNodes, visible, view]);
-
   function activateKey() {
     try {
       const key = addKey(keys.keys, `Key ${keys.keys.length + 1}`, draft.trim());
@@ -670,81 +685,6 @@ export function PlatformWorkbench({
             error={catalogError}
             onRetry={() => setCatalogRetry((n) => n + 1)}
           />
-        ) : view === 'nodes' ? (
-          <section className="pfx-card pfx-node-page">
-            <h2>第三方节点</h2>
-            <p>通过 GitHub 仓库添加扩展。请只安装信任的来源，第三方代码可能影响服务安全。</p>
-            <form
-              className="pfx-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (!requireKey()) return;
-                void run(async () => {
-                  await installNode(activeKey, repo.trim());
-                  setRepo('');
-                  await refreshNodes();
-                });
-              }}
-            >
-              <input
-                type="url"
-                required={!!activeKey}
-                value={repo}
-                placeholder="https://github.com/owner/repository"
-                onChange={(event) => setRepo(event.target.value)}
-              />
-              <button
-                className="pfx-primary"
-                disabled={busy}
-                onClick={(event) => {
-                  if (!activeKey) {
-                    event.preventDefault();
-                    requireKey();
-                  }
-                }}
-              >
-                <Plus size={15} />
-                添加节点
-              </button>
-            </form>
-            <p className="pfx-hint">
-              节点仅下载仓库，依赖不会自动安装；变更将在下次服务重新加载后生效。
-            </p>
-            {!activeKey ? (
-              <div className="pfx-empty">配置 Key 后可查看和管理你的节点</div>
-            ) : nodes.length ? (
-              <ul className="pfx-nodes">
-                {nodes.map((node) => (
-                  <li key={node.id}>
-                    <div className="pfx-node-main">
-                      <strong>{node.name}</strong>
-                      <small title={node.log}>
-                        {node.repo}
-                        {node.status === 'failed' ? ` · ${node.log}` : ''}
-                      </small>
-                    </div>
-                    <span>{nodeStatus[node.status]}</span>
-                    <button
-                      className="pfx-icon-button"
-                      aria-label={`卸载 ${node.name}`}
-                      disabled={busy || node.status === 'running' || node.status === 'queued'}
-                      onClick={() => {
-                        if (requireKey() && window.confirm(`确定卸载 ${node.name}？`))
-                          void run(async () => {
-                            await removeNode(activeKey, node.name);
-                            await refreshNodes();
-                          });
-                      }}
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <div className="pfx-empty">还没有添加第三方节点</div>
-            )}
-          </section>
         ) : (
           <>
             {mockError && (
@@ -752,7 +692,7 @@ export function PlatformWorkbench({
                 {mockError}
               </div>
             )}
-            {taskError && (
+            {(view === 'queue' || view === 'results') && taskError && (
               <div className="pfx-alert" role="alert">
                 <AlertCircle size={16} />
                 {taskError}
@@ -826,41 +766,55 @@ export function PlatformWorkbench({
               )
             ) : null}
             {view === 'results' ? (
-              tasks.some((task) => task.status === 'succeeded' && task.outputs.length > 0) ? (
+              <>{saveNotice && <div className="pfx-alert" role="status">{saveNotice}</div>}{tasks.some((task) => task.status === 'succeeded' && (task.outputs.length > 0 || task.source === 'editor')) ? (
                 tasks
-                  .filter((task) => task.status === 'succeeded' && task.outputs.length > 0)
+                  .filter((task) => task.status === 'succeeded' && (task.outputs.length > 0 || task.source === 'editor'))
                   .map((task) => (
                     <article key={task.id} className="pfx-card pfx-mock-result">
                       <div className="pfx-mock-row">
                         <strong>{task.name}</strong>
                         <small>{new Date(task.createdAt).toLocaleString()}</small>
                       </div>
+                      {task.source === 'editor' && task.message && <small>{task.message}</small>}
+                      {task.source === 'editor' && task.outputs.length === 0 && <p>没有可下载的归档文件。请检查编辑器中的输出；需要保留结果时，请连接对应的保存节点。中间计算结果不会自动保存。</p>}
                       <div className="pfx-results">
-                        {task.outputs.map((output) => (
+                        {(task.source === 'editor' ? groupIdenticalImages(task.outputs, imageHashes) : task.outputs.map(output => [output])).map((group) => { const output = group[0]; return (
                           <figure key={output.id} className="pfx-result">
-                            {artifacts[output.id] ? (
+                            {task.source === 'editor' && <small>{output.role === 'preview' ? '预览图（临时文件，可能不是原始质量）' : output.role === 'file' ? '输出文件' : output.role === 'temporary' ? '临时文件（来源节点未确认为预览）' : '历史文件（来源类型未知）'}</small>}
+                            {artifacts[output.download] ? (
                               output.kind === 'video' ? (
-                                <video src={artifacts[output.id]} controls playsInline />
+                                <video src={artifacts[output.download]} controls playsInline />
+                              ) : output.kind === 'image' ? (
+                                <img src={artifacts[output.download]} alt={output.title || '生成结果'} />
+                              ) : output.kind === 'audio' ? (
+                                <audio src={artifacts[output.download]} controls />
                               ) : (
-                                <img src={artifacts[output.id]} alt={output.title || '生成结果'} />
+                                <div>{output.title || '文件'}</div>
                               )
+                            ) : artifactErrors[output.download] ? (
+                              <div className="pfx-result-loading" role="alert">
+                                <span>产物无法加载：{artifactErrors[output.download]}</span>
+                                <button className="pfx-secondary" onClick={() => {
+                                  setArtifactErrors((current) => {
+                                    const next = { ...current };
+                                    delete next[output.download];
+                                    return next;
+                                  });
+                                }}>重试</button>
+                              </div>
                             ) : (
                               <div className="pfx-result-loading">
                                 <LoaderCircle size={14} className="pfx-spin" />
                                 正在加载产物…
                               </div>
                             )}
-                            {artifacts[output.id] && (
-                              <a
-                                className="pfx-secondary"
-                                href={artifacts[output.id]}
-                                download={output.id}
-                              >
-                                下载
-                              </a>
+                            {artifacts[output.download] && (
+                              <button type="button" className="pfx-secondary" onClick={() => void saveOutput(output)}>下载{output.role === 'preview' ? '预览' : output.role === 'file' ? '文件' : ''}</button>
                             )}
+                            {group.length > 1 && <small>预览与输出图像的像素相同；两个原文件均已保留。</small>}
+                            {group.slice(1).map((alternative, index) => artifacts[alternative.download] && <button type="button" className="pfx-secondary" key={alternative.id} onClick={() => void saveOutput(alternative)}>下载预览 {index + 1}</button>)}
                           </figure>
-                        ))}
+                        ); })}
                       </div>
                       {task.billing && (
                         <small>
@@ -873,7 +827,7 @@ export function PlatformWorkbench({
                   ))
               ) : (
                 <div className="pfx-card pfx-empty">暂无已完成的结果。</div>
-              )
+              )}</>
             ) : null}
           </>
         )}
