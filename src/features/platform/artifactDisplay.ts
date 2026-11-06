@@ -58,3 +58,22 @@ export async function saveArtifact(url: string, filename: string, native: boolea
   for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return invokeSave(filename, btoa(binary));
 }
+
+// Keep the archive below the existing native save command's 45 MiB base64 limit.
+const MAX_ZIP_INPUT_BYTES = 30 * 1024 * 1024;
+
+export async function taskArtifactsZip(outputs: DisplayArtifact[], load: (output: DisplayArtifact) => Promise<Blob>): Promise<Blob> {
+  if (!outputs.length) throw new Error('任务没有可下载的文件');
+  if (outputs.length > 100) throw new Error('文件数量超过打包上限，请单个下载');
+  const files: Record<string, Uint8Array> = Object.create(null);
+  let total = 0;
+  for (const [index, output] of outputs.entries()) {
+    const blob = await load(output);
+    total += blob.size;
+    if (total > MAX_ZIP_INPUT_BYTES) throw new Error('文件总大小超过 30 MB，请单个下载');
+    const name = output.id.replace(/[\\/:*?"<>|\x00-\x1f\x7f]/g, '_').replace(/^\.+/, '').slice(0, 160) || 'file';
+    files[`${String(index + 1).padStart(3, '0')}-${name}`] = new Uint8Array(await blob.arrayBuffer());
+  }
+  return new Blob([zipSync(files, { level: 0 }) as BlobPart], { type: 'application/zip' });
+}
+import { zipSync } from 'fflate';

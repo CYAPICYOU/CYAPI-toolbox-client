@@ -53,27 +53,29 @@ export function WorkflowLibrary({
   return (
     <>
       <div className="pfx-library-toolbar">
-        <div className="pfx-filters" role="group" aria-label="工作流分类">
+        <nav className="n-skill-tabs pfx-filters" aria-label="工作流分类">
           {categories.map((item) => (
             <button
               key={item.id}
-              className={category === item.id ? 'selected' : ''}
-              aria-pressed={category === item.id}
+              className={category === item.id ? 'active' : ''}
+              aria-current={category === item.id ? 'page' : undefined}
               onClick={() => onCategory(item.id)}
             >
               {item.label}
             </button>
           ))}
+        </nav>
+        <div className="n-catalog-toolbar pfx-library-search-row">
+          <label className="n-search">
+            <Search size={16} />
+            <input
+              value={query}
+              onChange={(event) => onQuery(event.target.value)}
+              placeholder="搜索工作流"
+              aria-label="搜索工作流"
+            />
+          </label>
         </div>
-        <label className="pfx-search">
-          <Search size={15} />
-          <input
-            value={query}
-            onChange={(event) => onQuery(event.target.value)}
-            placeholder="搜索工作流"
-            aria-label="搜索工作流"
-          />
-        </label>
       </div>
       {error && (
         <div className="pfx-alert" role="alert">

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import test from 'node:test';
-import { artifactSourceLabel, groupIdenticalImages, saveArtifact } from '../src/features/platform/artifactDisplay.ts';
+import { artifactSourceLabel, groupIdenticalImages, saveArtifact, taskArtifactsZip } from '../src/features/platform/artifactDisplay.ts';
+import { unzipSync, strFromU8 } from 'fflate';
 import { formatWorkflowUsd, workflowReferencePrice } from '../src/features/platform/workflowPrice.ts';
 import {
   createEditorLauncher,
@@ -82,6 +83,23 @@ test('source labels show the recorded node name and explicitly mark missing hist
   assert.equal(artifactSourceLabel({ ...output, sourceNode: { id: '3', type: 'SaveImage', title: '最终图片' } }), '来源节点：最终图片 · SaveImage（ID 3）');
   assert.equal(artifactSourceLabel({ ...output, sourceNode: { id: '4', type: 'PreviewImage' } }), '来源节点：PreviewImage（ID 4）');
   assert.match(artifactSourceLabel(output), /未知/);
+});
+
+test('task ZIP retains all originals, avoids unsafe names and fails on missing files', async () => {
+  const outputs = [
+    { id: '../same.png', kind: 'image', download: '/one', role: 'preview' as const },
+    { id: '../same.png', kind: 'image', download: '/two', role: 'file' as const },
+  ];
+  const zip = await taskArtifactsZip(outputs, async output => new Blob([output.download]));
+  const unpacked = unzipSync(new Uint8Array(await zip.arrayBuffer()));
+  assert.deepEqual(Object.keys(unpacked), ['001-_same.png', '002-_same.png']);
+  assert.deepEqual(Object.values(unpacked).map(value => strFromU8(value)), ['/one', '/two']);
+  await assert.rejects(taskArtifactsZip(outputs, async output => {
+    if (output.download === '/two') throw new Error('missing');
+    return new Blob(['ok']);
+  }), /missing/);
+  await assert.rejects(taskArtifactsZip([], async () => new Blob()), /没有可下载/);
+  await assert.rejects(taskArtifactsZip([outputs[0]], async () => new Blob([new Uint8Array(30 * 1024 * 1024 + 1)])), /超过 30 MB/);
 });
 
 test('native artifact save returns cancellation and propagates write errors', async () => {

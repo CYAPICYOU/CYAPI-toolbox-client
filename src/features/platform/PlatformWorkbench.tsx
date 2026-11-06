@@ -49,7 +49,7 @@ import type { EditorLaunchNoticeState } from './EditorLaunchNotice';
 import { logWorkflowLaunch } from '../../lib/api/diagnostics';
 import { invoke } from '@tauri-apps/api/core';
 import { nativeAvailable } from '../../lib/api/native';
-import { artifactSourceLabel, groupIdenticalImages, imagePixelHash, saveArtifact } from './artifactDisplay';
+import { artifactSourceLabel, groupIdenticalImages, imagePixelHash, saveArtifact, taskArtifactsZip } from './artifactDisplay';
 import { formatWorkflowUsd } from './workflowPrice';
 import './platform.css';
 
@@ -70,7 +70,7 @@ const taskActive = (status: string) => ['submitting', 'queued', 'running'].inclu
 const viewContent = {
   library: {
     title: '工作流库',
-    description: '选择工作流，填写内容，开始创作。也可以导入或创建自己的流程。',
+    description: '',
   },
   drafts: { title: '草稿', description: '保存并继续编辑尚未提交的任务' },
   queue: { title: '任务队列', description: '查看任务的排队和运行进度' },
@@ -109,6 +109,8 @@ export function PlatformWorkbench({
   const [artifactErrors, setArtifactErrors] = useState<Record<string, string>>({});
   const [imageHashes, setImageHashes] = useState<Record<string, string>>({});
   const [saveNotice, setSaveNotice] = useState('');
+  const [zipTaskId, setZipTaskId] = useState('');
+  const zipBusy = useRef(false);
   const [catalog, setCatalog] = useState<WorkflowCatalog | null>(null);
   const [catalogError, setCatalogError] = useState('');
   const [catalogLoading, setCatalogLoading] = useState(true);
@@ -294,6 +296,39 @@ export function PlatformWorkbench({
         (filename, base64) => invoke<boolean>('save_workflow_artifact', { filename, base64 }));
       if (artifactGeneration.current === generation) setSaveNotice(nativeAvailable ? (saved ? '已保存产物。' : '已取消保存。') : '已发起浏览器下载，请查看浏览器下载列表。');
     } catch (cause) { if (artifactGeneration.current === generation) setSaveNotice(`保存失败：${errorText(cause)}`); }
+  }
+
+  async function saveTaskZip(task: WorkflowTask) {
+    if (zipBusy.current) return;
+    zipBusy.current = true;
+    const generation = artifactGeneration.current;
+    setZipTaskId(task.id);
+    setSaveNotice('');
+    let zipUrl = '';
+    try {
+      const archive = await taskArtifactsZip(task.outputs, async (output) => {
+        if (artifactGeneration.current !== generation) throw new Error('Key 已更换，已取消打包');
+        const existing = artifacts[output.download];
+        const url = existing || await downloadWorkflowArtifact(activeKey, output.download);
+        try {
+          if (artifactGeneration.current !== generation) throw new Error('Key 已更换，已取消打包');
+          const response = await fetch(url);
+          if (!response.ok) throw new Error('无法读取产物');
+          return await response.blob();
+        } finally { if (!existing) URL.revokeObjectURL(url); }
+      });
+      if (artifactGeneration.current !== generation) return;
+      zipUrl = URL.createObjectURL(archive);
+      const saved = await saveArtifact(zipUrl, `workflow-${task.id}.zip`, nativeAvailable,
+        (filename, base64) => invoke<boolean>('save_workflow_artifact', { filename, base64 }));
+      if (artifactGeneration.current === generation) setSaveNotice(nativeAvailable ? (saved ? '已保存任务 ZIP。' : '已取消保存。') : '已发起浏览器下载，请查看浏览器下载列表。');
+    } catch (cause) {
+      if (artifactGeneration.current === generation) setSaveNotice(`打包失败，未生成 ZIP：${errorText(cause)}。请重试或单个下载。`);
+    } finally {
+      if (zipUrl) URL.revokeObjectURL(zipUrl);
+      zipBusy.current = false;
+      setZipTaskId('');
+    }
   }
 
   function saveMock(next: MockState) {
@@ -550,7 +585,7 @@ export function PlatformWorkbench({
       <header className="pfx-top">
         <div className="pfx-heading">
           <h1>{viewContent[view].title}</h1>
-          <p>{viewContent[view].description}</p>
+          {viewContent[view].description && <p>{viewContent[view].description}</p>}
         </div>
         <div className="pfx-top-actions">
           {view === 'library' && !editor && !creating && (
@@ -782,8 +817,12 @@ export function PlatformWorkbench({
                     <article key={task.id} className="pfx-card pfx-mock-result">
                       <div className="pfx-mock-row">
                         <strong>{task.name}</strong>
-                        <small>{new Date(task.createdAt).toLocaleString()}</small>
+                        <div className="pfx-result-meta">
+                          <small>{new Date(task.createdAt).toLocaleString()}</small>
+                          <small>建议 30 天内下载，超过后文件可能过期</small>
+                        </div>
                       </div>
+                      {task.outputs.length > 0 && <button type="button" className="pfx-secondary pfx-download-zip" disabled={Boolean(zipTaskId)} onClick={() => void saveTaskZip(task)}>{zipTaskId === task.id ? '正在打包…' : '下载全部（ZIP）'}</button>}
                       {(task.source === 'editor' || task.mode === 'worker') && task.message && <small>{task.message}</small>}
                       {(task.source === 'editor' || task.mode === 'worker') && task.outputs.length === 0 && <p>没有可下载的归档文件。请检查编辑器中的输出；需要保留结果时，请连接对应的保存节点。中间计算结果不会自动保存。</p>}
                       <div className="pfx-results">

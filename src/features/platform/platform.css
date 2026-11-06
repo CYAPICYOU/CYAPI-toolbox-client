@@ -283,60 +283,28 @@
   font-weight: 500;
 }
 .pfx-library-toolbar {
+  min-width: 0;
+}
+.pfx-result-meta {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  margin-bottom: 8px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  text-align: right;
 }
-.pfx-search {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  min-height: var(--page-control-height, 36px);
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--surface, white);
-  padding: 0 11px;
-  color: var(--muted);
-}
-.pfx-search input {
-  width: 170px;
-  padding: 9px 0;
-  border: 0;
-  outline: 0;
-  color: inherit;
-  background: transparent;
-  font: inherit;
-  font-size: 12px;
-}
-.pfx-search:focus-within {
-  border-color: var(--workspace-solid);
+.pfx-download-zip {
+  align-self: flex-start;
+  margin: 10px 0;
 }
 .pfx-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+  overflow-x: auto;
 }
 .pfx-filters button {
-  border: 1px solid transparent;
-  min-height: var(--page-control-height, 36px);
-  padding: 8px 12px;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
-.pfx-filters button:hover {
-  color: var(--workspace-tint-ink);
-}
-.pfx-filters button.selected {
-  color: var(--workspace-tint-ink);
-  border-color: var(--line);
-  background: var(--surface, #fff);
+.pfx-library-search-row {
+  margin-bottom: 4px;
 }
 .pfx-library-grid {
   display: grid;
@@ -470,9 +438,9 @@
   line-height: 1.7;
 }
 @media (max-width: 600px) {
-  .pfx-search,
-  .pfx-search input {
+  .pfx-library-search-row .n-search {
     width: 100%;
+    max-width: 100%;
   }
 }
 
