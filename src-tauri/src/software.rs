@@ -134,6 +134,14 @@ pub fn detect(descriptors: &[crate::integrations::Descriptor]) -> BTreeMap<Strin
     probe(&declarations).unwrap_or_default()
 }
 
+/// Fixed local declarations used by the App selector, independent of the server catalog.
+pub(crate) fn detect_local(declarations: &[Value]) -> Result<BTreeMap<String, Value>, String> {
+    #[cfg(windows)]
+    { windows_probe(declarations) }
+    #[cfg(not(windows))]
+    { Ok(probe(declarations).unwrap_or_default()) }
+}
+
 #[cfg(windows)]
 fn probe(declarations: &[Value]) -> Option<BTreeMap<String, Value>> {
     windows_probe(declarations)

@@ -2541,6 +2541,16 @@ exit 1
                     request.workspace.as_deref().ok_or("缺少工具标识")?,
                 );
             }
+            "harness-model-read" => {
+                return crate::harness_config::view(&self.home, &self.data, request.workspace.as_deref().ok_or("缺少工具标识")?);
+            }
+            "tool-apps-detect" => return Ok(crate::tool_apps::detect(&self.home)),
+            "harness-model-save" => {
+                return crate::harness_config::save(&self.home, &self.data, request.workspace.as_deref().ok_or("缺少工具标识")?, request.harness_model.as_ref().ok_or("缺少模型配置")?);
+            }
+            "harness-model-restore" => {
+                return crate::harness_config::restore(&self.home, &self.data, request.workspace.as_deref().ok_or("缺少工具标识")?, request.configuration_revision.as_deref().ok_or("缺少配置版本")?);
+            }
             "desktop-model-save" => {
                 let tool = request.workspace.as_deref().ok_or("缺少工具标识")?;
                 if tool == "minimax" {

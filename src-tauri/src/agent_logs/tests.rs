@@ -76,6 +76,77 @@ fn private_free(s: &Snapshot) {
 }
 
 #[test]
+fn request_ips_survive_stream_merging_without_leaking_to_tools() {
+    let f = Fixture::new();
+    let mut first = claude_response("network", 10);
+    first["response"] = json!({"socket":{"remoteAddress":"192.0.2.8:443"}});
+    f.lines(
+        "projects/p/main.jsonl",
+        &[first, claude_response("network", 20)],
+    );
+    let s = f.analyze("claude");
+    let response = s.events.iter().find(|e| e.kind == "response").unwrap();
+    assert_eq!(response.request_ips[0].ip, "192.0.2.8");
+    assert!(s
+        .events
+        .iter()
+        .filter(|e| e.kind == "tool")
+        .all(|e| e.request_ips.is_empty()));
+    assert!(matches(
+        response,
+        &Query {
+            search: Some("192.0.2.8".into()),
+            ..Default::default()
+        }
+    ));
+    assert!(report(&s, None).unwrap().to_string().contains("requestIps"));
+    private_free(&s);
+}
+
+#[test]
+fn request_ips_correlate_only_exact_requests_in_same_session() {
+    let mut events = vec![];
+    for (session, request) in [("a", "r1"), ("a", "r2"), ("b", "r1")] {
+        events.push(Event {
+            kind: "response".into(),
+            session_id: Some(session.into()),
+            request_id: Some(request.into()),
+            ..Default::default()
+        });
+    }
+    events.push(Event {
+        kind: "http".into(),
+        session_id: Some("a".into()),
+        request_id: Some("r1".into()),
+        request_ips: crate::request_network::from_fields([("remote_ip", "192.0.2.10")]),
+        ..Default::default()
+    });
+    associate_request_ips(&mut events);
+    assert_eq!(events[0].request_ips[0].ip, "192.0.2.10");
+    assert!(events[1].request_ips.is_empty());
+    assert!(events[2].request_ips.is_empty());
+}
+
+#[test]
+fn opencode_response_and_runtime_preserve_explicit_ip_metadata() {
+    let f = Fixture::new();
+    let db = f.db(true);
+    let mut response = oc_response(10);
+    response["metadata"] = json!({"remoteIp":"2001:db8::9", "requestId":"request-test"});
+    insert_v2(&db, "network", "assistant", &response);
+    let s = f.analyze("opencode");
+    let event = s.events.iter().find(|e| e.kind == "response").unwrap();
+    assert_eq!(event.request_ips[0].ip, "2001:db8::9");
+    assert_eq!(event.request_id.as_deref(), Some("request-test"));
+    f.write("log/test.log", "INFO 2023-11-14T22:13:20Z service=provider method=POST status=200 sessionID=ses-main requestId=request-test remote_addr=192.0.2.12:443\n");
+    let mut b = f.builder("opencode");
+    runtime::analyze(&f.0.join("log"), "opencode", &mut b);
+    let s = b.finish();
+    assert_eq!(s.events[0].request_ips[0].ip, "192.0.2.12");
+    private_free(&s);
+}
+
+#[test]
 fn claude_stream_fragments_tools_and_cache_are_not_double_counted() {
     let f = Fixture::new();
     f.lines("projects/p/main.jsonl", &[claude_response("msg-1",10),claude_response("msg-1",20),json!({"type":"user","sessionId":"main","uuid":"result-1","timestamp":TIME+40,"message":{"content":[{"type":"tool_result","tool_use_id":"call-1","is_error":true,"content":SECRET}]}})]);

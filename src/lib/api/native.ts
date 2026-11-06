@@ -517,6 +517,8 @@ const quietActions = [
   'claude-read',
   'opencode-read',
   'desktop-model-read',
+  'harness-model-read',
+  'tool-apps-detect',
   'pi-mcp-read',
   'models-list',
   'configuration-read',

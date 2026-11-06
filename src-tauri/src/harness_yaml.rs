@@ -5,7 +5,10 @@ use serde_json::{Map, Value};
 type Result<T> = std::result::Result<T, String>;
 
 pub fn parse(source: &str) -> Result<Value> {
-    if source.lines().all(|line| line.trim().is_empty() || line.trim_start().starts_with('#')) {
+    if source
+        .lines()
+        .all(|line| line.trim().is_empty() || line.trim_start().starts_with('#'))
+    {
         return Ok(Value::Object(Map::new()));
     }
     serde_yaml_ng::from_str::<crate::pi_model_config::Strict>(source)
@@ -58,7 +61,11 @@ pub fn update(source: &str, expected: &Value) -> Result<String> {
     }
     let old = before.as_object().ok_or("YAML 配置必须是对象")?;
     let new = expected.as_object().ok_or("YAML 配置必须是对象")?;
-    let newline = if source.contains("\r\n") { "\r\n" } else { "\n" };
+    let newline = if source.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
     let mut lines: Vec<String> = source.split_inclusive('\n').map(str::to_string).collect();
     let mut rows = Vec::new();
     for (i, line) in lines.iter().enumerate() {
@@ -78,7 +85,9 @@ pub fn update(source: &str, expected: &Value) -> Result<String> {
         }
         let mut end = rows.get(index + 1).map(|r| r.0).unwrap_or(lines.len());
         // Keep comments/blank lines attached to the following entry.
-        while end > start + 1 && (lines[end - 1].trim().is_empty() || lines[end - 1].trim_start().starts_with('#')) {
+        while end > start + 1
+            && (lines[end - 1].trim().is_empty() || lines[end - 1].trim_start().starts_with('#'))
+        {
             end -= 1;
         }
         let header = lines[*start].trim_end_matches(['\r', '\n']);
@@ -87,9 +96,22 @@ pub fn update(source: &str, expected: &Value) -> Result<String> {
         let replacement = if let Some(value) = new.get(key) {
             if old.get(key).is_some_and(Value::is_object) && value.is_object() && tail.is_empty() {
                 let body = &lines[start + 1..end];
-                let indent = body.iter().filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
-                    .map(|l| l.len() - l.trim_start_matches(' ').len()).min().unwrap_or(2);
-                let nested: String = body.iter().map(|l| if l.trim().is_empty() { l.as_str() } else { l.get(indent..).unwrap_or(l) }).collect();
+                let indent = body
+                    .iter()
+                    .filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
+                    .map(|l| l.len() - l.trim_start_matches(' ').len())
+                    .min()
+                    .unwrap_or(2);
+                let nested: String = body
+                    .iter()
+                    .map(|l| {
+                        if l.trim().is_empty() {
+                            l.as_str()
+                        } else {
+                            l.get(indent..).unwrap_or(l)
+                        }
+                    })
+                    .collect();
                 let edited = update(&nested, value)?;
                 let mut result = format!("{header}{newline}");
                 for line in edited.split_inclusive('\n') {
@@ -97,23 +119,47 @@ pub fn update(source: &str, expected: &Value) -> Result<String> {
                     result.push_str(line);
                 }
                 result
-            } else if tail.is_empty() && old.get(key).and_then(Value::as_array).zip(value.as_array()).is_some_and(|(a, b)| b.starts_with(a)) {
+            } else if tail.is_empty()
+                && old
+                    .get(key)
+                    .and_then(Value::as_array)
+                    .zip(value.as_array())
+                    .is_some_and(|(a, b)| b.starts_with(a))
+            {
                 let previous = old[key].as_array().unwrap();
                 let next = value.as_array().unwrap();
-                let indent = lines[start + 1..end].iter().find(|l| l.trim_start().starts_with("- "))
-                    .map(|l| l.len() - l.trim_start_matches(' ').len()).unwrap_or(2);
+                let indent = lines[start + 1..end]
+                    .iter()
+                    .find(|l| l.trim_start().starts_with("- "))
+                    .map(|l| l.len() - l.trim_start_matches(' ').len())
+                    .unwrap_or(2);
                 let mut result = lines[*start..end].concat();
-                if !result.ends_with('\n') { result.push_str(newline); }
+                if !result.ends_with('\n') {
+                    result.push_str(newline);
+                }
                 for item in &next[previous.len()..] {
-                    result.push_str(&format!("{}- {}{newline}", " ".repeat(indent), serde_json::to_string(item).map_err(|_| "无法生成 YAML 列表")?));
+                    result.push_str(&format!(
+                        "{}- {}{newline}",
+                        " ".repeat(indent),
+                        serde_json::to_string(item).map_err(|_| "无法生成 YAML 列表")?
+                    ));
                 }
                 result
             } else {
-                if lines[start + 1..end].iter().any(|line| comment(line).is_some()) {
+                if lines[start + 1..end]
+                    .iter()
+                    .any(|line| comment(line).is_some())
+                {
                     return Err("待修改 YAML 值含复杂注释，请在原应用中编辑".into());
                 }
-                let suffix = inline.map(|i| format!(" {}", &header[i..])).unwrap_or_default();
-                format!("{}: {}{suffix}{newline}", &header[..*colon], serde_json::to_string(value).map_err(|_| "无法生成 YAML 值")?)
+                let suffix = inline
+                    .map(|i| format!(" {}", &header[i..]))
+                    .unwrap_or_default();
+                format!(
+                    "{}: {}{suffix}{newline}",
+                    &header[..*colon],
+                    serde_json::to_string(value).map_err(|_| "无法生成 YAML 值")?
+                )
             }
         } else {
             String::new()
@@ -123,8 +169,14 @@ pub fn update(source: &str, expected: &Value) -> Result<String> {
     let mut output = lines.concat();
     for (key, value) in new {
         if !old.contains_key(key) {
-            if !output.is_empty() && !output.ends_with('\n') { output.push_str(newline); }
-            output.push_str(&format!("{}: {}{newline}", serde_json::to_string(key).map_err(|_| "无法生成 YAML 字段")?, serde_json::to_string(value).map_err(|_| "无法生成 YAML 值")?));
+            if !output.is_empty() && !output.ends_with('\n') {
+                output.push_str(newline);
+            }
+            output.push_str(&format!(
+                "{}: {}{newline}",
+                serde_json::to_string(key).map_err(|_| "无法生成 YAML 字段")?,
+                serde_json::to_string(value).map_err(|_| "无法生成 YAML 值")?
+            ));
         }
     }
     if parse(&output)? != *expected {

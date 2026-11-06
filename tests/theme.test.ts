@@ -5,7 +5,9 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { collectPalette, renderTheme, transformCss } from '../scripts/theme.mjs';
 import { WINDOW_BACKGROUND } from '../src/lib/appearance.ts';
+import { harnesses } from '../src/features/harness/catalog.ts';
 import {
+  LOGO_COLOURS,
   WORKSPACE_PALETTES,
   renderWorkspaceTheme,
   workspaceVariables,
@@ -34,8 +36,8 @@ test('every colour in the running stylesheets has a dark variant', () => {
 test('the light appearance keeps the designed colours', () => {
   const palette = collectPalette();
   assert.equal(palette.get('f7f8f6')?.light, '#f7f8f6');
-  assert.equal(workspaceVariables('codex', 'light').sidebar, '#1c3c32');
-  assert.equal(workspaceVariables('codex', 'light').mark, '#d1e8a9');
+  assert.equal(workspaceVariables('toolbox', 'light').sidebar, '#1c3c32');
+  assert.equal(workspaceVariables('toolbox', 'light').mark, '#d1e8a9');
 });
 
 test('backgrounds become dark and text becomes light', () => {
@@ -48,8 +50,8 @@ test('backgrounds become dark and text becomes light', () => {
   const text = palette.get('293c32');
   assert.ok(text);
   assert.notEqual(text.foreground, text.light);
-  // Codex retains the original sidebar and brand identity in both appearances.
-  const workspace = workspaceVariables('codex', 'dark');
+  // The workflow workbench retains the Toolbox identity independently of App themes.
+  const workspace = workspaceVariables('toolbox', 'dark');
   assert.equal(workspace.sidebar, '#1c3c32');
   assert.equal(workspace.mark, '#d1e8a9');
   assert.equal(workspace['mark-ink'], '#254d37');
@@ -117,6 +119,8 @@ test('each workspace has complete, readable light and dark accents', () => {
         [vars['sidebar-faint'], vars.sidebar],
         [vars['sidebar-strong'], vars['sidebar-active']],
         [vars['sidebar-muted'], vars['sidebar-control']],
+        [vars['sidebar-muted'], vars['sidebar-control-hover']],
+        [vars['sidebar-ink'], vars['sidebar-hover']],
         [vars['mark-ink'], vars.mark],
       ];
       for (const [ink, surface] of pairs) {
@@ -126,6 +130,46 @@ test('each workspace has complete, readable light and dark accents', () => {
         );
       }
     }
+  }
+});
+
+test('every supported App has a logo-derived palette, including monochrome identities', () => {
+  const ids = [
+    'codex',
+    'claude',
+    'opencode',
+    'dsh',
+    'workbuddy',
+    'pi',
+    'minimax',
+    ...harnesses.map(({ id }) => id),
+  ];
+  assert.deepEqual(Object.keys(LOGO_COLOURS).sort(), [...ids].sort());
+  for (const id of ids) {
+    assert.ok(WORKSPACE_PALETTES[id], `missing ${id} palette`);
+    assert.notEqual(
+      workspaceVariables(id, 'light').sidebar,
+      workspaceVariables(id, 'dark').sidebar,
+    );
+  }
+  const artwork = {
+    codex: 'lobe/codex-color.svg',
+    claude: 'lobe/claude-color.svg',
+    dsh: 'lobe/deepseek-color.svg',
+    workbuddy: 'lobe/workbuddy-color.svg',
+    pi: 'pi/logo.svg',
+    minimax: 'lobe/minimax-color.svg',
+    qwen: 'lobe/qwen-color.svg',
+    kimi: 'lobe/kimi-color.svg',
+    gemini: 'lobe/gemini-color.svg',
+  };
+  for (const [id, file] of Object.entries(artwork)) {
+    const svg = readFileSync(path.join(root, 'src/assets/app-logos', file), 'utf8').toLowerCase();
+    assert.ok(svg.includes(LOGO_COLOURS[id]), `${id} seed must come from its bundled logo`);
+  }
+  for (const id of ['opencode', 'cline', 'kilo', 'roo', 'cursor', 'grok']) {
+    const channels = workspaceVariables(id, 'light').sidebar.slice(1).match(/../g)!;
+    assert.equal(new Set(channels).size, 1, `${id} must retain its monochrome identity`);
   }
 });
 
@@ -177,13 +221,28 @@ test('tools and workflow pages share title, spacing, and control dimensions', ()
   ]) {
     assert.ok(native.includes(token), `missing shared layout token ${token}`);
   }
-  assert.match(native, /\.n-page-heading\s*\{[^}]*flex-wrap:\s*wrap;[^}]*min-height:\s*var\(--page-heading-height\)/s);
-  assert.match(native, /\.n-page-heading h1\s*\{[^}]*font-size:\s*var\(--page-heading-title-size\)/s);
+  assert.match(
+    native,
+    /\.n-page-heading\s*\{[^}]*flex-wrap:\s*wrap;[^}]*min-height:\s*var\(--page-heading-height\)/s,
+  );
+  assert.match(
+    native,
+    /\.n-page-heading h1\s*\{[^}]*font-size:\s*var\(--page-heading-title-size\)/s,
+  );
   assert.match(native, /\.n-button\s*\{[^}]*min-height:\s*var\(--page-control-height\)/s);
-  assert.match(platform, /\.pfx-top\s*\{[^}]*flex-wrap:\s*wrap;[^}]*min-height:\s*var\(--page-heading-height/);
+  assert.match(
+    platform,
+    /\.pfx-top\s*\{[^}]*flex-wrap:\s*wrap;[^}]*min-height:\s*var\(--page-heading-height/,
+  );
   assert.match(platform, /\.pfx-heading h1\s*\{[^}]*font-size:\s*var\(--page-heading-title-size/);
   assert.match(platform, /\.pfx-heading\s*\{[^}]*transform:\s*translateY\(10px\)/);
-  assert.match(platform, /@media \(max-width: 900px\)\s*\{\s*\.pfx-heading\s*\{\s*transform:\s*none/s);
-  assert.match(platform, /\.pfx-top-actions > button\s*\{[^}]*min-height:\s*var\(--page-control-height/);
+  assert.match(
+    platform,
+    /@media \(max-width: 900px\)\s*\{\s*\.pfx-heading\s*\{\s*transform:\s*none/s,
+  );
+  assert.match(
+    platform,
+    /\.pfx-top-actions > button\s*\{[^}]*min-height:\s*var\(--page-control-height/,
+  );
   assert.match(platform, /\.pfx-body\s*\{[^}]*padding:\s*var\(--page-content-padding-y/);
 });

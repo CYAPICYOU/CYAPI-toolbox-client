@@ -657,9 +657,6 @@
 .ca-overview-details[open] > summary {
   margin-bottom: 16px;
 }
-.ca-overview-usage {
-  order: 1;
-}
 .ca-filter-group {
   margin: 16px 0;
 }

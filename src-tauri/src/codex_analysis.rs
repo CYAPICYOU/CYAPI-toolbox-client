@@ -1371,7 +1371,7 @@ fn matches_query(rec: &Record, query: &EventQuery, source_id: Option<&str>) -> b
     }
     if let Some(search) = query.search.as_deref().filter(|s| !s.trim().is_empty()) {
         let haystack = format!(
-            "{} {} {} {} {}",
+            "{} {} {} {} {} {}",
             rec.message,
             rec.target,
             rec.thread_id.as_deref().unwrap_or(""),
@@ -1379,7 +1379,16 @@ fn matches_query(rec: &Record, query: &EventQuery, source_id: Option<&str>) -> b
                 .as_ref()
                 .and_then(|h| h.request_id.as_deref())
                 .unwrap_or(""),
-            rec.http.as_ref().map(|h| h.url.as_str()).unwrap_or("")
+            rec.http.as_ref().map(|h| h.url.as_str()).unwrap_or(""),
+            rec.http
+                .as_ref()
+                .map(|h| h
+                    .request_ips
+                    .iter()
+                    .map(|ip| ip.ip.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" "))
+                .unwrap_or_default()
         )
         .to_lowercase();
         if !haystack.contains(&search.trim().to_lowercase()) {

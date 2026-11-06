@@ -118,14 +118,25 @@ fn change_at(path: &Path, action: &str, values: &BTreeMap<String, Value>) -> Res
                 }
                 _ => return Err("MCP 传输方式无效".into()),
             };
-            let field = if transport == "stdio" { "env" } else { "headers" };
+            let field = if transport == "stdio" {
+                "env"
+            } else {
+                "headers"
+            };
             if let Some(value) = values.get(field) {
-                let map = value.as_object().ok_or("MCP 环境变量或请求头必须是 JSON 对象")?;
-                if map.len() > 64 || map.iter().any(|(k, v)| {
-                    k.is_empty() || k.len() > 256 || k.chars().any(char::is_control)
-                        || v.as_str().is_none_or(|s| s.len() > 8192 || s.chars().any(char::is_control))
-                        || (field == "env" && k.contains('='))
-                }) {
+                let map = value
+                    .as_object()
+                    .ok_or("MCP 环境变量或请求头必须是 JSON 对象")?;
+                if map.len() > 64
+                    || map.iter().any(|(k, v)| {
+                        k.is_empty()
+                            || k.len() > 256
+                            || k.chars().any(char::is_control)
+                            || v.as_str()
+                                .is_none_or(|s| s.len() > 8192 || s.chars().any(char::is_control))
+                            || (field == "env" && k.contains('='))
+                    })
+                {
                     return Err("MCP 环境变量或请求头格式无效".into());
                 }
                 entry[field] = value.clone();
@@ -208,28 +219,44 @@ mod tests {
 
     #[test]
     fn saves_stdio_environment_and_authenticated_http_without_exposing_secrets() {
-        let dir = std::env::temp_dir().join(format!("cyapi-pi-mcp-fields-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("cyapi-pi-mcp-fields-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("mcp.json");
         let mut values = BTreeMap::from([
             ("revision".into(), json!(snapshot(&path).unwrap().1)),
-            ("name".into(), json!("local")), ("transport".into(), json!("stdio")),
-            ("command".into(), json!("example")), ("args".into(), json!([" leading space "])),
-            ("env".into(), json!({"TOKEN":"${MY_TOKEN}"})), ("cwd".into(), json!("~/workspace")),
+            ("name".into(), json!("local")),
+            ("transport".into(), json!("stdio")),
+            ("command".into(), json!("example")),
+            ("args".into(), json!([" leading space "])),
+            ("env".into(), json!({"TOKEN":"${MY_TOKEN}"})),
+            ("cwd".into(), json!("~/workspace")),
         ]);
         change_at(&path, "pi-mcp-save", &values).unwrap();
         values.insert("revision".into(), json!(snapshot(&path).unwrap().1));
         values.insert("name".into(), json!("remote"));
         values.insert("transport".into(), json!("http"));
-        values.insert("url".into(), json!("https://example.invalid/mcp?workspace=sample"));
-        values.insert("headers".into(), json!({"Authorization":"Bearer fictional-secret"}));
+        values.insert(
+            "url".into(),
+            json!("https://example.invalid/mcp?workspace=sample"),
+        );
+        values.insert(
+            "headers".into(),
+            json!({"Authorization":"Bearer fictional-secret"}),
+        );
         change_at(&path, "pi-mcp-save", &values).unwrap();
         let doc = snapshot(&path).unwrap().0;
         assert_eq!(doc["mcpServers"]["local"]["args"][0], " leading space ");
         assert_eq!(doc["mcpServers"]["local"]["env"]["TOKEN"], "${MY_TOKEN}");
         assert_eq!(doc["mcpServers"]["local"]["cwd"], "~/workspace");
-        assert_eq!(doc["mcpServers"]["remote"]["headers"]["Authorization"], "Bearer fictional-secret");
-        assert!(!view_at(&path).unwrap().to_string().contains("fictional-secret"));
+        assert_eq!(
+            doc["mcpServers"]["remote"]["headers"]["Authorization"],
+            "Bearer fictional-secret"
+        );
+        assert!(!view_at(&path)
+            .unwrap()
+            .to_string()
+            .contains("fictional-secret"));
         values.insert("revision".into(), json!(snapshot(&path).unwrap().1));
         values.insert("name".into(), json!("invalid"));
         values.insert("headers".into(), json!({"X-Test":12}));

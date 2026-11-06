@@ -8,7 +8,16 @@ import {
   LoaderCircle,
   Search,
 } from 'lucide-react';
-import { LogCoverage, LogDetailModal, LogEvents, LogFilters, LogHeader, LogTabs, RequestIps } from './LogAnalysisShared';
+import {
+  LogCoverage,
+  LogDetailModal,
+  LogEvents,
+  LogFilters,
+  LogHeader,
+  LogPagination,
+  LogTabs,
+  RequestIps,
+} from './LogAnalysisShared';
 import type { LogTab } from './LogAnalysisShared';
 import { localAgentLogClient } from '../lib/api/agentLogs';
 import type {
@@ -93,12 +102,23 @@ function Events({
   onOpen: (id: string) => void;
   onSession: (id: string) => void;
 }) {
-  return <LogEvents rows={events.map(e => ({
-    id: e.id, time: e.time, sessionId: e.sessionId, model: e.model,
-    requestIps: e.requestIps, request: ['response', 'api_error', 'http'].includes(e.kind),
-    severity: e.failed || e.level === 'ERROR' ? 'error' : e.level === 'WARN' ? 'warn' : '',
-    label: String(e.status ?? kinds[e.kind] ?? e.kind), summary: e.summary,
-  }))} onOpen={onOpen} onSession={onSession} />;
+  return (
+    <LogEvents
+      rows={events.map((e) => ({
+        id: e.id,
+        time: e.time,
+        sessionId: e.sessionId,
+        model: e.model,
+        requestIps: e.requestIps,
+        request: ['response', 'api_error', 'http'].includes(e.kind),
+        severity: e.failed || e.level === 'ERROR' ? 'error' : e.level === 'WARN' ? 'warn' : '',
+        label: String(e.status ?? kinds[e.kind] ?? e.kind),
+        summary: e.summary,
+      }))}
+      onOpen={onOpen}
+      onSession={onSession}
+    />
+  );
 }
 function Issue({
   issue,
@@ -339,10 +359,18 @@ export function AgentLogAnalysis({
     setDetail(undefined);
   }
   function resetFilters() {
-    setSearch(''); setNeedle(''); setSessionFilter(''); setSourceFilter('');
-    setKind(''); setLevel(''); setFailed(false);
+    setSearch('');
+    setNeedle('');
+    setSessionFilter('');
+    setSourceFilter('');
+    setKind('');
+    setLevel('');
+    setFailed(false);
   }
-  function changeTab(next: LogTab) { resetFilters(); setTab(next); }
+  function changeTab(next: LogTab) {
+    resetFilters();
+    setTab(next);
+  }
   async function saveReport() {
     if (!snapshot || exporting) return;
     setExporting(true);
@@ -374,10 +402,20 @@ export function AgentLogAnalysis({
 
   return (
     <div className={`ca-page al-page al-${workspace}`}>
-      <LogHeader name={name} windowSeconds={windowSeconds} onWindow={setWindowSeconds}
-        live={live} onLive={() => setLive(!live)} busy={busy} available={client.available}
-        exporting={exporting} canExport={!!snapshot && (tab !== 'sessions' || !!active)} sessionReport={tab === 'sessions'}
-        onRefresh={() => void refresh()} onExport={() => void saveReport()} />
+      <LogHeader
+        name={name}
+        windowSeconds={windowSeconds}
+        onWindow={setWindowSeconds}
+        live={live}
+        onLive={() => setLive(!live)}
+        busy={busy}
+        available={client.available}
+        exporting={exporting}
+        canExport={!!snapshot && (tab !== 'sessions' || !!active)}
+        sessionReport={tab === 'sessions'}
+        onRefresh={() => void refresh()}
+        onExport={() => void saveReport()}
+      />
       {!client.available && (
         <div className="d-notice">请在桌面版打开 {name} 日志分析。日志在本机只读解析。</div>
       )}
@@ -405,7 +443,12 @@ export function AgentLogAnalysis({
       )}
       {snapshot && totals && (
         <>
-          <LogCoverage count={snapshot.eventCount} generatedAt={snapshot.generatedAt} partial={snapshot.partial} onSources={() => changeTab('sources')} />
+          <LogCoverage
+            count={snapshot.eventCount}
+            generatedAt={snapshot.generatedAt}
+            partial={snapshot.partial}
+            onSources={() => changeTab('sources')}
+          />
           <LogTabs tab={tab} onChange={changeTab} issues={snapshot.issues.length} />
           {tab === 'overview' && (
             <>
@@ -413,7 +456,12 @@ export function AgentLogAnalysis({
                 {(
                   [
                     ['关联会话', snapshot.sessions.length, '查看会话时间线', 'sessions'],
-                    ['模型响应', totals.responses, `${totals.responseErrors + totals.apiErrors} 条响应 / API 错误`, 'activity'],
+                    [
+                      '模型响应',
+                      totals.responses,
+                      `${totals.responseErrors + totals.apiErrors} 条响应 / API 错误`,
+                      'activity',
+                    ],
                     ['问题分组', snapshot.issues.length, '查看排查建议与相关记录', 'issues'],
                   ] as [string, number, string, LogTab][]
                 ).map(([label, n, help, next]) => (
@@ -431,7 +479,21 @@ export function AgentLogAnalysis({
                 ))}
               </div>
               <div className="ca-overview-grid">
-                <details className="n-panel ca-overview-details ca-overview-usage">
+                <section className="n-panel">
+                  <div className="d-section-title">
+                    <h3>优先排查</h3>
+                    <button className="x-link" onClick={() => changeTab('issues')}>
+                      查看全部
+                    </button>
+                  </div>
+                  {snapshot.issues.slice(0, 4).map((issue) => (
+                    <Issue key={issue.id} issue={issue} {...eventProps} />
+                  ))}
+                  {!snapshot.issues.length && (
+                    <div className="ca-empty">已读取的记录中没有错误或告警线索。</div>
+                  )}
+                </section>
+                <details className="n-panel ca-overview-details">
                   <summary>用量与统计口径</summary>
                   <div className="d-section-title">
                     <h3>已记录的用量</h3>
@@ -444,20 +506,6 @@ export function AgentLogAnalysis({
                       : 'OpenCode 消息级用量与压缩用量相加，工具步骤中的重复用量已排除。运行日志 HTTP 单独列出。'}
                   </p>
                 </details>
-                <section className="n-panel">
-                  <div className="d-section-title">
-                    <h3>优先排查</h3>
-                    <button className="x-link" onClick={() => setTab('issues')}>
-                      查看全部
-                    </button>
-                  </div>
-                  {snapshot.issues.slice(0, 4).map((issue) => (
-                    <Issue key={issue.id} issue={issue} {...eventProps} />
-                  ))}
-                  {!snapshot.issues.length && (
-                    <div className="ca-empty">已读取的记录中没有错误或告警线索。</div>
-                  )}
-                </section>
               </div>
               <details className="n-panel ca-overview-details">
                 <summary>模型与服务商</summary>
@@ -497,7 +545,9 @@ export function AgentLogAnalysis({
               <section className="n-panel">
                 <div className="d-section-title">
                   <h3>最近需要关注的事件</h3>
-                  <button className="x-link" onClick={() => changeTab('events')}>全部事件</button>
+                  <button className="x-link" onClick={() => changeTab('events')}>
+                    全部事件
+                  </button>
                 </div>
                 <Events events={snapshot.recent.slice(0, 5)} {...eventProps} />
               </section>
@@ -571,37 +621,38 @@ export function AgentLogAnalysis({
                           {session.session.model || '未记录模型'} ·{' '}
                           {session.session.provider || '未记录服务商'}
                         </span>
-                        <details className="ca-read-scope"><summary>会话信息与关联关系</summary>
-                        <code>会话 ID：{session.session.id}</code>
-                        {(
-                          [
-                            ['父会话', session.session.parentId],
-                            ['分叉来源', session.session.forkedFrom],
-                          ] as const
-                        )
-                          .filter(([, id]) => id)
-                          .map(([label, id]) => (
-                            <span key={label}>
-                              <GitBranch size={12} /> {label}：
-                              <button className="x-link ca-mono" onClick={() => openSession(id!)}>
-                                {id}
-                              </button>
-                            </span>
-                          ))}
-                        {session.children.length > 0 && (
-                          <span>
-                            子会话：
-                            {session.children.map((s) => (
-                              <button
-                                className="x-link al-child"
-                                key={s.id}
-                                onClick={() => openSession(s.id)}
-                              >
-                                {title(s)}
-                              </button>
+                        <details className="ca-read-scope">
+                          <summary>会话信息与关联关系</summary>
+                          <code>会话 ID：{session.session.id}</code>
+                          {(
+                            [
+                              ['父会话', session.session.parentId],
+                              ['分叉来源', session.session.forkedFrom],
+                            ] as const
+                          )
+                            .filter(([, id]) => id)
+                            .map(([label, id]) => (
+                              <span key={label}>
+                                <GitBranch size={12} /> {label}：
+                                <button className="x-link ca-mono" onClick={() => openSession(id!)}>
+                                  {id}
+                                </button>
+                              </span>
                             ))}
-                          </span>
-                        )}
+                          {session.children.length > 0 && (
+                            <span>
+                              子会话：
+                              {session.children.map((s) => (
+                                <button
+                                  className="x-link al-child"
+                                  key={s.id}
+                                  onClick={() => openSession(s.id)}
+                                >
+                                  {title(s)}
+                                </button>
+                              ))}
+                            </span>
+                          )}
                         </details>
                       </div>
                       <div className="ca-session-stats">
@@ -665,10 +716,23 @@ export function AgentLogAnalysis({
                 <h3>{tab === 'activity' ? '模型活动' : '全部事件'}</h3>
                 <small className="ca-muted">{page ? `${num(page.total)} 条匹配` : '读取中'}</small>
               </div>
-              <LogFilters search={search} onSearch={setSearch} session={sessionFilter} onSession={setSessionFilter} sessions={snapshot.sessions}
+              {tab === 'activity' && (
+                <p className="d-help">
+                  模型响应记录 · 远端 IP 来自日志中的连接信息；未记录时不推测。
+                </p>
+              )}
+              <LogFilters
+                search={search}
+                onSearch={setSearch}
+                session={sessionFilter}
+                onSession={setSessionFilter}
+                sessions={snapshot.sessions}
                 advancedCount={[sourceFilter, kind, level].filter(Boolean).length}
-                active={!!(search || sessionFilter || sourceFilter || kind || level || failed)} onReset={resetFilters}
-                failed={failed} onFailed={setFailed}>
+                active={!!(search || sessionFilter || sourceFilter || kind || level || failed)}
+                onReset={resetFilters}
+                failed={failed}
+                onFailed={setFailed}
+              >
                 <select
                   aria-label="筛选日志来源"
                   value={sourceFilter}
@@ -706,11 +770,14 @@ export function AgentLogAnalysis({
                   ))}
                 </select>
               </LogFilters>
-              <details className="ca-read-scope"><summary>记录范围与统计口径</summary><p>
-                {tab === 'activity'
-                  ? '每条为会话中观测到的一次模型响应，流式片段已合并。API 错误、工具失败和运行日志 HTTP 可在全部事件中分别筛选。'
-                  : '在当前快照内筛选。只有明确记录会话 ID 的运行事件才会关联到会话。'}
-              </p></details>
+              <details className="ca-read-scope">
+                <summary>记录范围与统计口径</summary>
+                <p>
+                  {tab === 'activity'
+                    ? '每条为会话中观测到的一次模型响应，流式片段已合并。API 错误、工具失败和运行日志 HTTP 可在全部事件中分别筛选。'
+                    : '在当前快照内筛选。只有明确记录会话 ID 的运行事件才会关联到会话。'}
+                </p>
+              </details>
               {eventsBusy && !page ? (
                 <div className="ca-empty" role="status">
                   正在筛选记录…
@@ -719,16 +786,13 @@ export function AgentLogAnalysis({
                 <Events events={page?.events ?? []} {...eventProps} />
               )}
               {page && (
-                <div className="ca-load-more">
-                  <small>
-                    已显示 {num(page.events.length)} / {num(page.total)}
-                  </small>
-                  {page.nextOffset != null && (
-                    <button className="n-button" disabled={eventsBusy} onClick={() => void more()}>
-                      {eventsBusy ? '加载中…' : '加载更多'}
-                    </button>
-                  )}
-                </div>
+                <LogPagination
+                  shown={page.events.length}
+                  total={page.total}
+                  hasMore={page.nextOffset != null}
+                  busy={eventsBusy}
+                  onMore={() => void more()}
+                />
               )}
             </section>
           )}
@@ -811,29 +875,140 @@ export function AgentLogAnalysis({
           )}
         </>
       )}
-      {evidenceOpen && <LogDetailModal busy={detailBusy} error={detailError} onClose={closeEvidence}
-        onRetry={() => void evidence(evidenceTarget.current)} detail={detail ? {
-          summary: detail.event.summary, time: detail.event.time, kind: kinds[detail.event.kind] ?? detail.event.kind,
-          level: detail.event.level, note: detail.note,
-          content: JSON.stringify({ evidence: detail.evidence, ...(detail.event.usage ? { tokens: detail.event.usage } : {}) }, null, 2),
-          copy: JSON.stringify(detail, null, 2),
-          facts: <>
-            {(['response', 'api_error', 'http'].includes(detail.event.kind) || !!detail.event.requestIps?.length) && <><dt>请求 IP</dt><dd><RequestIps ips={detail.event.requestIps} /></dd></>}
-            {detail.event.model && <><dt>模型 / 服务商</dt><dd>{detail.event.model} · {detail.event.provider || '未记录'}</dd></>}
-            {detail.event.status != null && <><dt>状态</dt><dd>{detail.event.status}</dd></>}
-            {detail.event.durationMs != null && <><dt>耗时</dt><dd>{num(detail.event.durationMs)} ms</dd></>}
-            {detail.event.usage && <><dt>用量</dt><dd>输入 {num(detail.event.usage.input)} · 输出 {num(detail.event.usage.output)}</dd></>}
-            {detail.event.sessionId && <><dt>会话</dt><dd><button className="x-link ca-mono" onClick={() => { closeEvidence(); openSession(detail.event.sessionId!); }}>{detail.event.sessionId}</button></dd></>}
-          </>,
-          metadata: <>
-            {!!detail.event.requestIps?.length && <><dt>IP 记录依据</dt><dd>{detail.event.requestIps.map((ip, i) => <code key={i}>{ip.ip}{ip.port ? ` · 端口 ${ip.port}` : ''} · {ip.source}</code>)}</dd></>}
-            <dt>来源</dt><dd><code>{detail.event.location.path}</code><code>{detail.event.location.position}</code></dd>
-            {detail.event.mirrors.length > 0 && <><dt>合并的记录位置</dt><dd>{detail.event.mirrors.map((m, i) => <code key={i}>{m.path} · {m.position}</code>)}</dd></>}
-            <dt>模块</dt><dd>{detail.event.target || '未记录'}</dd>
-            {detail.event.requestId && <><dt>request-id</dt><dd>{detail.event.requestId}</dd></>}
-            {detail.event.messageId && <><dt>消息 ID</dt><dd>{detail.event.messageId}</dd></>}
-          </>,
-        } : undefined} />}
+      {evidenceOpen && (
+        <LogDetailModal
+          busy={detailBusy}
+          error={detailError}
+          onClose={closeEvidence}
+          onRetry={() => void evidence(evidenceTarget.current)}
+          detail={
+            detail
+              ? {
+                  summary: detail.event.summary,
+                  time: detail.event.time,
+                  kind: kinds[detail.event.kind] ?? detail.event.kind,
+                  level: detail.event.level,
+                  note: detail.note,
+                  content: JSON.stringify(
+                    {
+                      evidence: detail.evidence,
+                      ...(detail.event.usage ? { tokens: detail.event.usage } : {}),
+                    },
+                    null,
+                    2,
+                  ),
+                  copy: JSON.stringify(detail, null, 2),
+                  facts: (
+                    <>
+                      {(['response', 'api_error', 'http'].includes(detail.event.kind) ||
+                        !!detail.event.requestIps?.length) && (
+                        <>
+                          <dt>请求 IP</dt>
+                          <dd>
+                            <RequestIps ips={detail.event.requestIps} />
+                          </dd>
+                        </>
+                      )}
+                      {detail.event.model && (
+                        <>
+                          <dt>模型 / 服务商</dt>
+                          <dd>
+                            {detail.event.model} · {detail.event.provider || '未记录'}
+                          </dd>
+                        </>
+                      )}
+                      {detail.event.status != null && (
+                        <>
+                          <dt>状态</dt>
+                          <dd>{detail.event.status}</dd>
+                        </>
+                      )}
+                      {detail.event.durationMs != null && (
+                        <>
+                          <dt>耗时</dt>
+                          <dd>{num(detail.event.durationMs)} ms</dd>
+                        </>
+                      )}
+                      {detail.event.usage && (
+                        <>
+                          <dt>用量</dt>
+                          <dd>
+                            输入 {num(detail.event.usage.input)} · 输出{' '}
+                            {num(detail.event.usage.output)}
+                          </dd>
+                        </>
+                      )}
+                      {detail.event.sessionId && (
+                        <>
+                          <dt>会话</dt>
+                          <dd>
+                            <button
+                              className="x-link ca-mono"
+                              onClick={() => {
+                                closeEvidence();
+                                openSession(detail.event.sessionId!);
+                              }}
+                            >
+                              {detail.event.sessionId}
+                            </button>
+                          </dd>
+                        </>
+                      )}
+                    </>
+                  ),
+                  metadata: (
+                    <>
+                      {!!detail.event.requestIps?.length && (
+                        <>
+                          <dt>IP 记录依据</dt>
+                          <dd>
+                            {detail.event.requestIps.map((ip, i) => (
+                              <code key={i}>
+                                {ip.ip}
+                                {ip.port ? ` · 端口 ${ip.port}` : ''} · {ip.source}
+                              </code>
+                            ))}
+                          </dd>
+                        </>
+                      )}
+                      <dt>来源</dt>
+                      <dd>
+                        <code>{detail.event.location.path}</code>
+                        <code>{detail.event.location.position}</code>
+                      </dd>
+                      {detail.event.mirrors.length > 0 && (
+                        <>
+                          <dt>合并的记录位置</dt>
+                          <dd>
+                            {detail.event.mirrors.map((m, i) => (
+                              <code key={i}>
+                                {m.path} · {m.position}
+                              </code>
+                            ))}
+                          </dd>
+                        </>
+                      )}
+                      <dt>模块</dt>
+                      <dd>{detail.event.target || '未记录'}</dd>
+                      {detail.event.requestId && (
+                        <>
+                          <dt>request-id</dt>
+                          <dd>{detail.event.requestId}</dd>
+                        </>
+                      )}
+                      {detail.event.messageId && (
+                        <>
+                          <dt>消息 ID</dt>
+                          <dd>{detail.event.messageId}</dd>
+                        </>
+                      )}
+                    </>
+                  ),
+                }
+              : undefined
+          }
+        />
+      )}
     </div>
   );
 }

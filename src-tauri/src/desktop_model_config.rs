@@ -27,7 +27,10 @@ pub(crate) fn default_api() -> String {
 }
 
 pub(crate) fn validate(input: &Input) -> Result<String> {
-    if !matches!(input.api.as_str(), "openai-completions" | "openai-responses" | "anthropic-messages") {
+    if !matches!(
+        input.api.as_str(),
+        "openai-completions" | "openai-responses" | "anthropic-messages"
+    ) {
         return Err("不支持的 API 协议".into());
     }
     let base = input.base_url.trim();
@@ -100,7 +103,9 @@ pub(crate) fn version(tool: &str) -> Result<String> {
             _ => return Err("未知工具".into()),
         };
         let global = PathBuf::from(format!("/Applications/{app}/Contents/Info.plist"));
-        let local = std::env::var_os("HOME").map(PathBuf::from).map(|h| h.join(format!("Applications/{app}/Contents/Info.plist")));
+        let local = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .map(|h| h.join(format!("Applications/{app}/Contents/Info.plist")));
         let path = local.filter(|p| p.is_file()).unwrap_or(global);
         let output = std::process::Command::new("/usr/libexec/PlistBuddy")
             .args(["-c", "Print CFBundleShortVersionString"])
@@ -174,8 +179,15 @@ fn paths(home: &Path, tool: &str) -> Result<Vec<PathBuf>> {
                 })
                 .map(PathBuf::from)
                 .unwrap_or_else(|| home.join(".dsh"));
-            let root = root.strip_prefix("~").map(|rest| home.join(rest)).unwrap_or(root);
-            if !root.is_absolute() || root.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+            let root = root
+                .strip_prefix("~")
+                .map(|rest| home.join(rest))
+                .unwrap_or(root);
+            if !root.is_absolute()
+                || root
+                    .components()
+                    .any(|c| matches!(c, std::path::Component::ParentDir))
+            {
                 return Err("DSH_HOME 不是绝对路径，暂不支持写入".into());
             }
             let manifest = root.join("profiles/desktop/package.json");
@@ -217,7 +229,11 @@ fn revision(files: &[(PathBuf, Option<Vec<u8>>)]) -> String {
 }
 fn json_file(bytes: Option<&[u8]>) -> Result<Value> {
     let value = match bytes {
-        Some(b) => serde_json::from_slice::<crate::pi_model_config::Strict>(b).map_err(|_| "模型 JSON 格式无效或含重复字段，未覆盖文件")?.0,
+        Some(b) => {
+            serde_json::from_slice::<crate::pi_model_config::Strict>(b)
+                .map_err(|_| "模型 JSON 格式无效或含重复字段，未覆盖文件")?
+                .0
+        }
         None => json!({}),
     };
     if !value.is_object() {
@@ -256,9 +272,11 @@ fn patch_row(
             .unwrap_or("")
             .trim()
             .trim_matches(['\'', '"']);
-        let parsed_id_matches = row_id != id && row.contains(id)
+        let parsed_id_matches = row_id != id
+            && row.contains(id)
             && crate::harness_yaml::parse(row).ok().is_some_and(|v| {
-                v.as_array().is_some_and(|items| items.len() == 1 && items[0]["id"].as_str() == Some(id))
+                v.as_array()
+                    .is_some_and(|items| items.len() == 1 && items[0]["id"].as_str() == Some(id))
             });
         if row_id == id || parsed_id_matches {
             if hit.is_some() {
@@ -289,16 +307,30 @@ fn patch_row(
         let mut fields = row[0].clone();
         fields.as_object_mut().unwrap().remove("id");
         let rest = serde_yaml_ng::to_string(&fields).map_err(|_| "无法生成 DSH 配置")?;
-        format!("- id: {id}\n{}", rest.lines().map(|line| format!("  {line}\n")).collect::<String>())
+        format!(
+            "- id: {id}\n{}",
+            rest.lines()
+                .map(|line| format!("  {line}\n"))
+                .collect::<String>()
+        )
     } else {
-        let mapping: String = old.split_inclusive('\n').enumerate().map(|(i, line)| {
-            if i == 0 { line.strip_prefix("- ").unwrap_or(line) }
-            else { line.strip_prefix("  ").unwrap_or(line) }
-        }).collect();
+        let mapping: String = old
+            .split_inclusive('\n')
+            .enumerate()
+            .map(|(i, line)| {
+                if i == 0 {
+                    line.strip_prefix("- ").unwrap_or(line)
+                } else {
+                    line.strip_prefix("  ").unwrap_or(line)
+                }
+            })
+            .collect();
         let edited = crate::harness_yaml::update(&mapping, &row[0])?;
-        edited.split_inclusive('\n').enumerate().map(|(i, line)| {
-            format!("{}{line}", if i == 0 { "- " } else { "  " })
-        }).collect()
+        edited
+            .split_inclusive('\n')
+            .enumerate()
+            .map(|(i, line)| format!("{}{line}", if i == 0 { "- " } else { "  " }))
+            .collect()
     };
     let mut out = source[..start].to_string();
     if !out.is_empty() && !out.ends_with('\n') {
@@ -379,7 +411,11 @@ pub fn view(home: &Path, tool: &str) -> Result<Value> {
         let value = json_file(files[0].1.as_deref())?;
         if let Some(models) = value.get("models") {
             let models = models.as_array().ok_or("WorkBuddy 模型列表格式无效")?;
-            known_models = models.iter().filter(|m| managed_model(m)).filter_map(|m| m["id"].as_str().map(str::to_string)).collect();
+            known_models = models
+                .iter()
+                .filter(|m| managed_model(m))
+                .filter_map(|m| m["id"].as_str().map(str::to_string))
+                .collect();
             if let Some(item) = models.iter().find(|m| managed_model(m)) {
                 model = item["id"].as_str().unwrap_or("").to_string();
                 base_url = item["url"]
@@ -395,8 +431,17 @@ pub fn view(home: &Path, tool: &str) -> Result<Value> {
         // Parse only the provider row, leaving unrelated YAML untouched.
         let _ = patch_row(source, "llm-pi-ai", |entry| {
             if let Some(p) = entry.pointer("/config/providers/cyapi-toolbox") {
-                known_models = p.get("models").and_then(Value::as_array).into_iter().flatten().filter_map(|m| m["id"].as_str().map(str::to_string)).collect();
-                api = p["api"].as_str().unwrap_or("openai-completions").to_string();
+                known_models = p
+                    .get("models")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|m| m["id"].as_str().map(str::to_string))
+                    .collect();
+                api = p["api"]
+                    .as_str()
+                    .unwrap_or("openai-completions")
+                    .to_string();
                 base_url = p["baseURL"].as_str().unwrap_or("").to_string();
                 model = p
                     .pointer("/models/0/id")
@@ -417,7 +462,10 @@ pub fn view(home: &Path, tool: &str) -> Result<Value> {
             Ok(())
         })?;
         let credentials = crate::harness_yaml::parse(text(files[1].1.as_deref())?)?;
-        configured = credentials.get("refs").and_then(|refs| refs.get(KEY)).or_else(|| credentials.get(KEY))
+        configured = credentials
+            .get("refs")
+            .and_then(|refs| refs.get(KEY))
+            .or_else(|| credentials.get(KEY))
             .and_then(Value::as_str)
             .is_some_and(|s| !s.is_empty());
     }
@@ -467,7 +515,9 @@ fn save_checked(home: &Path, tool: &str, input: &Input) -> Result<()> {
             return Err("存在多个 CYAPI 模型，请先在 WorkBuddy 内整理，未写入文件".into());
         }
         let old = managed.first().copied();
-        let old_id = old.and_then(|i| models[i]["id"].as_str()).map(str::to_string);
+        let old_id = old
+            .and_then(|i| models[i]["id"].as_str())
+            .map(str::to_string);
         if models
             .iter()
             .enumerate()
@@ -496,10 +546,7 @@ fn save_checked(home: &Path, tool: &str, input: &Input) -> Result<()> {
         item_obj.insert("name".into(), json!(format!("CYAPI · {id}")));
         item_obj.insert("vendor".into(), json!("Custom"));
         item_obj.insert("apiKey".into(), json!(key));
-        item_obj.insert(
-            "url".into(),
-            json!(format!("{base_url}/chat/completions")),
-        );
+        item_obj.insert("url".into(), json!(format!("{base_url}/chat/completions")));
         item_obj.entry("supportsToolCall").or_insert(json!(true));
         if let Some(i) = old {
             models[i] = item;
@@ -512,10 +559,13 @@ fn save_checked(home: &Path, tool: &str, input: &Input) -> Result<()> {
                 .ok_or("WorkBuddy 可用模型列表格式无效")?;
             if let Some(old_id) = old_id.filter(|old_id| old_id != id) {
                 for entry in available.iter_mut() {
-                    if entry.as_str() == Some(&old_id) { *entry = json!(id); }
+                    if entry.as_str() == Some(&old_id) {
+                        *entry = json!(id);
+                    }
                 }
                 let mut seen = std::collections::HashSet::new();
-                available.retain(|entry| entry.as_str().is_none_or(|id| seen.insert(id.to_string())));
+                available
+                    .retain(|entry| entry.as_str().is_none_or(|id| seen.insert(id.to_string())));
             }
             if !available.iter().any(|v| v.as_str() == Some(id)) {
                 available.push(json!(id));
@@ -527,17 +577,26 @@ fn save_checked(home: &Path, tool: &str, input: &Input) -> Result<()> {
         let raw = text(files[1].1.as_deref())?;
         let mut credentials = crate::harness_yaml::parse(raw)?;
         let document = credentials.as_object_mut().ok_or("DSH 凭据文件格式无效")?;
-        if document.get("version").is_some_and(|v| v.as_u64() != Some(1)) {
+        if document
+            .get("version")
+            .is_some_and(|v| v.as_u64() != Some(1))
+        {
             return Err("DSH 凭据文件版本不支持".into());
         }
         document.insert("version".into(), json!(1));
         // Recover the key written at the wrong level by earlier toolbox builds.
         let legacy = document.remove(KEY);
-        let creds = document.entry("refs").or_insert_with(|| json!({})).as_object_mut().ok_or("DSH 凭据 refs 格式无效")?;
+        let creds = document
+            .entry("refs")
+            .or_insert_with(|| json!({}))
+            .as_object_mut()
+            .ok_or("DSH 凭据 refs 格式无效")?;
         if !input.api_key.is_empty() {
             creds.insert(KEY.into(), json!(input.api_key));
         } else if !creds.contains_key(KEY) {
-            if let Some(key) = legacy { creds.insert(KEY.into(), key); }
+            if let Some(key) = legacy {
+                creds.insert(KEY.into(), key);
+            }
         }
         if !creds
             .get(KEY)
@@ -649,9 +708,13 @@ mod tests {
         assert!(result.contains("another:"));
         assert!(result.contains("contextWindow: 20000"));
         let _ = patch_row(&result, "llm-pi-ai", |row| {
-            assert_eq!(row["config"]["providers"][PROVIDER]["models"][1]["id"], "new-model");
+            assert_eq!(
+                row["config"]["providers"][PROVIDER]["models"][1]["id"],
+                "new-model"
+            );
             Ok(())
-        }).unwrap();
+        })
+        .unwrap();
         assert!(!result.contains("fictional-test-key"));
         assert!(fs::read_to_string(&paths[1])
             .unwrap()
@@ -667,7 +730,9 @@ mod tests {
             revision: "".into(),
             api: default_api(),
         };
-        assert!(dsh_row("- id: llm-pi-ai # important\n  config: {}\n", &req).unwrap().contains("# important"));
+        assert!(dsh_row("- id: llm-pi-ai # important\n  config: {}\n", &req)
+            .unwrap()
+            .contains("# important"));
         assert!(dsh_row(
             "- id: llm-pi-ai\n  config: {}\n- id: llm-pi-ai\n  config: {}\n",
             &req
@@ -720,10 +785,17 @@ mod tests {
         assert!(credentials.contains("payload: {access: fictional, refresh: fictional-refresh}"));
         let profile = fs::read_to_string(&files[0]).unwrap();
         patch_row(&profile, "llm-pi-ai", |row| {
-            assert_eq!(row["config"]["providers"][PROVIDER]["api"], "anthropic-messages");
-            assert_eq!(row["config"]["providers"][PROVIDER]["baseURL"], "https://example.invalid/v1");
+            assert_eq!(
+                row["config"]["providers"][PROVIDER]["api"],
+                "anthropic-messages"
+            );
+            assert_eq!(
+                row["config"]["providers"][PROVIDER]["baseURL"],
+                "https://example.invalid/v1"
+            );
             Ok(())
-        }).unwrap();
+        })
+        .unwrap();
         request.revision = revision(&snapshot(&home, "dsh").unwrap());
         save_checked(&home, "dsh", &request).unwrap();
         fs::remove_dir_all(home).unwrap();
@@ -749,7 +821,11 @@ mod tests {
     fn validates_protocol_and_normalizes_endpoint_suffixes() {
         let home = fixture();
         let mut request = input(&home, "workbuddy", "model");
-        for (api, suffix) in [("openai-completions", "chat/completions"), ("openai-responses", "responses"), ("anthropic-messages", "messages")] {
+        for (api, suffix) in [
+            ("openai-completions", "chat/completions"),
+            ("openai-responses", "responses"),
+            ("anthropic-messages", "messages"),
+        ] {
             request.api = api.into();
             request.base_url = format!("https://example.invalid/v1/{suffix}/");
             assert_eq!(validate(&request).unwrap(), "https://example.invalid/v1");

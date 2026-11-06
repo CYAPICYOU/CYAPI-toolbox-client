@@ -13,7 +13,9 @@ const NAME: &str = "CYAPI Toolbox";
 fn version() -> Result<String> {
     let v = crate::desktop_model_config::version("minimax")?;
     if !matches!(v.as_str(), "3.1.6" | "3.1.10") {
-        return Err(format!("检测到 MiniMax Code {v}，目前已适配 3.1.6 / 3.1.10"));
+        return Err(format!(
+            "检测到 MiniMax Code {v}，目前已适配 3.1.6 / 3.1.10"
+        ));
     }
     Ok(v)
 }
@@ -36,8 +38,11 @@ fn path(dir: &str) -> Result<PathBuf> {
 }
 
 fn resolve_path(home: &Path, dir: &str) -> Result<PathBuf> {
-    if !dir.trim().is_empty() { return path(dir); }
-    let isolated = std::env::var_os("CYAPI_TOOLBOX_HOME_DIR").is_some() || !crate::platform::is_default_home(home);
+    if !dir.trim().is_empty() {
+        return path(dir);
+    }
+    let isolated = std::env::var_os("CYAPI_TOOLBOX_HOME_DIR").is_some()
+        || !crate::platform::is_default_home(home);
     if !isolated {
         for name in ["MINIMAX_DATA_DIR", "MAVIS_DATA_DIR"] {
             if let Some(value) = std::env::var_os(name).filter(|v| !v.is_empty()) {
@@ -45,7 +50,9 @@ fn resolve_path(home: &Path, dir: &str) -> Result<PathBuf> {
             }
         }
         #[cfg(windows)]
-        let app_data = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(|| home.join("AppData/Roaming"));
+        let app_data = std::env::var_os("APPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join("AppData/Roaming"));
         #[cfg(target_os = "macos")]
         let app_data = home.join("Library/Application Support");
         #[cfg(not(any(windows, target_os = "macos")))]
@@ -55,19 +62,35 @@ fn resolve_path(home: &Path, dir: &str) -> Result<PathBuf> {
             for file in ["minimax-agent-cn-config.json", "minimax-agent-config.json"] {
                 let store = app_data.join(app).join(file);
                 no_links(&store)?;
-                let Some(bytes) = read_bytes(&store)? else { continue; };
-                let doc = serde_json::from_slice::<crate::pi_model_config::Strict>(&bytes).map_err(|_| "MiniMax 桌面目录设置无效，请手动指定数据目录")?.0;
-                if let Some(parent) = doc.pointer("/config/localRuntimeDataParentDir").and_then(Value::as_str).filter(|v| !v.trim().is_empty()) {
+                let Some(bytes) = read_bytes(&store)? else {
+                    continue;
+                };
+                let doc = serde_json::from_slice::<crate::pi_model_config::Strict>(&bytes)
+                    .map_err(|_| "MiniMax 桌面目录设置无效，请手动指定数据目录")?
+                    .0;
+                if let Some(parent) = doc
+                    .pointer("/config/localRuntimeDataParentDir")
+                    .and_then(Value::as_str)
+                    .filter(|v| !v.trim().is_empty())
+                {
                     configured.push(PathBuf::from(parent.trim()).join(".minimax"));
                 }
             }
         }
         configured.sort();
         configured.dedup();
-        if configured.len() > 1 { return Err("检测到多个 MiniMax 数据目录，请手动指定".into()); }
-        if let Some(dir) = configured.first() { return path(dir.to_str().ok_or("MiniMax 数据目录编码无效")?); }
+        if configured.len() > 1 {
+            return Err("检测到多个 MiniMax 数据目录，请手动指定".into());
+        }
+        if let Some(dir) = configured.first() {
+            return path(dir.to_str().ok_or("MiniMax 数据目录编码无效")?);
+        }
     }
-    path(home.join(".minimax").to_str().ok_or("MiniMax 数据目录编码无效")?)
+    path(
+        home.join(".minimax")
+            .to_str()
+            .ok_or("MiniMax 数据目录编码无效")?,
+    )
 }
 fn parse(bytes: &[u8]) -> Result<Value> {
     let s = std::str::from_utf8(bytes).map_err(|_| "MiniMax 配置不是 UTF-8")?;
@@ -106,10 +129,18 @@ fn view_at(path: &Path, ver: &str) -> Result<Value> {
     let models: Vec<_> = p
         .and_then(|v| v.get("models"))
         .and_then(Value::as_object)
-        .into_iter().flat_map(|m| m.iter()).filter(|(_, m)| m.get("enabled").and_then(Value::as_bool) != Some(false)).map(|(id, _)| id.as_str()).collect();
-    let model = doc.get("defaultModel").and_then(Value::as_str)
-        .and_then(|m| m.strip_prefix("custom_provider:cyapi-toolbox/")).filter(|m| models.contains(m))
-        .or_else(|| models.first().copied()).unwrap_or("");
+        .into_iter()
+        .flat_map(|m| m.iter())
+        .filter(|(_, m)| m.get("enabled").and_then(Value::as_bool) != Some(false))
+        .map(|(id, _)| id.as_str())
+        .collect();
+    let model = doc
+        .get("defaultModel")
+        .and_then(Value::as_str)
+        .and_then(|m| m.strip_prefix("custom_provider:cyapi-toolbox/"))
+        .filter(|m| models.contains(m))
+        .or_else(|| models.first().copied())
+        .unwrap_or("");
     Ok(
         json!({"version":ver,"revision":revision(path,&bytes),"baseUrl":p.and_then(|v|v.pointer("/options/baseURL")).and_then(Value::as_str).unwrap_or(""),"model":model,"models":models,"api":p.and_then(|v|v.get("api")).and_then(Value::as_str).unwrap_or("openai-completions"),"apiKeyConfigured":p.and_then(|v|v.pointer("/options/apiKey")).and_then(Value::as_str).is_some_and(|v|!v.is_empty()),"configPath":path,"dataDir":path.parent()}),
     )
@@ -174,7 +205,11 @@ fn save_at(path: &Path, input: &Input) -> Result<()> {
     models
         .entry(input.model.trim())
         .or_insert_with(|| json!({"name":input.model.trim(),"enabled":true}));
-    let encoded = crate::harness_yaml::update(std::str::from_utf8(&original).map_err(|_| "MiniMax 配置不是 UTF-8")?, &doc)?.into_bytes();
+    let encoded = crate::harness_yaml::update(
+        std::str::from_utf8(&original).map_err(|_| "MiniMax 配置不是 UTF-8")?,
+        &doc,
+    )?
+    .into_bytes();
     if encoded.len() > 1_000_000 {
         return Err("生成的配置过大".into());
     }
@@ -254,18 +289,25 @@ mod tests {
 
     #[test]
     fn edits_realistic_commented_config_preserving_order_and_model_metadata() {
-        let dir = std::env::temp_dir().join(format!("cyapi-minimax-comment-test-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!(
+            "cyapi-minimax-comment-test-{}",
+            uuid::Uuid::new_v4()
+        ));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.yaml");
         let original = "# user settings\nzoom: 1\ncustom_provider:\n  cyapi-toolbox:\n    name: CYAPI Toolbox\n    kind: custom\n    api: openai-completions\n    options:\n      baseURL: https://example.invalid/v1\n      apiKey: 'old#key' # key note\n    models:\n      z-model: {name: Z, enabled: true, contextWindow: 200000}\n      a-model: {name: A, enabled: true}\n# default\ndefaultModel: custom_provider:cyapi-toolbox/z-model\n";
         fs::write(&path, original).unwrap();
         let request = Input {
-            base_url: "https://example.invalid/v1/responses/".into(), api_key: "!a&#*b".into(),
-            model: "z-model".into(), api: "openai-responses".into(), revision: revision(&path, original.as_bytes()),
+            base_url: "https://example.invalid/v1/responses/".into(),
+            api_key: "!a&#*b".into(),
+            model: "z-model".into(),
+            api: "openai-responses".into(),
+            revision: revision(&path, original.as_bytes()),
         };
         save_at(&path, &request).unwrap();
         let result = fs::read_to_string(&path).unwrap();
-        assert!(result.contains("z-model: {name: Z, enabled: true, contextWindow: 200000}\n      a-model:"));
+        assert!(result
+            .contains("z-model: {name: Z, enabled: true, contextWindow: 200000}\n      a-model:"));
         assert!(result.starts_with("# user settings\nzoom: 1\n"));
         assert!(result.contains("# key note"));
         assert!(result.contains("# default\ndefaultModel: custom_provider:cyapi-toolbox/z-model"));
@@ -273,17 +315,27 @@ mod tests {
         assert_eq!(view["model"], "z-model");
         assert_eq!(view["api"], "openai-responses");
         assert!(!serde_json::to_string(&view).unwrap().contains("!a&#*b"));
-        assert_eq!(parse(result.as_bytes()).unwrap()["custom_provider"][PROVIDER]["options"]["apiKey"], "!a&#*b");
+        assert_eq!(
+            parse(result.as_bytes()).unwrap()["custom_provider"][PROVIDER]["options"]["apiKey"],
+            "!a&#*b"
+        );
         fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
     fn resolves_isolated_default_and_explicit_data_directories() {
-        let home = std::env::temp_dir().join(format!("cyapi-minimax-path-test-{}", uuid::Uuid::new_v4()));
+        let home =
+            std::env::temp_dir().join(format!("cyapi-minimax-path-test-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(home.join(".minimax")).unwrap();
         fs::write(home.join(".minimax/config.yaml"), "{}").unwrap();
-        assert_eq!(resolve_path(&home, "").unwrap(), home.join(".minimax/config.yaml"));
-        assert_eq!(resolve_path(&home, home.join(".minimax").to_str().unwrap()).unwrap(), home.join(".minimax/config.yaml"));
+        assert_eq!(
+            resolve_path(&home, "").unwrap(),
+            home.join(".minimax/config.yaml")
+        );
+        assert_eq!(
+            resolve_path(&home, home.join(".minimax").to_str().unwrap()).unwrap(),
+            home.join(".minimax/config.yaml")
+        );
         assert!(resolve_path(&home, "relative").is_err());
         fs::remove_dir_all(home).unwrap();
     }

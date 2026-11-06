@@ -16,6 +16,8 @@ mod desktop_model_config;
 mod pi_model_config;
 mod minimax_model_config;
 mod harness_yaml;
+mod harness_config;
+mod tool_apps;
 mod pi_mcp_config;
 mod external_tools;
 mod installed;
@@ -338,6 +340,8 @@ async fn toolbox(
             | "claude-read"
             | "opencode-read"
             | "desktop-model-read"
+            | "harness-model-read"
+            | "tool-apps-detect"
             | "pi-mcp-read"
             | "configuration-read"
             | "models-list"
@@ -423,6 +427,9 @@ async fn toolbox(
             if let Some(input) = &request.desktop_model {
                 logging::register_secret(&input.api_key);
             }
+            if let Some(input) = &request.harness_model {
+                logging::register_secret(&input.api_key);
+            }
             if let Some(key) = &request.api_key {
                 logging::register_secret(key);
             }
@@ -435,6 +442,13 @@ async fn toolbox(
             }
             let result = if action == "open-url" {
                 crate::update::open(request.url.as_deref().unwrap_or_default())
+            } else if action == "tool-apps-detect" {
+                // Registry probing can be slow; release the service lock before scanning.
+                let home = service
+                    .lock()
+                    .map_err(|_| "安装服务暂不可用".to_string())
+                    .and_then(|state| state.as_ref().map(|service| service.home.clone()).map_err(|error| error.clone()));
+                home.map(|home| crate::tool_apps::detect(&home))
             } else if action == "integration-services-read" {
                 let workspace = request.workspace.as_deref().unwrap_or("codex");
                 // Snapshot only local endpoint settings under the lock. DNS and

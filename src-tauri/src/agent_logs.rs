@@ -757,19 +757,31 @@ struct Query {
 // Associate only an explicit request ID within the same explicit session.
 // Session-wide or time-neighbour guesses would assign the wrong IP on retries.
 fn associate_request_ips(events: &mut [Event]) {
-    let mut peers: HashMap<(String, String), Vec<crate::request_network::RequestIp>> = HashMap::new();
+    let mut peers: HashMap<(String, String), Vec<crate::request_network::RequestIp>> =
+        HashMap::new();
     for e in events.iter() {
         if let (Some(session), Some(request)) = (&e.session_id, &e.request_id) {
             if !session.is_empty() && !request.is_empty() && !e.request_ips.is_empty() {
-                crate::request_network::merge(peers.entry((session.clone(), request.clone())).or_default(), &e.request_ips);
+                crate::request_network::merge(
+                    peers.entry((session.clone(), request.clone())).or_default(),
+                    &e.request_ips,
+                );
             }
         }
     }
     for e in events {
-        if e.request_ips.is_empty() && matches!(e.kind.as_str(), "response" | "api_error" | "http") {
+        if e.request_ips.is_empty() && matches!(e.kind.as_str(), "response" | "api_error" | "http")
+        {
             if let (Some(session), Some(request)) = (&e.session_id, &e.request_id) {
                 if let Some(ips) = peers.get(&(session.clone(), request.clone())) {
-                    e.request_ips = ips.iter().cloned().map(|mut ip| { ip.source = format!("同会话 request-id={request} 关联 · {}", ip.source); ip }).collect();
+                    e.request_ips = ips
+                        .iter()
+                        .cloned()
+                        .map(|mut ip| {
+                            ip.source = format!("同会话 request-id={request} 关联 · {}", ip.source);
+                            ip
+                        })
+                        .collect();
                 }
             }
         }
@@ -803,7 +815,11 @@ fn matches(e: &Event, q: &Query) -> bool {
             e.model,
             e.provider,
             e.evidence,
-            e.request_ips.iter().map(|ip| ip.ip.as_str()).collect::<Vec<_>>().join(" ")
+            e.request_ips
+                .iter()
+                .map(|ip| ip.ip.as_str())
+                .collect::<Vec<_>>()
+                .join(" ")
         )
         .to_lowercase()
         .contains(&s.trim().to_lowercase())

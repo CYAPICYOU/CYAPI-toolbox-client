@@ -11,7 +11,16 @@ import {
   LoaderCircle,
   Search,
 } from 'lucide-react';
-import { LogCoverage, LogDetailModal, LogEvents, LogFilters, LogHeader, LogTabs, RequestIps } from './LogAnalysisShared';
+import {
+  LogCoverage,
+  LogDetailModal,
+  LogEvents,
+  LogFilters,
+  LogHeader,
+  LogPagination,
+  LogTabs,
+  RequestIps,
+} from './LogAnalysisShared';
 import type { LogTab } from './LogAnalysisShared';
 import { nativeAvailable } from '../lib/api/native';
 import {
@@ -111,13 +120,35 @@ function EventList({
   onOpen: (event: AnalysisEvent) => void;
   onSession: (id: string) => void;
 }) {
-  return <LogEvents rows={events.map(e => ({
-    id: e.id, time: e.time, sessionId: e.threadId, model: e.model,
-    requestIps: e.http?.requestIps, request: !!e.http || e.kind === 'request',
-    severity: (e.http && !e.http.ok) || e.level === 'ERROR' ? 'error' : e.level === 'WARN' ? 'warn' : '',
-    label: String(e.http ? e.http.status ?? (e.http.timeout ? '超时' : '连接失败') : kinds[e.kind] ?? e.kind),
-    summary: requests && e.http ? `${e.http.method} ${e.http.host}${e.http.path}` : e.summary,
-  }))} onOpen={id => { const event = events.find(e => e.id === id); if (event) onOpen(event); }} onSession={onSession} />;
+  return (
+    <LogEvents
+      rows={events.map((e) => ({
+        id: e.id,
+        time: e.time,
+        sessionId: e.threadId,
+        model: e.model,
+        requestIps: e.http?.requestIps,
+        request: !!e.http || e.kind === 'request',
+        severity:
+          (e.http && !e.http.ok) || e.level === 'ERROR'
+            ? 'error'
+            : e.level === 'WARN'
+              ? 'warn'
+              : '',
+        label: String(
+          e.http
+            ? (e.http.status ?? (e.http.timeout ? '超时' : '连接失败'))
+            : (kinds[e.kind] ?? e.kind),
+        ),
+        summary: requests && e.http ? `${e.http.method} ${e.http.host}${e.http.path}` : e.summary,
+      }))}
+      onOpen={(id) => {
+        const event = events.find((e) => e.id === id);
+        if (event) onOpen(event);
+      }}
+      onSession={onSession}
+    />
+  );
 }
 
 function IssueCard({
@@ -332,7 +363,7 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
     };
   }, [analysis, tab, effectiveSession?.id, analyzeSession]);
   function openSession(id: string) {
-    if (!analysis?.sessions.some(s => s.id === id)) {
+    if (!analysis?.sessions.some((s) => s.id === id)) {
       setNotice(`会话 ${id} 未包含在当前读取范围，可扩大时间范围后刷新。`);
       return;
     }
@@ -376,10 +407,19 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
     setDetail(undefined);
   }
   function resetFilters() {
-    setSearch(''); setDebouncedSearch(''); setSourceRole(''); setThread('');
-    setEventKind(''); setLevel(''); setOnlyFailed(false);
+    setSearch('');
+    setDebouncedSearch('');
+    setSourceRole('');
+    setThread('');
+    setEventKind('');
+    setLevel('');
+    setOnlyFailed(false);
   }
-  function changeTab(next: LogTab) { resetFilters(); setTab(next); }
+  function changeTab(next: LogTab) {
+    resetFilters();
+    setIssueCategory('');
+    setTab(next);
+  }
   async function saveReport() {
     if (!analysis || exporting) return;
     setExporting(true);
@@ -404,10 +444,20 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
 
   return (
     <div className="ca-page">
-      <LogHeader name="Codex" windowSeconds={windowSeconds} onWindow={setWindowSeconds}
-        live={live} onLive={() => setLive(!live)} busy={busy} available={nativeAvailable}
-        exporting={exporting} canExport={!!analysis && (tab !== 'sessions' || !!effectiveSession)} sessionReport={tab === 'sessions'}
-        onRefresh={() => void refresh()} onExport={() => void saveReport()} />
+      <LogHeader
+        name="Codex"
+        windowSeconds={windowSeconds}
+        onWindow={setWindowSeconds}
+        live={live}
+        onLive={() => setLive(!live)}
+        busy={busy}
+        available={nativeAvailable}
+        exporting={exporting}
+        canExport={!!analysis && (tab !== 'sessions' || !!effectiveSession)}
+        sessionReport={tab === 'sessions'}
+        onRefresh={() => void refresh()}
+        onExport={() => void saveReport()}
+      />
       {!nativeAvailable && (
         <div className="n-alert">
           <FileText size={16} />
@@ -434,15 +484,25 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
       )}
       {analysis && (
         <>
-           <LogCoverage count={analysis.eventCount} generatedAt={analysis.generatedAt} partial={analysis.partial} onSources={() => changeTab('sources')} />
-           <LogTabs tab={tab} onChange={changeTab} issues={analysis.issues.length} />
+          <LogCoverage
+            count={analysis.eventCount}
+            generatedAt={analysis.generatedAt}
+            partial={analysis.partial}
+            onSources={() => changeTab('sources')}
+          />
+          <LogTabs tab={tab} onChange={changeTab} issues={analysis.issues.length} />
           {tab === 'overview' && (
             <>
               <div className="ca-metrics">
                 {(
                   [
                     ['关联会话', analysis.totals.sessions, '查看会话时间线', 'sessions'],
-                    ['模型请求', analysis.totals.requests, `${analysis.totals.failed} 次 HTTP 失败`, 'activity'],
+                    [
+                      '模型请求',
+                      analysis.totals.requests,
+                      `${analysis.totals.failed} 次 HTTP 失败`,
+                      'activity',
+                    ],
                     ['问题分组', analysis.issues.length, '查看排查建议与相关记录', 'issues'],
                   ] as const
                 ).map(([label, value, help, target]) => (
@@ -469,7 +529,7 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
                 <section className="n-panel">
                   <div className="d-section-title">
                     <h3>优先排查</h3>
-                    <button className="x-link" onClick={() => setTab('issues')}>
+                    <button className="x-link" onClick={() => changeTab('issues')}>
                       查看全部 <ArrowRight size={12} />
                     </button>
                   </div>
@@ -532,7 +592,9 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
               <section className="n-panel">
                 <div className="d-section-title">
                   <h3>最近需要关注的事件</h3>
-                  <button className="x-link" onClick={() => changeTab('events')}>全部事件</button>
+                  <button className="x-link" onClick={() => changeTab('events')}>
+                    全部事件
+                  </button>
                 </div>
                 <EventList
                   events={analysis.recent.slice(0, 5)}
@@ -649,9 +711,9 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
                           <span>{session.source.note}</span>
                         </div>
                       )}
-                       <details className="ca-read-scope">
-                         <summary>会话信息与统计范围</summary>
-                         <code>会话 ID：{session.session.id}</code>
+                      <details className="ca-read-scope">
+                        <summary>会话信息与统计范围</summary>
+                        <code>会话 ID：{session.session.id}</code>
                         <code>{session.source.path}</code>
                         <p>{session.note}</p>
                       </details>
@@ -727,10 +789,23 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
                   {page && <small className="ca-muted"> · {number(page.total)} 条匹配记录</small>}
                 </h3>
               </div>
-              <LogFilters search={search} onSearch={setSearch} session={thread} onSession={setThread} sessions={analysis.sessions}
+              {tab === 'activity' && (
+                <p className="d-help">
+                  模型 HTTP 请求记录 · 远端 IP 来自日志中的连接信息；未记录时不推测。
+                </p>
+              )}
+              <LogFilters
+                search={search}
+                onSearch={setSearch}
+                session={thread}
+                onSession={setThread}
+                sessions={analysis.sessions}
                 advancedCount={[sourceRole, eventKind, level].filter(Boolean).length}
-                active={!!(search || sourceRole || thread || eventKind || level || onlyFailed)} onReset={resetFilters}
-                failed={onlyFailed} onFailed={tab === 'activity' ? setOnlyFailed : undefined}>
+                active={!!(search || sourceRole || thread || eventKind || level || onlyFailed)}
+                onReset={resetFilters}
+                failed={onlyFailed}
+                onFailed={tab === 'activity' ? setOnlyFailed : undefined}
+              >
                 <select
                   aria-label="筛选日志来源"
                   value={sourceRole}
@@ -784,12 +859,15 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
                   </>
                 )}
               </LogFilters>
-              <details className="ca-read-scope"><summary>记录范围与统计口径</summary><p>
-                {tab === 'activity'
-                  ? '只统计模型接口的 HTTP 尝试；401 / 429 / 5xx 均记为失败。'
-                  : '运行数据库与文本日志合并后分页；会话 JSONL 的回合和工具记录在「会话」中按需读取。'}{' '}
-                所有筛选基于同一次分析快照。
-              </p></details>
+              <details className="ca-read-scope">
+                <summary>记录范围与统计口径</summary>
+                <p>
+                  {tab === 'activity'
+                    ? '只统计模型接口的 HTTP 尝试；401 / 429 / 5xx 均记为失败。'
+                    : '运行数据库与文本日志合并后分页；会话 JSONL 的回合和工具记录在「会话」中按需读取。'}{' '}
+                  所有筛选基于同一次分析快照。
+                </p>
+              </details>
               {eventsBusy && !page && (
                 <div className="n-progress" role="status">
                   <LoaderCircle size={15} className="n-spin" />
@@ -804,19 +882,14 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
                   onSession={openSession}
                 />
               )}
-              {page?.nextOffset != null && (
-                <div className="ca-load-more">
-                  <button
-                    className="n-button"
-                    disabled={eventsBusy}
-                    onClick={() => void loadMore()}
-                  >
-                    {eventsBusy ? '正在读取…' : '加载更多'}
-                  </button>
-                  <small>
-                    已显示 {page.events.length} / {page.total} 条
-                  </small>
-                </div>
+              {page && (
+                <LogPagination
+                  shown={page.events.length}
+                  total={page.total}
+                  hasMore={page.nextOffset != null}
+                  busy={eventsBusy}
+                  onMore={() => void loadMore()}
+                />
               )}
             </section>
           )}
@@ -955,26 +1028,125 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
           </button>
         </div>
       )}
-      {evidenceOpen && <LogDetailModal busy={detailBusy} error={detailError} onClose={closeEvidence}
-        onRetry={() => void openEvidence(evidenceTarget.current)} detail={detail ? {
-          summary: detail.event.summary, time: detail.event.time, kind: kinds[detail.event.kind] ?? detail.event.kind,
-          level: detail.event.level, content: detail.message, context: detail.span, note: detail.note,
-          copy: `${date(detail.event.time)} ${detail.event.location.path} ${detail.event.location.position}\n${JSON.stringify(detail.event, null, 2)}\n${detail.message}${detail.span ? `\n${detail.span}` : ''}`,
-          facts: <>
-            {(detail.event.http || detail.event.kind === 'request') && <><dt>请求 IP</dt><dd><RequestIps ips={detail.event.http?.requestIps} /></dd></>}
-            {detail.event.model && <><dt>模型</dt><dd>{detail.event.model}</dd></>}
-            {detail.event.http && <><dt>请求结果</dt><dd>{detail.event.http.status ?? (detail.event.http.timeout ? '超时' : '连接失败')} · {detail.event.http.method} {detail.event.http.host}{detail.event.http.path}</dd></>}
-            {detail.event.threadId && <><dt>会话</dt><dd><button className="x-link ca-mono" onClick={() => { closeEvidence(); openSession(detail.event.threadId!); }}>{detail.event.threadId}</button></dd></>}
-          </>,
-          metadata: <>
-            {!!detail.event.http?.requestIps?.length && <><dt>IP 记录依据</dt><dd>{detail.event.http.requestIps.map((ip, i) => <code key={i}>{ip.ip}{ip.port ? ` · 端口 ${ip.port}` : ''} · {ip.source}</code>)}</dd></>}
-            <dt>来源</dt><dd>{roles[detail.event.location.sourceRole]}<code>{detail.event.location.path}</code><code>{detail.event.location.position}</code></dd>
-            {detail.event.mirrors.length > 0 && <><dt>合并的记录位置</dt><dd>{detail.event.mirrors.map((m, i) => <code key={i}>{m.path} · {m.position}</code>)}</dd></>}
-            <dt>模块</dt><dd>{detail.event.target || '未记录'}</dd>
-            {detail.event.turnId && <><dt>回合 ID</dt><dd>{detail.event.turnId}</dd></>}
-            {detail.event.http && <><dt>完整地址 / request-id</dt><dd><code>{detail.event.http.url}</code><code>{detail.event.http.requestId ?? '未记录'}</code></dd></>}
-          </>,
-        } : undefined} />}
+      {evidenceOpen && (
+        <LogDetailModal
+          busy={detailBusy}
+          error={detailError}
+          onClose={closeEvidence}
+          onRetry={() => void openEvidence(evidenceTarget.current)}
+          detail={
+            detail
+              ? {
+                  summary: detail.event.summary,
+                  time: detail.event.time,
+                  kind: kinds[detail.event.kind] ?? detail.event.kind,
+                  level: detail.event.level,
+                  content: detail.message,
+                  context: detail.span,
+                  note: detail.note,
+                  copy: `${date(detail.event.time)} ${detail.event.location.path} ${detail.event.location.position}\n${JSON.stringify(detail.event, null, 2)}\n${detail.message}${detail.span ? `\n${detail.span}` : ''}`,
+                  facts: (
+                    <>
+                      {(detail.event.http || detail.event.kind === 'request') && (
+                        <>
+                          <dt>请求 IP</dt>
+                          <dd>
+                            <RequestIps ips={detail.event.http?.requestIps} />
+                          </dd>
+                        </>
+                      )}
+                      {detail.event.model && (
+                        <>
+                          <dt>模型</dt>
+                          <dd>{detail.event.model}</dd>
+                        </>
+                      )}
+                      {detail.event.http && (
+                        <>
+                          <dt>请求结果</dt>
+                          <dd>
+                            {detail.event.http.status ??
+                              (detail.event.http.timeout ? '超时' : '连接失败')}{' '}
+                            · {detail.event.http.method} {detail.event.http.host}
+                            {detail.event.http.path}
+                          </dd>
+                        </>
+                      )}
+                      {detail.event.threadId && (
+                        <>
+                          <dt>会话</dt>
+                          <dd>
+                            <button
+                              className="x-link ca-mono"
+                              onClick={() => {
+                                closeEvidence();
+                                openSession(detail.event.threadId!);
+                              }}
+                            >
+                              {detail.event.threadId}
+                            </button>
+                          </dd>
+                        </>
+                      )}
+                    </>
+                  ),
+                  metadata: (
+                    <>
+                      {!!detail.event.http?.requestIps?.length && (
+                        <>
+                          <dt>IP 记录依据</dt>
+                          <dd>
+                            {detail.event.http.requestIps.map((ip, i) => (
+                              <code key={i}>
+                                {ip.ip}
+                                {ip.port ? ` · 端口 ${ip.port}` : ''} · {ip.source}
+                              </code>
+                            ))}
+                          </dd>
+                        </>
+                      )}
+                      <dt>来源</dt>
+                      <dd>
+                        {roles[detail.event.location.sourceRole]}
+                        <code>{detail.event.location.path}</code>
+                        <code>{detail.event.location.position}</code>
+                      </dd>
+                      {detail.event.mirrors.length > 0 && (
+                        <>
+                          <dt>合并的记录位置</dt>
+                          <dd>
+                            {detail.event.mirrors.map((m, i) => (
+                              <code key={i}>
+                                {m.path} · {m.position}
+                              </code>
+                            ))}
+                          </dd>
+                        </>
+                      )}
+                      <dt>模块</dt>
+                      <dd>{detail.event.target || '未记录'}</dd>
+                      {detail.event.turnId && (
+                        <>
+                          <dt>回合 ID</dt>
+                          <dd>{detail.event.turnId}</dd>
+                        </>
+                      )}
+                      {detail.event.http && (
+                        <>
+                          <dt>完整地址 / request-id</dt>
+                          <dd>
+                            <code>{detail.event.http.url}</code>
+                            <code>{detail.event.http.requestId ?? '未记录'}</code>
+                          </dd>
+                        </>
+                      )}
+                    </>
+                  ),
+                }
+              : undefined
+          }
+        />
+      )}
     </div>
   );
 }

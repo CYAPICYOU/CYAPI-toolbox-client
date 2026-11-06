@@ -21,6 +21,7 @@ import {
   LoaderCircle,
   Package,
   Plug,
+  Plus,
   RefreshCw,
   Search,
   Server,
@@ -42,6 +43,12 @@ import { CodexLocalize } from './CodexLocalize';
 import { ClaudeSettings } from './ClaudeSettings';
 import { OpenCodeSettings } from './OpenCodeSettings';
 import { DesktopModelSettings } from './DesktopModelSettings';
+import { harnesses, isHarnessTool, type HarnessTool } from '../features/harness/catalog';
+import { HarnessModelSettings } from '../features/harness/HarnessModelSettings';
+import { ManageApps } from '../features/harness/ManageApps';
+import { useToolApps } from '../features/harness/useToolApps';
+import { AppLogo } from '../features/harness/AppLogo';
+import { appLogoNotices } from '../features/harness/logo-notices';
 import { PiMcpManager } from './PiMcpManager';
 import { CodexDiagnostics } from './CodexDiagnostics';
 import { ClaudeLogs } from './ClaudeLogs';
@@ -115,6 +122,7 @@ const agents = [
   { id: 'workbuddy', name: 'WorkBuddy', hint: 'Tencent' },
   { id: 'pi', name: 'Pi Coding Agent', hint: '开源' },
   { id: 'minimax', name: 'MiniMax Code', hint: 'Mininax' },
+  ...harnesses,
 ] as const;
 const targetLabels = {
   codex: 'Codex',
@@ -179,12 +187,16 @@ export default function App() {
       window.removeEventListener('toolbox-operation-failed', show);
     };
   }, []);
+  const [desktopTool, setDesktopTool] = useState<'dsh' | 'workbuddy' | 'pi' | 'minimax' | HarnessTool | null>(() => {
+    const saved = localStorage.getItem('cyapi.desktopTool');
+    return saved && (isHarnessTool(saved) || saved === 'dsh' || saved === 'workbuddy' || saved === 'pi' || saved === 'minimax') ? saved : null;
+  });
   const [savedNavigation] = useState(loadWorkbenchNavigation);
   const [workbench, setWorkbench] = useState<Workbench>(savedNavigation?.workbench || 'tools');
   const [toolPage, setToolPage] = useState<ToolPage>(savedNavigation?.toolPage || 'codex');
   const [creationOpened, setCreationOpened] = useState(savedNavigation?.workbench === 'create');
   const [creationView, setCreationView] = useState<'library' | 'drafts' | 'queue' | 'results'>('library');
-  const [page, setPage] = useState<Page>(workbench === 'create' ? 'workflows' : toolPage);
+  const [page, setPage] = useState<Page>(workbench === 'create' ? 'workflows' : desktopTool ? 'codex' : toolPage);
   function switchWorkbench(next: Workbench) {
     setWorkspaceOpen(false);
     setWorkbench(next);
@@ -193,8 +205,28 @@ export default function App() {
   }
   const [mcpFocus, setMcpFocus] = useState<{ query: string; tab: 'catalog' | 'installed' }>();
   const [workspace, setWorkspace] = useState<Workspace>(workspaceFromStorage);
-  const [desktopTool, setDesktopTool] = useState<'dsh' | 'workbuddy' | 'pi' | 'minimax' | null>(null);
+  useEffect(() => {
+    if (desktopTool) localStorage.setItem('cyapi.desktopTool', desktopTool);
+    else localStorage.removeItem('cyapi.desktopTool');
+  }, [desktopTool]);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [manageAppsOpen, setManageAppsOpen] = useState(false);
+  const toolApps = useToolApps(agents);
+  function chooseTool(id: (typeof agents)[number]['id']) {
+    if (isHarnessTool(id) || id === 'dsh' || id === 'workbuddy' || id === 'pi' || id === 'minimax') {
+      setDesktopTool(id);
+    } else {
+      setDesktopTool(null);
+      setWorkspace(id);
+    }
+    setPage('codex');
+    setWorkspaceOpen(false);
+  }
+  useEffect(() => {
+    if (workbench !== 'tools' || !toolApps.ready || toolApps.visible.some(({ id }) => id === (desktopTool ?? workspace))) return;
+    if (toolApps.visible[0]) chooseTool(toolApps.visible[0].id);
+    else setPage('codex');
+  }, [toolApps.ready, toolApps.preferences, toolApps.detection, desktopTool, workspace, workbench]);
   const workspaceMenu = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<NativeStatus>();
   const refreshInstallations = useCallback(async () => {
@@ -232,7 +264,7 @@ export default function App() {
   const [configuration, setConfiguration] = useState<ConfigurationTarget>();
   const main = useRef<HTMLElement>(null);
   const planVersion = useRef(0);
-  const modalOpen = Boolean(selected || selectedCollection || remove || help || configuration);
+  const modalOpen = Boolean(selected || selectedCollection || remove || help || configuration || manageAppsOpen);
   const skillPage = page === 'catalog' || page === 'installed';
   // The suite task lives outside the dialog, so closing the window keeps the
   // installation running and the user can still stop it.
@@ -679,7 +711,7 @@ export default function App() {
 
   const agent = agents.find((item) => item.id === (desktopTool ?? workspace)) ?? agents[0];
   // The localisation controls only exist for Codex Desktop.
-  const toolsNav: { id: ToolPage; icon: LucideIcon; label: string }[] = desktopTool ? [
+  const toolsNav: { id: ToolPage; icon: LucideIcon; label: string }[] = toolApps.ready && !toolApps.visible.length ? [] : desktopTool ? [
     { id: 'codex', icon: SquareTerminal, label: '模型接入' },
     ...(desktopTool === 'dsh' || desktopTool === 'pi' || desktopTool === 'workbuddy' ? [{ id: 'catalog' as const, icon: Grid2X2, label: 'Skill 管理' }] : []),
     ...(desktopTool === 'pi' ? [{ id: 'mcp' as const, icon: Server, label: 'MCP 管理' }] : []),
@@ -748,30 +780,22 @@ export default function App() {
               aria-expanded={workspaceOpen}
               onClick={() => setWorkspaceOpen(!workspaceOpen)}
             >
-              <span className={`n-workspace-dot ${desktopTool ?? workspace}`} />
-              <span>{agent.name}</span>
+              <AppLogo id={desktopTool ?? workspace} />
+              <span>{toolApps.ready && !toolApps.visible.length ? '选择 App' : agent.name}</span>
               <ChevronDown size={14} className={workspaceOpen ? 'open' : ''} />
             </button>
             {workspaceOpen && (
-              <div className="n-workspace-menu" role="listbox" aria-label="选择当前工具">
-                {agents.map((item) => (
+              <div className="n-workspace-menu">
+                <div className="n-workspace-options" role="listbox" aria-label="选择当前工具">
+                {toolApps.visible.map((item) => (
                   <button
                     key={item.id}
                     role="option"
                     aria-selected={(desktopTool ?? workspace) === item.id}
                     className={(desktopTool ?? workspace) === item.id ? 'active' : ''}
-                    onClick={() => {
-                      if (item.id === 'dsh' || item.id === 'workbuddy' || item.id === 'pi' || item.id === 'minimax') {
-                        setDesktopTool(item.id);
-                        setPage('codex');
-                      } else {
-                        setDesktopTool(null);
-                        setWorkspace(item.id);
-                      }
-                      setWorkspaceOpen(false);
-                    }}
+                    onClick={() => chooseTool(item.id)}
                   >
-                    <span className={`n-workspace-dot ${item.id}`} />
+                    <AppLogo id={item.id} />
                     <span>
                       <strong>{item.name}</strong>
                       <small>{item.hint}</small>
@@ -779,6 +803,8 @@ export default function App() {
                     {(desktopTool ?? workspace) === item.id && <Check size={14} />}
                   </button>
                 ))}
+                </div>
+                <button className="n-workspace-manage" onClick={() => { setWorkspaceOpen(false); setManageAppsOpen(true); }}><Plus size={16} /><span>管理 App</span></button>
               </div>
             )}
           </div>
@@ -867,7 +893,7 @@ export default function App() {
       <div className="n-shell" inert={modalOpen}>
         {page !== 'workflows' && <header className="n-page-heading">
           <h1>
-            {agentPage ? `${agent.name} · ${pages[page]}` : pages[page]}
+            {agentPage && toolApps.ready && !toolApps.visible.length ? 'App 管理' : agentPage ? `${agent.name} · ${pages[page]}` : pages[page]}
           </h1>
           {page !== 'codex' &&
             page !== 'localize' &&
@@ -941,9 +967,11 @@ export default function App() {
               </>
             )}
 
-            {page === 'codex' &&
+            {page === 'codex' && toolApps.ready && !toolApps.visible.length ? (
+              <section className="n-panel"><p className="n-config-note">当前没有显示的 App，请在管理中添加。</p><button className="n-button" onClick={() => setManageAppsOpen(true)}><Plus size={14} />管理 App</button></section>
+            ) : page === 'codex' &&
               (desktopTool ? (
-                <DesktopModelSettings key={desktopTool} tool={desktopTool} />
+                isHarnessTool(desktopTool) ? <HarnessModelSettings key={desktopTool} tool={desktopTool} /> : <DesktopModelSettings key={desktopTool} tool={desktopTool} />
               ) : workspace === 'claude' ? (
                 <ClaudeSettings />
               ) : workspace === 'opencode' ? (
@@ -1593,11 +1621,17 @@ export default function App() {
             </div>
             <details className="n-source-details">
               <summary>开源许可</summary>
-              <pre className="n-license">{thirdPartyNotices}</pre>
+              <pre className="n-license">{thirdPartyNotices}{'\n\n'}{appLogoNotices}</pre>
             </details>
           </div>
         </Modal>
       )}
+      {manageAppsOpen && <ManageApps apps={agents} state={toolApps} onClose={() => setManageAppsOpen(false)} onConfigure={(id) => {
+        const item = agents.find((app) => app.id === id);
+        if (!item || !toolApps.show(id, true)) return;
+        chooseTool(item.id);
+        setManageAppsOpen(false);
+      }} />}
       {logsOpen && <LogWindow operationId={logOperation} onClose={() => setLogsOpen(false)} />}
     </div>
   );

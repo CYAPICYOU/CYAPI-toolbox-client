@@ -657,19 +657,30 @@
   --t-ffffff-f: #ffffff;
 }
 
-/* Subtle software-specific accents; shared surfaces stay neutral. */
+/* App accents derived from the bundled logo colours. */
 :root {
-  --agent-codex: #d1e8a9;
-  --agent-claude: #e6b98e;
-  --agent-opencode: #d4d7dc;
-  --agent-dsh: #8cbcff;
-  --agent-workbuddy: #a6e6b6;
-  --agent-pi: #cfb3f3;
-  --agent-minimax: #ffadb1;
+  --agent-toolbox: #d1e8a9;
+  --agent-codex: #a7aaf1;
+  --agent-claude: #e3c0b5;
+  --agent-opencode: #cccccc;
+  --agent-dsh: #a8b4f0;
+  --agent-workbuddy: #a8f0d8;
+  --agent-pi: #e9b6af;
+  --agent-minimax: #eaaecd;
+  --agent-cline: #cccccc;
+  --agent-kilo: #cccccc;
+  --agent-qwen: #a7b2f1;
+  --agent-kimi: #a7c9f1;
+  --agent-continue: #c9c9cf;
+  --agent-roo: #cccccc;
+  --agent-aider: #a7f1d7;
+  --agent-cursor: #cccccc;
+  --agent-gemini: #a7c6f1;
+  --agent-grok: #cccccc;
 }
 
 :root,
-:root[data-workspace="codex"] {
+:root[data-workspace="toolbox"] {
   --workspace-accent: #29644d;
   --workspace-solid: #2a674d;
   --workspace-hover: #20533f;
@@ -679,7 +690,7 @@
   --workspace-focus: #72a589;
   --workspace-sidebar: #1c3c32;
   --workspace-sidebar-ink: #c4d3c9;
-  --workspace-sidebar-muted: #9db8a7;
+  --workspace-sidebar-muted: #a8c1b1;
   --workspace-sidebar-faint: #8ba899;
   --workspace-sidebar-strong: #f2f7f1;
   --workspace-sidebar-hover: #274a3c;
@@ -695,7 +706,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]):not([data-workspace]),
-  :root[data-workspace="codex"]:not([data-theme="light"]) {
+  :root[data-workspace="toolbox"]:not([data-theme="light"]) {
     --workspace-accent: #5fc79b;
     --workspace-solid: #2a674d;
     --workspace-hover: #337c5e;
@@ -705,7 +716,7 @@
     --workspace-focus: #7cb99a;
     --workspace-sidebar: #1c3c32;
     --workspace-sidebar-ink: #c4d3c9;
-    --workspace-sidebar-muted: #9db8a7;
+    --workspace-sidebar-muted: #a8c1b1;
     --workspace-sidebar-faint: #8ba899;
     --workspace-sidebar-strong: #f2f7f1;
     --workspace-sidebar-hover: #274a3c;
@@ -721,7 +732,7 @@
 }
 
 :root[data-theme="dark"]:not([data-workspace]),
-:root[data-workspace="codex"][data-theme="dark"] {
+:root[data-workspace="toolbox"][data-theme="dark"] {
   --workspace-accent: #5fc79b;
   --workspace-solid: #2a674d;
   --workspace-hover: #337c5e;
@@ -731,7 +742,7 @@
   --workspace-focus: #7cb99a;
   --workspace-sidebar: #1c3c32;
   --workspace-sidebar-ink: #c4d3c9;
-  --workspace-sidebar-muted: #9db8a7;
+  --workspace-sidebar-muted: #a8c1b1;
   --workspace-sidebar-faint: #8ba899;
   --workspace-sidebar-strong: #f2f7f1;
   --workspace-sidebar-hover: #274a3c;
@@ -745,446 +756,1260 @@
   --workspace-mark-ink: #254d37;
 }
 
+:root[data-workspace="codex"] {
+  --workspace-accent: #3941ff;
+  --workspace-solid: #3941ff;
+  --workspace-hover: #3037d9;
+  --workspace-tint: #f2f2f8;
+  --workspace-tint-ink: #3941ff;
+  --workspace-tint-border: #9a9ccb;
+  --workspace-focus: #3941ff;
+  --workspace-sidebar: #1f1f33;
+  --workspace-sidebar-ink: #d4d4de;
+  --workspace-sidebar-muted: #b8b9cc;
+  --workspace-sidebar-faint: #a0a1b6;
+  --workspace-sidebar-strong: #f6f7f8;
+  --workspace-sidebar-hover: #282943;
+  --workspace-sidebar-active: #31335e;
+  --workspace-sidebar-line: #383a56;
+  --workspace-sidebar-control: #24253d;
+  --workspace-sidebar-control-hover: #2e2f52;
+  --workspace-sidebar-control-line: #424466;
+  --workspace-sidebar-menu-line: #4b4c72;
+  --workspace-mark: #a7aaf1;
+  --workspace-mark-ink: #1e1f3e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-workspace="codex"]:not([data-theme="light"]) {
+    --workspace-accent: #787eff;
+    --workspace-solid: #3941ff;
+    --workspace-hover: #3037d9;
+    --workspace-tint: #1f2032;
+    --workspace-tint-ink: #787eff;
+    --workspace-tint-border: #4b4e8b;
+    --workspace-focus: #787eff;
+    --workspace-sidebar: #141521;
+    --workspace-sidebar-ink: #d4d4de;
+    --workspace-sidebar-muted: #b8b9cc;
+    --workspace-sidebar-faint: #a0a1b6;
+    --workspace-sidebar-strong: #f6f7f8;
+    --workspace-sidebar-hover: #1f1f33;
+    --workspace-sidebar-active: #282a4d;
+    --workspace-sidebar-line: #2c2d44;
+    --workspace-sidebar-control: #1c1c2e;
+    --workspace-sidebar-control-hover: #252641;
+    --workspace-sidebar-control-line: #363853;
+    --workspace-sidebar-menu-line: #3e4060;
+    --workspace-mark: #a7aaf1;
+    --workspace-mark-ink: #1e1f3e;
+  }
+}
+
+:root[data-workspace="codex"][data-theme="dark"] {
+  --workspace-accent: #787eff;
+  --workspace-solid: #3941ff;
+  --workspace-hover: #3037d9;
+  --workspace-tint: #1f2032;
+  --workspace-tint-ink: #787eff;
+  --workspace-tint-border: #4b4e8b;
+  --workspace-focus: #787eff;
+  --workspace-sidebar: #141521;
+  --workspace-sidebar-ink: #d4d4de;
+  --workspace-sidebar-muted: #b8b9cc;
+  --workspace-sidebar-faint: #a0a1b6;
+  --workspace-sidebar-strong: #f6f7f8;
+  --workspace-sidebar-hover: #1f1f33;
+  --workspace-sidebar-active: #282a4d;
+  --workspace-sidebar-line: #2c2d44;
+  --workspace-sidebar-control: #1c1c2e;
+  --workspace-sidebar-control-hover: #252641;
+  --workspace-sidebar-control-line: #363853;
+  --workspace-sidebar-menu-line: #3e4060;
+  --workspace-mark: #a7aaf1;
+  --workspace-mark-ink: #1e1f3e;
+}
+
 :root[data-workspace="claude"] {
-  --workspace-accent: #95513b;
-  --workspace-solid: #9b563f;
-  --workspace-hover: #80442f;
-  --workspace-tint: #f6eee8;
-  --workspace-tint-ink: #925e48;
-  --workspace-tint-border: #c6a18c;
-  --workspace-focus: #b78065;
-  --workspace-sidebar: #3e302b;
-  --workspace-sidebar-ink: #d9cec7;
-  --workspace-sidebar-muted: #c3ada0;
-  --workspace-sidebar-faint: #b49c8f;
-  --workspace-sidebar-strong: #faf3ee;
-  --workspace-sidebar-hover: #4c3b33;
-  --workspace-sidebar-active: #60483c;
-  --workspace-sidebar-line: #574238;
-  --workspace-sidebar-control: #49382f;
-  --workspace-sidebar-control-hover: #584236;
-  --workspace-sidebar-control-line: #685043;
-  --workspace-sidebar-menu-line: #745a4b;
-  --workspace-mark: #e6b98e;
-  --workspace-mark-ink: #513728;
+  --workspace-accent: #a35941;
+  --workspace-solid: #ab5e45;
+  --workspace-hover: #91503b;
+  --workspace-tint: #f7f4f3;
+  --workspace-tint-ink: #a35941;
+  --workspace-tint-border: #c2aba3;
+  --workspace-focus: #a35941;
+  --workspace-sidebar: #2f2622;
+  --workspace-sidebar-ink: #dcd7d6;
+  --workspace-sidebar-muted: #c8bfbc;
+  --workspace-sidebar-faint: #b2a7a4;
+  --workspace-sidebar-strong: #f8f7f7;
+  --workspace-sidebar-hover: #3e312d;
+  --workspace-sidebar-active: #554039;
+  --workspace-sidebar-line: #51433e;
+  --workspace-sidebar-control: #382d29;
+  --workspace-sidebar-control-hover: #4b3a34;
+  --workspace-sidebar-control-line: #5f4e49;
+  --workspace-sidebar-menu-line: #6b5852;
+  --workspace-mark: #e3c0b5;
+  --workspace-mark-ink: #382924;
 }
 
 @media (prefers-color-scheme: dark) {
   :root[data-workspace="claude"]:not([data-theme="light"]) {
-    --workspace-accent: #dfa98b;
-    --workspace-solid: #995840;
-    --workspace-hover: #a86249;
-    --workspace-tint: #382c27;
-    --workspace-tint-ink: #dfb499;
-    --workspace-tint-border: #87634f;
-    --workspace-focus: #ce9a7b;
-    --workspace-sidebar: #302723;
-    --workspace-sidebar-ink: #d9cec7;
-    --workspace-sidebar-muted: #c3ada0;
-    --workspace-sidebar-faint: #b49c8f;
-    --workspace-sidebar-strong: #faf3ee;
-    --workspace-sidebar-hover: #41332c;
-    --workspace-sidebar-active: #554035;
-    --workspace-sidebar-line: #574238;
-    --workspace-sidebar-control: #3c2f29;
-    --workspace-sidebar-control-hover: #4b392f;
-    --workspace-sidebar-control-line: #685043;
-    --workspace-sidebar-menu-line: #745a4b;
-    --workspace-mark: #e6b98e;
-    --workspace-mark-ink: #513728;
+    --workspace-accent: #d97757;
+    --workspace-solid: #ab5e45;
+    --workspace-hover: #91503b;
+    --workspace-tint: #2f2623;
+    --workspace-tint-ink: #d97757;
+    --workspace-tint-border: #7f6157;
+    --workspace-focus: #d97757;
+    --workspace-sidebar: #1f1917;
+    --workspace-sidebar-ink: #dcd7d6;
+    --workspace-sidebar-muted: #c8bfbc;
+    --workspace-sidebar-faint: #b2a7a4;
+    --workspace-sidebar-strong: #f8f7f7;
+    --workspace-sidebar-hover: #2f2622;
+    --workspace-sidebar-active: #46352f;
+    --workspace-sidebar-line: #403431;
+    --workspace-sidebar-control: #2b221f;
+    --workspace-sidebar-control-hover: #3c2e2a;
+    --workspace-sidebar-control-line: #4e403c;
+    --workspace-sidebar-menu-line: #5a4a45;
+    --workspace-mark: #e3c0b5;
+    --workspace-mark-ink: #382924;
   }
 }
 
 :root[data-workspace="claude"][data-theme="dark"] {
-  --workspace-accent: #dfa98b;
-  --workspace-solid: #995840;
-  --workspace-hover: #a86249;
-  --workspace-tint: #382c27;
-  --workspace-tint-ink: #dfb499;
-  --workspace-tint-border: #87634f;
-  --workspace-focus: #ce9a7b;
-  --workspace-sidebar: #302723;
-  --workspace-sidebar-ink: #d9cec7;
-  --workspace-sidebar-muted: #c3ada0;
-  --workspace-sidebar-faint: #b49c8f;
-  --workspace-sidebar-strong: #faf3ee;
-  --workspace-sidebar-hover: #41332c;
-  --workspace-sidebar-active: #554035;
-  --workspace-sidebar-line: #574238;
-  --workspace-sidebar-control: #3c2f29;
-  --workspace-sidebar-control-hover: #4b392f;
-  --workspace-sidebar-control-line: #685043;
-  --workspace-sidebar-menu-line: #745a4b;
-  --workspace-mark: #e6b98e;
-  --workspace-mark-ink: #513728;
+  --workspace-accent: #d97757;
+  --workspace-solid: #ab5e45;
+  --workspace-hover: #91503b;
+  --workspace-tint: #2f2623;
+  --workspace-tint-ink: #d97757;
+  --workspace-tint-border: #7f6157;
+  --workspace-focus: #d97757;
+  --workspace-sidebar: #1f1917;
+  --workspace-sidebar-ink: #dcd7d6;
+  --workspace-sidebar-muted: #c8bfbc;
+  --workspace-sidebar-faint: #b2a7a4;
+  --workspace-sidebar-strong: #f8f7f7;
+  --workspace-sidebar-hover: #2f2622;
+  --workspace-sidebar-active: #46352f;
+  --workspace-sidebar-line: #403431;
+  --workspace-sidebar-control: #2b221f;
+  --workspace-sidebar-control-hover: #3c2e2a;
+  --workspace-sidebar-control-line: #4e403c;
+  --workspace-sidebar-menu-line: #5a4a45;
+  --workspace-mark: #e3c0b5;
+  --workspace-mark-ink: #382924;
 }
 
 :root[data-workspace="opencode"] {
-  --workspace-accent: #50545b;
-  --workspace-solid: #50545b;
-  --workspace-hover: #3e4248;
-  --workspace-tint: #eef0f2;
-  --workspace-tint-ink: #626870;
-  --workspace-tint-border: #a7adb5;
-  --workspace-focus: #8a929d;
-  --workspace-sidebar: #2c2e32;
-  --workspace-sidebar-ink: #d1d3d7;
-  --workspace-sidebar-muted: #b1b5bd;
-  --workspace-sidebar-faint: #9da3ad;
-  --workspace-sidebar-strong: #f3f4f5;
-  --workspace-sidebar-hover: #383b40;
-  --workspace-sidebar-active: #464a51;
-  --workspace-sidebar-line: #42464d;
-  --workspace-sidebar-control: #35383d;
-  --workspace-sidebar-control-hover: #41454c;
-  --workspace-sidebar-control-line: #50555e;
-  --workspace-sidebar-menu-line: #5c626c;
-  --workspace-mark: #d4d7dc;
-  --workspace-mark-ink: #34373d;
+  --workspace-accent: #383838;
+  --workspace-solid: #383838;
+  --workspace-hover: #303030;
+  --workspace-tint: #f5f5f5;
+  --workspace-tint-ink: #383838;
+  --workspace-tint-border: #b3b3b3;
+  --workspace-focus: #383838;
+  --workspace-sidebar: #292929;
+  --workspace-sidebar-ink: #d9d9d9;
+  --workspace-sidebar-muted: #c2c2c2;
+  --workspace-sidebar-faint: #ababab;
+  --workspace-sidebar-strong: #f7f7f7;
+  --workspace-sidebar-hover: #363636;
+  --workspace-sidebar-active: #474747;
+  --workspace-sidebar-line: #474747;
+  --workspace-sidebar-control: #303030;
+  --workspace-sidebar-control-hover: #404040;
+  --workspace-sidebar-control-line: #545454;
+  --workspace-sidebar-menu-line: #5e5e5e;
+  --workspace-mark: #cccccc;
+  --workspace-mark-ink: #2e2e2e;
 }
 
 @media (prefers-color-scheme: dark) {
   :root[data-workspace="opencode"]:not([data-theme="light"]) {
-    --workspace-accent: #c3c8d0;
-    --workspace-solid: #535962;
-    --workspace-hover: #646c77;
-    --workspace-tint: #2c3036;
-    --workspace-tint-ink: #c2c8d1;
-    --workspace-tint-border: #707985;
-    --workspace-focus: #a1aab7;
-    --workspace-sidebar: #222428;
-    --workspace-sidebar-ink: #d1d3d7;
-    --workspace-sidebar-muted: #b1b5bd;
-    --workspace-sidebar-faint: #9da3ad;
-    --workspace-sidebar-strong: #f3f4f5;
-    --workspace-sidebar-hover: #303339;
-    --workspace-sidebar-active: #3f444c;
-    --workspace-sidebar-line: #42464d;
-    --workspace-sidebar-control: #2c2f34;
-    --workspace-sidebar-control-hover: #393e45;
-    --workspace-sidebar-control-line: #50555e;
-    --workspace-sidebar-menu-line: #5c626c;
-    --workspace-mark: #d4d7dc;
-    --workspace-mark-ink: #34373d;
+    --workspace-accent: #949494;
+    --workspace-solid: #383838;
+    --workspace-hover: #303030;
+    --workspace-tint: #292929;
+    --workspace-tint-ink: #949494;
+    --workspace-tint-border: #6b6b6b;
+    --workspace-focus: #949494;
+    --workspace-sidebar: #1b1b1b;
+    --workspace-sidebar-ink: #d9d9d9;
+    --workspace-sidebar-muted: #c2c2c2;
+    --workspace-sidebar-faint: #ababab;
+    --workspace-sidebar-strong: #f7f7f7;
+    --workspace-sidebar-hover: #292929;
+    --workspace-sidebar-active: #3b3b3b;
+    --workspace-sidebar-line: #383838;
+    --workspace-sidebar-control: #252525;
+    --workspace-sidebar-control-hover: #333333;
+    --workspace-sidebar-control-line: #454545;
+    --workspace-sidebar-menu-line: #4f4f4f;
+    --workspace-mark: #cccccc;
+    --workspace-mark-ink: #2e2e2e;
   }
 }
 
 :root[data-workspace="opencode"][data-theme="dark"] {
-  --workspace-accent: #c3c8d0;
-  --workspace-solid: #535962;
-  --workspace-hover: #646c77;
-  --workspace-tint: #2c3036;
-  --workspace-tint-ink: #c2c8d1;
-  --workspace-tint-border: #707985;
-  --workspace-focus: #a1aab7;
-  --workspace-sidebar: #222428;
-  --workspace-sidebar-ink: #d1d3d7;
-  --workspace-sidebar-muted: #b1b5bd;
-  --workspace-sidebar-faint: #9da3ad;
-  --workspace-sidebar-strong: #f3f4f5;
-  --workspace-sidebar-hover: #303339;
-  --workspace-sidebar-active: #3f444c;
-  --workspace-sidebar-line: #42464d;
-  --workspace-sidebar-control: #2c2f34;
-  --workspace-sidebar-control-hover: #393e45;
-  --workspace-sidebar-control-line: #50555e;
-  --workspace-sidebar-menu-line: #5c626c;
-  --workspace-mark: #d4d7dc;
-  --workspace-mark-ink: #34373d;
+  --workspace-accent: #949494;
+  --workspace-solid: #383838;
+  --workspace-hover: #303030;
+  --workspace-tint: #292929;
+  --workspace-tint-ink: #949494;
+  --workspace-tint-border: #6b6b6b;
+  --workspace-focus: #949494;
+  --workspace-sidebar: #1b1b1b;
+  --workspace-sidebar-ink: #d9d9d9;
+  --workspace-sidebar-muted: #c2c2c2;
+  --workspace-sidebar-faint: #ababab;
+  --workspace-sidebar-strong: #f7f7f7;
+  --workspace-sidebar-hover: #292929;
+  --workspace-sidebar-active: #3b3b3b;
+  --workspace-sidebar-line: #383838;
+  --workspace-sidebar-control: #252525;
+  --workspace-sidebar-control-hover: #333333;
+  --workspace-sidebar-control-line: #454545;
+  --workspace-sidebar-menu-line: #4f4f4f;
+  --workspace-mark: #cccccc;
+  --workspace-mark-ink: #2e2e2e;
 }
 
 :root[data-workspace="dsh"] {
-  --workspace-accent: #2457a1;
-  --workspace-solid: #285da8;
-  --workspace-hover: #204a88;
-  --workspace-tint: #eaf1fb;
-  --workspace-tint-ink: #3e618e;
-  --workspace-tint-border: #8daacb;
-  --workspace-focus: #7099ca;
-  --workspace-sidebar: #263c59;
-  --workspace-sidebar-ink: #e5e9ee;
-  --workspace-sidebar-muted: #d4dbe3;
-  --workspace-sidebar-faint: #c2cbd5;
-  --workspace-sidebar-strong: #f3f4f5;
-  --workspace-sidebar-hover: #304966;
-  --workspace-sidebar-active: #385775;
-  --workspace-sidebar-line: #42464d;
-  --workspace-sidebar-control: #2d4663;
-  --workspace-sidebar-control-hover: #395573;
-  --workspace-sidebar-control-line: #50555e;
-  --workspace-sidebar-menu-line: #5c626c;
-  --workspace-mark: #8cbcff;
-  --workspace-mark-ink: #20252b;
+  --workspace-accent: #455fe2;
+  --workspace-solid: #4966f1;
+  --workspace-hover: #3e57cd;
+  --workspace-tint: #f2f3f8;
+  --workspace-tint-ink: #455fe2;
+  --workspace-tint-border: #9aa2cb;
+  --workspace-focus: #455fe2;
+  --workspace-sidebar: #1f2233;
+  --workspace-sidebar-ink: #d4d5de;
+  --workspace-sidebar-muted: #b8bbcb;
+  --workspace-sidebar-faint: #a0a4b6;
+  --workspace-sidebar-strong: #f6f7f8;
+  --workspace-sidebar-hover: #282d43;
+  --workspace-sidebar-active: #32395d;
+  --workspace-sidebar-line: #393e56;
+  --workspace-sidebar-control: #24293c;
+  --workspace-sidebar-control-hover: #2e3451;
+  --workspace-sidebar-control-line: #434966;
+  --workspace-sidebar-menu-line: #4b5172;
+  --workspace-mark: #a8b4f0;
+  --workspace-mark-ink: #1e233e;
 }
 
 @media (prefers-color-scheme: dark) {
   :root[data-workspace="dsh"]:not([data-theme="light"]) {
-    --workspace-accent: #91bdf6;
-    --workspace-solid: #285da8;
-    --workspace-hover: #204a88;
-    --workspace-tint: #26354b;
-    --workspace-tint-ink: #b8d1f2;
-    --workspace-tint-border: #8daacb;
-    --workspace-focus: #7099ca;
-    --workspace-sidebar: #263c59;
-    --workspace-sidebar-ink: #e5e9ee;
-    --workspace-sidebar-muted: #d4dbe3;
-    --workspace-sidebar-faint: #c2cbd5;
-    --workspace-sidebar-strong: #f3f4f5;
-    --workspace-sidebar-hover: #304966;
-    --workspace-sidebar-active: #385775;
-    --workspace-sidebar-line: #42464d;
-    --workspace-sidebar-control: #2d4663;
-    --workspace-sidebar-control-hover: #395573;
-    --workspace-sidebar-control-line: #50555e;
-    --workspace-sidebar-menu-line: #5c626c;
-    --workspace-mark: #8cbcff;
-    --workspace-mark-ink: #20252b;
+    --workspace-accent: #6b84fe;
+    --workspace-solid: #4966f1;
+    --workspace-hover: #3e57cd;
+    --workspace-tint: #202332;
+    --workspace-tint-ink: #6b84fe;
+    --workspace-tint-border: #4b568b;
+    --workspace-focus: #6b84fe;
+    --workspace-sidebar: #141621;
+    --workspace-sidebar-ink: #d4d5de;
+    --workspace-sidebar-muted: #b8bbcb;
+    --workspace-sidebar-faint: #a0a4b6;
+    --workspace-sidebar-strong: #f6f7f8;
+    --workspace-sidebar-hover: #1f2233;
+    --workspace-sidebar-active: #292f4d;
+    --workspace-sidebar-line: #2c3044;
+    --workspace-sidebar-control: #1c1f2e;
+    --workspace-sidebar-control-hover: #252a41;
+    --workspace-sidebar-control-line: #373b53;
+    --workspace-sidebar-menu-line: #3f445f;
+    --workspace-mark: #a8b4f0;
+    --workspace-mark-ink: #1e233e;
   }
 }
 
 :root[data-workspace="dsh"][data-theme="dark"] {
-  --workspace-accent: #91bdf6;
-  --workspace-solid: #285da8;
-  --workspace-hover: #204a88;
-  --workspace-tint: #26354b;
-  --workspace-tint-ink: #b8d1f2;
-  --workspace-tint-border: #8daacb;
-  --workspace-focus: #7099ca;
-  --workspace-sidebar: #263c59;
-  --workspace-sidebar-ink: #e5e9ee;
-  --workspace-sidebar-muted: #d4dbe3;
-  --workspace-sidebar-faint: #c2cbd5;
-  --workspace-sidebar-strong: #f3f4f5;
-  --workspace-sidebar-hover: #304966;
-  --workspace-sidebar-active: #385775;
-  --workspace-sidebar-line: #42464d;
-  --workspace-sidebar-control: #2d4663;
-  --workspace-sidebar-control-hover: #395573;
-  --workspace-sidebar-control-line: #50555e;
-  --workspace-sidebar-menu-line: #5c626c;
-  --workspace-mark: #8cbcff;
-  --workspace-mark-ink: #20252b;
+  --workspace-accent: #6b84fe;
+  --workspace-solid: #4966f1;
+  --workspace-hover: #3e57cd;
+  --workspace-tint: #202332;
+  --workspace-tint-ink: #6b84fe;
+  --workspace-tint-border: #4b568b;
+  --workspace-focus: #6b84fe;
+  --workspace-sidebar: #141621;
+  --workspace-sidebar-ink: #d4d5de;
+  --workspace-sidebar-muted: #b8bbcb;
+  --workspace-sidebar-faint: #a0a4b6;
+  --workspace-sidebar-strong: #f6f7f8;
+  --workspace-sidebar-hover: #1f2233;
+  --workspace-sidebar-active: #292f4d;
+  --workspace-sidebar-line: #2c3044;
+  --workspace-sidebar-control: #1c1f2e;
+  --workspace-sidebar-control-hover: #252a41;
+  --workspace-sidebar-control-line: #373b53;
+  --workspace-sidebar-menu-line: #3f445f;
+  --workspace-mark: #a8b4f0;
+  --workspace-mark-ink: #1e233e;
 }
 
 :root[data-workspace="workbuddy"] {
-  --workspace-accent: #316a4b;
-  --workspace-solid: #326f4e;
-  --workspace-hover: #28583e;
-  --workspace-tint: #eaf5ed;
-  --workspace-tint-ink: #416c50;
-  --workspace-tint-border: #93bea0;
-  --workspace-focus: #72aa83;
-  --workspace-sidebar: #29483b;
-  --workspace-sidebar-ink: #e5e9ee;
-  --workspace-sidebar-muted: #d4dbe3;
-  --workspace-sidebar-faint: #c2cbd5;
-  --workspace-sidebar-strong: #f3f4f5;
-  --workspace-sidebar-hover: #345749;
-  --workspace-sidebar-active: #3d6553;
-  --workspace-sidebar-line: #42464d;
-  --workspace-sidebar-control: #315343;
-  --workspace-sidebar-control-hover: #3d6551;
-  --workspace-sidebar-control-line: #50555e;
-  --workspace-sidebar-menu-line: #5c626c;
-  --workspace-mark: #a6e6b6;
-  --workspace-mark-ink: #20252b;
+  --workspace-accent: #017e54;
+  --workspace-solid: #018458;
+  --workspace-hover: #01704b;
+  --workspace-tint: #f2f8f6;
+  --workspace-tint-ink: #017e54;
+  --workspace-tint-border: #9acbbb;
+  --workspace-focus: #017e54;
+  --workspace-sidebar: #1f332c;
+  --workspace-sidebar-ink: #d4deda;
+  --workspace-sidebar-muted: #b8cbc5;
+  --workspace-sidebar-faint: #a0b6ae;
+  --workspace-sidebar-strong: #f6f8f8;
+  --workspace-sidebar-hover: #28433a;
+  --workspace-sidebar-active: #315d4f;
+  --workspace-sidebar-line: #39564c;
+  --workspace-sidebar-control: #243c34;
+  --workspace-sidebar-control-hover: #2e5146;
+  --workspace-sidebar-control-line: #43665a;
+  --workspace-sidebar-menu-line: #4b7265;
+  --workspace-mark: #a8f0d8;
+  --workspace-mark-ink: #1e3e33;
 }
 
 @media (prefers-color-scheme: dark) {
   :root[data-workspace="workbuddy"]:not([data-theme="light"]) {
-    --workspace-accent: #91d8aa;
-    --workspace-solid: #326f4e;
-    --workspace-hover: #28583e;
-    --workspace-tint: #263a2e;
-    --workspace-tint-ink: #b5dcc1;
-    --workspace-tint-border: #93bea0;
-    --workspace-focus: #72aa83;
-    --workspace-sidebar: #29483b;
-    --workspace-sidebar-ink: #e5e9ee;
-    --workspace-sidebar-muted: #d4dbe3;
-    --workspace-sidebar-faint: #c2cbd5;
-    --workspace-sidebar-strong: #f3f4f5;
-    --workspace-sidebar-hover: #345749;
-    --workspace-sidebar-active: #3d6553;
-    --workspace-sidebar-line: #42464d;
-    --workspace-sidebar-control: #315343;
-    --workspace-sidebar-control-hover: #3d6551;
-    --workspace-sidebar-control-line: #50555e;
-    --workspace-sidebar-menu-line: #5c626c;
-    --workspace-mark: #a6e6b6;
-    --workspace-mark-ink: #20252b;
+    --workspace-accent: #01c886;
+    --workspace-solid: #018458;
+    --workspace-hover: #01704b;
+    --workspace-tint: #20322c;
+    --workspace-tint-ink: #01c886;
+    --workspace-tint-border: #4b8b76;
+    --workspace-focus: #01c886;
+    --workspace-sidebar: #14211d;
+    --workspace-sidebar-ink: #d4deda;
+    --workspace-sidebar-muted: #b8cbc5;
+    --workspace-sidebar-faint: #a0b6ae;
+    --workspace-sidebar-strong: #f6f8f8;
+    --workspace-sidebar-hover: #1f332c;
+    --workspace-sidebar-active: #294d41;
+    --workspace-sidebar-line: #2c443c;
+    --workspace-sidebar-control: #1c2e28;
+    --workspace-sidebar-control-hover: #254138;
+    --workspace-sidebar-control-line: #37534a;
+    --workspace-sidebar-menu-line: #3f5f55;
+    --workspace-mark: #a8f0d8;
+    --workspace-mark-ink: #1e3e33;
   }
 }
 
 :root[data-workspace="workbuddy"][data-theme="dark"] {
-  --workspace-accent: #91d8aa;
-  --workspace-solid: #326f4e;
-  --workspace-hover: #28583e;
-  --workspace-tint: #263a2e;
-  --workspace-tint-ink: #b5dcc1;
-  --workspace-tint-border: #93bea0;
-  --workspace-focus: #72aa83;
-  --workspace-sidebar: #29483b;
-  --workspace-sidebar-ink: #e5e9ee;
-  --workspace-sidebar-muted: #d4dbe3;
-  --workspace-sidebar-faint: #c2cbd5;
-  --workspace-sidebar-strong: #f3f4f5;
-  --workspace-sidebar-hover: #345749;
-  --workspace-sidebar-active: #3d6553;
-  --workspace-sidebar-line: #42464d;
-  --workspace-sidebar-control: #315343;
-  --workspace-sidebar-control-hover: #3d6551;
-  --workspace-sidebar-control-line: #50555e;
-  --workspace-sidebar-menu-line: #5c626c;
-  --workspace-mark: #a6e6b6;
-  --workspace-mark-ink: #20252b;
+  --workspace-accent: #01c886;
+  --workspace-solid: #018458;
+  --workspace-hover: #01704b;
+  --workspace-tint: #20322c;
+  --workspace-tint-ink: #01c886;
+  --workspace-tint-border: #4b8b76;
+  --workspace-focus: #01c886;
+  --workspace-sidebar: #14211d;
+  --workspace-sidebar-ink: #d4deda;
+  --workspace-sidebar-muted: #b8cbc5;
+  --workspace-sidebar-faint: #a0b6ae;
+  --workspace-sidebar-strong: #f6f8f8;
+  --workspace-sidebar-hover: #1f332c;
+  --workspace-sidebar-active: #294d41;
+  --workspace-sidebar-line: #2c443c;
+  --workspace-sidebar-control: #1c2e28;
+  --workspace-sidebar-control-hover: #254138;
+  --workspace-sidebar-control-line: #37534a;
+  --workspace-sidebar-menu-line: #3f5f55;
+  --workspace-mark: #a8f0d8;
+  --workspace-mark-ink: #1e3e33;
 }
 
 :root[data-workspace="pi"] {
-  --workspace-accent: #6c4a92;
-  --workspace-solid: #70509a;
-  --workspace-hover: #593e7d;
-  --workspace-tint: #f1edf8;
-  --workspace-tint-ink: #6e5789;
-  --workspace-tint-border: #af9bc8;
-  --workspace-focus: #a489c0;
-  --workspace-sidebar: #3b304c;
-  --workspace-sidebar-ink: #e5e9ee;
-  --workspace-sidebar-muted: #d4dbe3;
-  --workspace-sidebar-faint: #c2cbd5;
-  --workspace-sidebar-strong: #f3f4f5;
-  --workspace-sidebar-hover: #493b5c;
-  --workspace-sidebar-active: #59476d;
-  --workspace-sidebar-line: #42464d;
-  --workspace-sidebar-control: #453856;
-  --workspace-sidebar-control-hover: #554466;
-  --workspace-sidebar-control-line: #50555e;
-  --workspace-sidebar-menu-line: #5c626c;
-  --workspace-mark: #cfb3f3;
-  --workspace-mark-ink: #20252b;
+  --workspace-accent: #9a5c53;
+  --workspace-solid: #a36258;
+  --workspace-hover: #8b534b;
+  --workspace-tint: #f7f3f3;
+  --workspace-tint-ink: #9a5c53;
+  --workspace-tint-border: #c6a49f;
+  --workspace-focus: #9a5c53;
+  --workspace-sidebar: #312321;
+  --workspace-sidebar-ink: #ddd6d5;
+  --workspace-sidebar-muted: #c9bcba;
+  --workspace-sidebar-faint: #b3a4a2;
+  --workspace-sidebar-strong: #f8f7f7;
+  --workspace-sidebar-hover: #402e2b;
+  --workspace-sidebar-active: #593a36;
+  --workspace-sidebar-line: #533f3c;
+  --workspace-sidebar-control: #3a2927;
+  --workspace-sidebar-control-hover: #4e3532;
+  --workspace-sidebar-control-line: #624a46;
+  --workspace-sidebar-menu-line: #6e534f;
+  --workspace-mark: #e9b6af;
+  --workspace-mark-ink: #3b2421;
 }
 
 @media (prefers-color-scheme: dark) {
   :root[data-workspace="pi"]:not([data-theme="light"]) {
-    --workspace-accent: #c5a9e8;
-    --workspace-solid: #70509a;
-    --workspace-hover: #593e7d;
-    --workspace-tint: #352c40;
-    --workspace-tint-ink: #d3c0e9;
-    --workspace-tint-border: #af9bc8;
-    --workspace-focus: #a489c0;
-    --workspace-sidebar: #3b304c;
-    --workspace-sidebar-ink: #e5e9ee;
-    --workspace-sidebar-muted: #d4dbe3;
-    --workspace-sidebar-faint: #c2cbd5;
-    --workspace-sidebar-strong: #f3f4f5;
-    --workspace-sidebar-hover: #493b5c;
-    --workspace-sidebar-active: #59476d;
-    --workspace-sidebar-line: #42464d;
-    --workspace-sidebar-control: #453856;
-    --workspace-sidebar-control-hover: #554466;
-    --workspace-sidebar-control-line: #50555e;
-    --workspace-sidebar-menu-line: #5c626c;
-    --workspace-mark: #cfb3f3;
-    --workspace-mark-ink: #20252b;
+    --workspace-accent: #f09082;
+    --workspace-solid: #a36258;
+    --workspace-hover: #8b534b;
+    --workspace-tint: #302321;
+    --workspace-tint-ink: #f09082;
+    --workspace-tint-border: #845852;
+    --workspace-focus: #f09082;
+    --workspace-sidebar: #201716;
+    --workspace-sidebar-ink: #ddd6d5;
+    --workspace-sidebar-muted: #c9bcba;
+    --workspace-sidebar-faint: #b3a4a2;
+    --workspace-sidebar-strong: #f8f7f7;
+    --workspace-sidebar-hover: #312321;
+    --workspace-sidebar-active: #49302c;
+    --workspace-sidebar-line: #41312f;
+    --workspace-sidebar-control: #2c201e;
+    --workspace-sidebar-control-hover: #3e2b28;
+    --workspace-sidebar-control-line: #503c39;
+    --workspace-sidebar-menu-line: #5c4542;
+    --workspace-mark: #e9b6af;
+    --workspace-mark-ink: #3b2421;
   }
 }
 
 :root[data-workspace="pi"][data-theme="dark"] {
-  --workspace-accent: #c5a9e8;
-  --workspace-solid: #70509a;
-  --workspace-hover: #593e7d;
-  --workspace-tint: #352c40;
-  --workspace-tint-ink: #d3c0e9;
-  --workspace-tint-border: #af9bc8;
-  --workspace-focus: #a489c0;
-  --workspace-sidebar: #3b304c;
-  --workspace-sidebar-ink: #e5e9ee;
-  --workspace-sidebar-muted: #d4dbe3;
-  --workspace-sidebar-faint: #c2cbd5;
-  --workspace-sidebar-strong: #f3f4f5;
-  --workspace-sidebar-hover: #493b5c;
-  --workspace-sidebar-active: #59476d;
-  --workspace-sidebar-line: #42464d;
-  --workspace-sidebar-control: #453856;
-  --workspace-sidebar-control-hover: #554466;
-  --workspace-sidebar-control-line: #50555e;
-  --workspace-sidebar-menu-line: #5c626c;
-  --workspace-mark: #cfb3f3;
-  --workspace-mark-ink: #20252b;
+  --workspace-accent: #f09082;
+  --workspace-solid: #a36258;
+  --workspace-hover: #8b534b;
+  --workspace-tint: #302321;
+  --workspace-tint-ink: #f09082;
+  --workspace-tint-border: #845852;
+  --workspace-focus: #f09082;
+  --workspace-sidebar: #201716;
+  --workspace-sidebar-ink: #ddd6d5;
+  --workspace-sidebar-muted: #c9bcba;
+  --workspace-sidebar-faint: #b3a4a2;
+  --workspace-sidebar-strong: #f8f7f7;
+  --workspace-sidebar-hover: #312321;
+  --workspace-sidebar-active: #49302c;
+  --workspace-sidebar-line: #41312f;
+  --workspace-sidebar-control: #2c201e;
+  --workspace-sidebar-control-hover: #3e2b28;
+  --workspace-sidebar-control-line: #503c39;
+  --workspace-sidebar-menu-line: #5c4542;
+  --workspace-mark: #e9b6af;
+  --workspace-mark-ink: #3b2421;
 }
 
 :root[data-workspace="minimax"] {
-  --workspace-accent: #a03d48;
-  --workspace-solid: #a3434d;
-  --workspace-hover: #83323c;
-  --workspace-tint: #faeeee;
-  --workspace-tint-ink: #93545b;
-  --workspace-tint-border: #ca9b9e;
-  --workspace-focus: #bf858a;
-  --workspace-sidebar: #4b3035;
-  --workspace-sidebar-ink: #e5e9ee;
-  --workspace-sidebar-muted: #d4dbe3;
-  --workspace-sidebar-faint: #c2cbd5;
-  --workspace-sidebar-strong: #f3f4f5;
-  --workspace-sidebar-hover: #5b3a40;
-  --workspace-sidebar-active: #6b454b;
-  --workspace-sidebar-line: #42464d;
-  --workspace-sidebar-control: #57383d;
-  --workspace-sidebar-control-hover: #684349;
-  --workspace-sidebar-control-line: #50555e;
-  --workspace-sidebar-menu-line: #5c626c;
-  --workspace-mark: #ffadb1;
-  --workspace-mark-ink: #20252b;
+  --workspace-accent: #d01474;
+  --workspace-solid: #db157a;
+  --workspace-hover: #ba1268;
+  --workspace-tint: #f7f2f5;
+  --workspace-tint-ink: #d01474;
+  --workspace-tint-border: #c79eb3;
+  --workspace-focus: #d01474;
+  --workspace-sidebar: #312029;
+  --workspace-sidebar-ink: #ddd5d9;
+  --workspace-sidebar-muted: #cabac2;
+  --workspace-sidebar-faint: #b4a2ab;
+  --workspace-sidebar-strong: #f8f7f7;
+  --workspace-sidebar-hover: #412b36;
+  --workspace-sidebar-active: #5a3548;
+  --workspace-sidebar-line: #543b48;
+  --workspace-sidebar-control: #3a2631;
+  --workspace-sidebar-control-hover: #4e3140;
+  --workspace-sidebar-control-line: #634654;
+  --workspace-sidebar-menu-line: #6f4e5f;
+  --workspace-mark: #eaaecd;
+  --workspace-mark-ink: #3b212e;
 }
 
 @media (prefers-color-scheme: dark) {
   :root[data-workspace="minimax"]:not([data-theme="light"]) {
-    --workspace-accent: #f0a3a8;
-    --workspace-solid: #a3434d;
-    --workspace-hover: #83323c;
-    --workspace-tint: #402c30;
-    --workspace-tint-ink: #e8b9bc;
-    --workspace-tint-border: #ca9b9e;
-    --workspace-focus: #bf858a;
-    --workspace-sidebar: #4b3035;
-    --workspace-sidebar-ink: #e5e9ee;
-    --workspace-sidebar-muted: #d4dbe3;
-    --workspace-sidebar-faint: #c2cbd5;
-    --workspace-sidebar-strong: #f3f4f5;
-    --workspace-sidebar-hover: #5b3a40;
-    --workspace-sidebar-active: #6b454b;
-    --workspace-sidebar-line: #42464d;
-    --workspace-sidebar-control: #57383d;
-    --workspace-sidebar-control-hover: #684349;
-    --workspace-sidebar-control-line: #50555e;
-    --workspace-sidebar-menu-line: #5c626c;
-    --workspace-mark: #ffadb1;
-    --workspace-mark-ink: #20252b;
+    --workspace-accent: #ea5aa3;
+    --workspace-solid: #db157a;
+    --workspace-hover: #ba1268;
+    --workspace-tint: #312129;
+    --workspace-tint-ink: #ea5aa3;
+    --workspace-tint-border: #86516c;
+    --workspace-focus: #ea5aa3;
+    --workspace-sidebar: #20151b;
+    --workspace-sidebar-ink: #ddd5d9;
+    --workspace-sidebar-muted: #cabac2;
+    --workspace-sidebar-faint: #b4a2ab;
+    --workspace-sidebar-strong: #f8f7f7;
+    --workspace-sidebar-hover: #312029;
+    --workspace-sidebar-active: #4a2c3b;
+    --workspace-sidebar-line: #422e38;
+    --workspace-sidebar-control: #2d1d25;
+    --workspace-sidebar-control-hover: #3f2733;
+    --workspace-sidebar-control-line: #513945;
+    --workspace-sidebar-menu-line: #5d414f;
+    --workspace-mark: #eaaecd;
+    --workspace-mark-ink: #3b212e;
   }
 }
 
 :root[data-workspace="minimax"][data-theme="dark"] {
-  --workspace-accent: #f0a3a8;
-  --workspace-solid: #a3434d;
-  --workspace-hover: #83323c;
-  --workspace-tint: #402c30;
-  --workspace-tint-ink: #e8b9bc;
-  --workspace-tint-border: #ca9b9e;
-  --workspace-focus: #bf858a;
-  --workspace-sidebar: #4b3035;
-  --workspace-sidebar-ink: #e5e9ee;
-  --workspace-sidebar-muted: #d4dbe3;
-  --workspace-sidebar-faint: #c2cbd5;
-  --workspace-sidebar-strong: #f3f4f5;
-  --workspace-sidebar-hover: #5b3a40;
-  --workspace-sidebar-active: #6b454b;
-  --workspace-sidebar-line: #42464d;
-  --workspace-sidebar-control: #57383d;
-  --workspace-sidebar-control-hover: #684349;
-  --workspace-sidebar-control-line: #50555e;
-  --workspace-sidebar-menu-line: #5c626c;
-  --workspace-mark: #ffadb1;
-  --workspace-mark-ink: #20252b;
+  --workspace-accent: #ea5aa3;
+  --workspace-solid: #db157a;
+  --workspace-hover: #ba1268;
+  --workspace-tint: #312129;
+  --workspace-tint-ink: #ea5aa3;
+  --workspace-tint-border: #86516c;
+  --workspace-focus: #ea5aa3;
+  --workspace-sidebar: #20151b;
+  --workspace-sidebar-ink: #ddd5d9;
+  --workspace-sidebar-muted: #cabac2;
+  --workspace-sidebar-faint: #b4a2ab;
+  --workspace-sidebar-strong: #f8f7f7;
+  --workspace-sidebar-hover: #312029;
+  --workspace-sidebar-active: #4a2c3b;
+  --workspace-sidebar-line: #422e38;
+  --workspace-sidebar-control: #2d1d25;
+  --workspace-sidebar-control-hover: #3f2733;
+  --workspace-sidebar-control-line: #513945;
+  --workspace-sidebar-menu-line: #5d414f;
+  --workspace-mark: #eaaecd;
+  --workspace-mark-ink: #3b212e;
+}
+
+:root[data-workspace="cline"] {
+  --workspace-accent: #383838;
+  --workspace-solid: #383838;
+  --workspace-hover: #303030;
+  --workspace-tint: #f5f5f5;
+  --workspace-tint-ink: #383838;
+  --workspace-tint-border: #b3b3b3;
+  --workspace-focus: #383838;
+  --workspace-sidebar: #292929;
+  --workspace-sidebar-ink: #d9d9d9;
+  --workspace-sidebar-muted: #c2c2c2;
+  --workspace-sidebar-faint: #ababab;
+  --workspace-sidebar-strong: #f7f7f7;
+  --workspace-sidebar-hover: #363636;
+  --workspace-sidebar-active: #474747;
+  --workspace-sidebar-line: #474747;
+  --workspace-sidebar-control: #303030;
+  --workspace-sidebar-control-hover: #404040;
+  --workspace-sidebar-control-line: #545454;
+  --workspace-sidebar-menu-line: #5e5e5e;
+  --workspace-mark: #cccccc;
+  --workspace-mark-ink: #2e2e2e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-workspace="cline"]:not([data-theme="light"]) {
+    --workspace-accent: #949494;
+    --workspace-solid: #383838;
+    --workspace-hover: #303030;
+    --workspace-tint: #292929;
+    --workspace-tint-ink: #949494;
+    --workspace-tint-border: #6b6b6b;
+    --workspace-focus: #949494;
+    --workspace-sidebar: #1b1b1b;
+    --workspace-sidebar-ink: #d9d9d9;
+    --workspace-sidebar-muted: #c2c2c2;
+    --workspace-sidebar-faint: #ababab;
+    --workspace-sidebar-strong: #f7f7f7;
+    --workspace-sidebar-hover: #292929;
+    --workspace-sidebar-active: #3b3b3b;
+    --workspace-sidebar-line: #383838;
+    --workspace-sidebar-control: #252525;
+    --workspace-sidebar-control-hover: #333333;
+    --workspace-sidebar-control-line: #454545;
+    --workspace-sidebar-menu-line: #4f4f4f;
+    --workspace-mark: #cccccc;
+    --workspace-mark-ink: #2e2e2e;
+  }
+}
+
+:root[data-workspace="cline"][data-theme="dark"] {
+  --workspace-accent: #949494;
+  --workspace-solid: #383838;
+  --workspace-hover: #303030;
+  --workspace-tint: #292929;
+  --workspace-tint-ink: #949494;
+  --workspace-tint-border: #6b6b6b;
+  --workspace-focus: #949494;
+  --workspace-sidebar: #1b1b1b;
+  --workspace-sidebar-ink: #d9d9d9;
+  --workspace-sidebar-muted: #c2c2c2;
+  --workspace-sidebar-faint: #ababab;
+  --workspace-sidebar-strong: #f7f7f7;
+  --workspace-sidebar-hover: #292929;
+  --workspace-sidebar-active: #3b3b3b;
+  --workspace-sidebar-line: #383838;
+  --workspace-sidebar-control: #252525;
+  --workspace-sidebar-control-hover: #333333;
+  --workspace-sidebar-control-line: #454545;
+  --workspace-sidebar-menu-line: #4f4f4f;
+  --workspace-mark: #cccccc;
+  --workspace-mark-ink: #2e2e2e;
+}
+
+:root[data-workspace="kilo"] {
+  --workspace-accent: #383838;
+  --workspace-solid: #383838;
+  --workspace-hover: #303030;
+  --workspace-tint: #f5f5f5;
+  --workspace-tint-ink: #383838;
+  --workspace-tint-border: #b3b3b3;
+  --workspace-focus: #383838;
+  --workspace-sidebar: #292929;
+  --workspace-sidebar-ink: #d9d9d9;
+  --workspace-sidebar-muted: #c2c2c2;
+  --workspace-sidebar-faint: #ababab;
+  --workspace-sidebar-strong: #f7f7f7;
+  --workspace-sidebar-hover: #363636;
+  --workspace-sidebar-active: #474747;
+  --workspace-sidebar-line: #474747;
+  --workspace-sidebar-control: #303030;
+  --workspace-sidebar-control-hover: #404040;
+  --workspace-sidebar-control-line: #545454;
+  --workspace-sidebar-menu-line: #5e5e5e;
+  --workspace-mark: #cccccc;
+  --workspace-mark-ink: #2e2e2e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-workspace="kilo"]:not([data-theme="light"]) {
+    --workspace-accent: #949494;
+    --workspace-solid: #383838;
+    --workspace-hover: #303030;
+    --workspace-tint: #292929;
+    --workspace-tint-ink: #949494;
+    --workspace-tint-border: #6b6b6b;
+    --workspace-focus: #949494;
+    --workspace-sidebar: #1b1b1b;
+    --workspace-sidebar-ink: #d9d9d9;
+    --workspace-sidebar-muted: #c2c2c2;
+    --workspace-sidebar-faint: #ababab;
+    --workspace-sidebar-strong: #f7f7f7;
+    --workspace-sidebar-hover: #292929;
+    --workspace-sidebar-active: #3b3b3b;
+    --workspace-sidebar-line: #383838;
+    --workspace-sidebar-control: #252525;
+    --workspace-sidebar-control-hover: #333333;
+    --workspace-sidebar-control-line: #454545;
+    --workspace-sidebar-menu-line: #4f4f4f;
+    --workspace-mark: #cccccc;
+    --workspace-mark-ink: #2e2e2e;
+  }
+}
+
+:root[data-workspace="kilo"][data-theme="dark"] {
+  --workspace-accent: #949494;
+  --workspace-solid: #383838;
+  --workspace-hover: #303030;
+  --workspace-tint: #292929;
+  --workspace-tint-ink: #949494;
+  --workspace-tint-border: #6b6b6b;
+  --workspace-focus: #949494;
+  --workspace-sidebar: #1b1b1b;
+  --workspace-sidebar-ink: #d9d9d9;
+  --workspace-sidebar-muted: #c2c2c2;
+  --workspace-sidebar-faint: #ababab;
+  --workspace-sidebar-strong: #f7f7f7;
+  --workspace-sidebar-hover: #292929;
+  --workspace-sidebar-active: #3b3b3b;
+  --workspace-sidebar-line: #383838;
+  --workspace-sidebar-control: #252525;
+  --workspace-sidebar-control-hover: #333333;
+  --workspace-sidebar-control-line: #454545;
+  --workspace-sidebar-menu-line: #4f4f4f;
+  --workspace-mark: #cccccc;
+  --workspace-mark-ink: #2e2e2e;
+}
+
+:root[data-workspace="qwen"] {
+  --workspace-accent: #082dff;
+  --workspace-solid: #082dff;
+  --workspace-hover: #0726d9;
+  --workspace-tint: #f2f3f8;
+  --workspace-tint-ink: #082dff;
+  --workspace-tint-border: #9aa1cb;
+  --workspace-focus: #082dff;
+  --workspace-sidebar: #1f2233;
+  --workspace-sidebar-ink: #d4d5de;
+  --workspace-sidebar-muted: #b8bbcc;
+  --workspace-sidebar-faint: #a0a3b6;
+  --workspace-sidebar-strong: #f6f7f8;
+  --workspace-sidebar-hover: #282c43;
+  --workspace-sidebar-active: #31385e;
+  --workspace-sidebar-line: #383d56;
+  --workspace-sidebar-control: #24283d;
+  --workspace-sidebar-control-hover: #2e3352;
+  --workspace-sidebar-control-line: #424866;
+  --workspace-sidebar-menu-line: #4b5072;
+  --workspace-mark: #a7b2f1;
+  --workspace-mark-ink: #1e233e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-workspace="qwen"]:not([data-theme="light"]) {
+    --workspace-accent: #6d83ff;
+    --workspace-solid: #082dff;
+    --workspace-hover: #0726d9;
+    --workspace-tint: #1f2232;
+    --workspace-tint-ink: #6d83ff;
+    --workspace-tint-border: #4b558b;
+    --workspace-focus: #6d83ff;
+    --workspace-sidebar: #141621;
+    --workspace-sidebar-ink: #d4d5de;
+    --workspace-sidebar-muted: #b8bbcc;
+    --workspace-sidebar-faint: #a0a3b6;
+    --workspace-sidebar-strong: #f6f7f8;
+    --workspace-sidebar-hover: #1f2233;
+    --workspace-sidebar-active: #282e4d;
+    --workspace-sidebar-line: #2c3044;
+    --workspace-sidebar-control: #1c1f2e;
+    --workspace-sidebar-control-hover: #252941;
+    --workspace-sidebar-control-line: #363b53;
+    --workspace-sidebar-menu-line: #3e4360;
+    --workspace-mark: #a7b2f1;
+    --workspace-mark-ink: #1e233e;
+  }
+}
+
+:root[data-workspace="qwen"][data-theme="dark"] {
+  --workspace-accent: #6d83ff;
+  --workspace-solid: #082dff;
+  --workspace-hover: #0726d9;
+  --workspace-tint: #1f2232;
+  --workspace-tint-ink: #6d83ff;
+  --workspace-tint-border: #4b558b;
+  --workspace-focus: #6d83ff;
+  --workspace-sidebar: #141621;
+  --workspace-sidebar-ink: #d4d5de;
+  --workspace-sidebar-muted: #b8bbcc;
+  --workspace-sidebar-faint: #a0a3b6;
+  --workspace-sidebar-strong: #f6f7f8;
+  --workspace-sidebar-hover: #1f2233;
+  --workspace-sidebar-active: #282e4d;
+  --workspace-sidebar-line: #2c3044;
+  --workspace-sidebar-control: #1c1f2e;
+  --workspace-sidebar-control-hover: #252941;
+  --workspace-sidebar-control-line: #363b53;
+  --workspace-sidebar-menu-line: #3e4360;
+  --workspace-mark: #a7b2f1;
+  --workspace-mark-ink: #1e233e;
+}
+
+:root[data-workspace="kimi"] {
+  --workspace-accent: #136bd1;
+  --workspace-solid: #1471db;
+  --workspace-hover: #1160ba;
+  --workspace-tint: #f2f5f8;
+  --workspace-tint-ink: #136bd1;
+  --workspace-tint-border: #9ab1cb;
+  --workspace-focus: #136bd1;
+  --workspace-sidebar: #1f2833;
+  --workspace-sidebar-ink: #d4d8de;
+  --workspace-sidebar-muted: #b8c1cc;
+  --workspace-sidebar-faint: #a0aab6;
+  --workspace-sidebar-strong: #f6f7f8;
+  --workspace-sidebar-hover: #283543;
+  --workspace-sidebar-active: #31465e;
+  --workspace-sidebar-line: #384656;
+  --workspace-sidebar-control: #24303d;
+  --workspace-sidebar-control-hover: #2e3f52;
+  --workspace-sidebar-control-line: #425366;
+  --workspace-sidebar-menu-line: #4b5d72;
+  --workspace-mark: #a7c9f1;
+  --workspace-mark-ink: #1e2d3e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-workspace="kimi"]:not([data-theme="light"]) {
+    --workspace-accent: #3191ff;
+    --workspace-solid: #1471db;
+    --workspace-hover: #1160ba;
+    --workspace-tint: #1f2832;
+    --workspace-tint-ink: #3191ff;
+    --workspace-tint-border: #4b698b;
+    --workspace-focus: #3191ff;
+    --workspace-sidebar: #141a21;
+    --workspace-sidebar-ink: #d4d8de;
+    --workspace-sidebar-muted: #b8c1cc;
+    --workspace-sidebar-faint: #a0aab6;
+    --workspace-sidebar-strong: #f6f7f8;
+    --workspace-sidebar-hover: #1f2833;
+    --workspace-sidebar-active: #28394d;
+    --workspace-sidebar-line: #2c3744;
+    --workspace-sidebar-control: #1c242e;
+    --workspace-sidebar-control-hover: #253241;
+    --workspace-sidebar-control-line: #364453;
+    --workspace-sidebar-menu-line: #3e4e60;
+    --workspace-mark: #a7c9f1;
+    --workspace-mark-ink: #1e2d3e;
+  }
+}
+
+:root[data-workspace="kimi"][data-theme="dark"] {
+  --workspace-accent: #3191ff;
+  --workspace-solid: #1471db;
+  --workspace-hover: #1160ba;
+  --workspace-tint: #1f2832;
+  --workspace-tint-ink: #3191ff;
+  --workspace-tint-border: #4b698b;
+  --workspace-focus: #3191ff;
+  --workspace-sidebar: #141a21;
+  --workspace-sidebar-ink: #d4d8de;
+  --workspace-sidebar-muted: #b8c1cc;
+  --workspace-sidebar-faint: #a0aab6;
+  --workspace-sidebar-strong: #f6f7f8;
+  --workspace-sidebar-hover: #1f2833;
+  --workspace-sidebar-active: #28394d;
+  --workspace-sidebar-line: #2c3744;
+  --workspace-sidebar-control: #1c242e;
+  --workspace-sidebar-control-hover: #253241;
+  --workspace-sidebar-control-line: #364453;
+  --workspace-sidebar-menu-line: #3e4e60;
+  --workspace-mark: #a7c9f1;
+  --workspace-mark-ink: #1e2d3e;
+}
+
+:root[data-workspace="continue"] {
+  --workspace-accent: #303038;
+  --workspace-solid: #303038;
+  --workspace-hover: #292930;
+  --workspace-tint: #f5f5f5;
+  --workspace-tint-ink: #303038;
+  --workspace-tint-border: #b1b1b4;
+  --workspace-focus: #303038;
+  --workspace-sidebar: #28282a;
+  --workspace-sidebar-ink: #d8d8d9;
+  --workspace-sidebar-muted: #c1c1c3;
+  --workspace-sidebar-faint: #aaaaac;
+  --workspace-sidebar-strong: #f7f7f7;
+  --workspace-sidebar-hover: #353537;
+  --workspace-sidebar-active: #464649;
+  --workspace-sidebar-line: #464649;
+  --workspace-sidebar-control: #303031;
+  --workspace-sidebar-control-hover: #3e3e41;
+  --workspace-sidebar-control-line: #535356;
+  --workspace-sidebar-menu-line: #5d5d60;
+  --workspace-mark: #c9c9cf;
+  --workspace-mark-ink: #2d2d2f;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-workspace="continue"]:not([data-theme="light"]) {
+    --workspace-accent: #939398;
+    --workspace-solid: #303038;
+    --workspace-hover: #292930;
+    --workspace-tint: #28282a;
+    --workspace-tint-ink: #939398;
+    --workspace-tint-border: #69696e;
+    --workspace-focus: #939398;
+    --workspace-sidebar: #1a1a1b;
+    --workspace-sidebar-ink: #d8d8d9;
+    --workspace-sidebar-muted: #c1c1c3;
+    --workspace-sidebar-faint: #aaaaac;
+    --workspace-sidebar-strong: #f7f7f7;
+    --workspace-sidebar-hover: #28282a;
+    --workspace-sidebar-active: #39393c;
+    --workspace-sidebar-line: #373739;
+    --workspace-sidebar-control: #242426;
+    --workspace-sidebar-control-hover: #323234;
+    --workspace-sidebar-control-line: #444446;
+    --workspace-sidebar-menu-line: #4e4e50;
+    --workspace-mark: #c9c9cf;
+    --workspace-mark-ink: #2d2d2f;
+  }
+}
+
+:root[data-workspace="continue"][data-theme="dark"] {
+  --workspace-accent: #939398;
+  --workspace-solid: #303038;
+  --workspace-hover: #292930;
+  --workspace-tint: #28282a;
+  --workspace-tint-ink: #939398;
+  --workspace-tint-border: #69696e;
+  --workspace-focus: #939398;
+  --workspace-sidebar: #1a1a1b;
+  --workspace-sidebar-ink: #d8d8d9;
+  --workspace-sidebar-muted: #c1c1c3;
+  --workspace-sidebar-faint: #aaaaac;
+  --workspace-sidebar-strong: #f7f7f7;
+  --workspace-sidebar-hover: #28282a;
+  --workspace-sidebar-active: #39393c;
+  --workspace-sidebar-line: #373739;
+  --workspace-sidebar-control: #242426;
+  --workspace-sidebar-control-hover: #323234;
+  --workspace-sidebar-control-line: #444446;
+  --workspace-sidebar-menu-line: #4e4e50;
+  --workspace-mark: #c9c9cf;
+  --workspace-mark-ink: #2d2d2f;
+}
+
+:root[data-workspace="roo"] {
+  --workspace-accent: #383838;
+  --workspace-solid: #383838;
+  --workspace-hover: #303030;
+  --workspace-tint: #f5f5f5;
+  --workspace-tint-ink: #383838;
+  --workspace-tint-border: #b3b3b3;
+  --workspace-focus: #383838;
+  --workspace-sidebar: #292929;
+  --workspace-sidebar-ink: #d9d9d9;
+  --workspace-sidebar-muted: #c2c2c2;
+  --workspace-sidebar-faint: #ababab;
+  --workspace-sidebar-strong: #f7f7f7;
+  --workspace-sidebar-hover: #363636;
+  --workspace-sidebar-active: #474747;
+  --workspace-sidebar-line: #474747;
+  --workspace-sidebar-control: #303030;
+  --workspace-sidebar-control-hover: #404040;
+  --workspace-sidebar-control-line: #545454;
+  --workspace-sidebar-menu-line: #5e5e5e;
+  --workspace-mark: #cccccc;
+  --workspace-mark-ink: #2e2e2e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-workspace="roo"]:not([data-theme="light"]) {
+    --workspace-accent: #949494;
+    --workspace-solid: #383838;
+    --workspace-hover: #303030;
+    --workspace-tint: #292929;
+    --workspace-tint-ink: #949494;
+    --workspace-tint-border: #6b6b6b;
+    --workspace-focus: #949494;
+    --workspace-sidebar: #1b1b1b;
+    --workspace-sidebar-ink: #d9d9d9;
+    --workspace-sidebar-muted: #c2c2c2;
+    --workspace-sidebar-faint: #ababab;
+    --workspace-sidebar-strong: #f7f7f7;
+    --workspace-sidebar-hover: #292929;
+    --workspace-sidebar-active: #3b3b3b;
+    --workspace-sidebar-line: #383838;
+    --workspace-sidebar-control: #252525;
+    --workspace-sidebar-control-hover: #333333;
+    --workspace-sidebar-control-line: #454545;
+    --workspace-sidebar-menu-line: #4f4f4f;
+    --workspace-mark: #cccccc;
+    --workspace-mark-ink: #2e2e2e;
+  }
+}
+
+:root[data-workspace="roo"][data-theme="dark"] {
+  --workspace-accent: #949494;
+  --workspace-solid: #383838;
+  --workspace-hover: #303030;
+  --workspace-tint: #292929;
+  --workspace-tint-ink: #949494;
+  --workspace-tint-border: #6b6b6b;
+  --workspace-focus: #949494;
+  --workspace-sidebar: #1b1b1b;
+  --workspace-sidebar-ink: #d9d9d9;
+  --workspace-sidebar-muted: #c2c2c2;
+  --workspace-sidebar-faint: #ababab;
+  --workspace-sidebar-strong: #f7f7f7;
+  --workspace-sidebar-hover: #292929;
+  --workspace-sidebar-active: #3b3b3b;
+  --workspace-sidebar-line: #383838;
+  --workspace-sidebar-control: #252525;
+  --workspace-sidebar-control-hover: #333333;
+  --workspace-sidebar-control-line: #454545;
+  --workspace-sidebar-menu-line: #4f4f4f;
+  --workspace-mark: #cccccc;
+  --workspace-mark-ink: #2e2e2e;
+}
+
+:root[data-workspace="aider"] {
+  --workspace-accent: #007e52;
+  --workspace-solid: #008355;
+  --workspace-hover: #006f48;
+  --workspace-tint: #f2f8f6;
+  --workspace-tint-ink: #007e52;
+  --workspace-tint-border: #9acbba;
+  --workspace-focus: #007e52;
+  --workspace-sidebar: #1f332c;
+  --workspace-sidebar-ink: #d4deda;
+  --workspace-sidebar-muted: #b8ccc5;
+  --workspace-sidebar-faint: #a0b6ae;
+  --workspace-sidebar-strong: #f6f8f8;
+  --workspace-sidebar-hover: #284339;
+  --workspace-sidebar-active: #315e4e;
+  --workspace-sidebar-line: #38564c;
+  --workspace-sidebar-control: #243d34;
+  --workspace-sidebar-control-hover: #2e5245;
+  --workspace-sidebar-control-line: #426659;
+  --workspace-sidebar-menu-line: #4b7264;
+  --workspace-mark: #a7f1d7;
+  --workspace-mark-ink: #1e3e33;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-workspace="aider"]:not([data-theme="light"]) {
+    --workspace-accent: #00f8a0;
+    --workspace-solid: #008355;
+    --workspace-hover: #006f48;
+    --workspace-tint: #1f322c;
+    --workspace-tint-ink: #00f8a0;
+    --workspace-tint-border: #4b8b74;
+    --workspace-focus: #00f8a0;
+    --workspace-sidebar: #14211d;
+    --workspace-sidebar-ink: #d4deda;
+    --workspace-sidebar-muted: #b8ccc5;
+    --workspace-sidebar-faint: #a0b6ae;
+    --workspace-sidebar-strong: #f6f8f8;
+    --workspace-sidebar-hover: #1f332c;
+    --workspace-sidebar-active: #284d40;
+    --workspace-sidebar-line: #2c443c;
+    --workspace-sidebar-control: #1c2e28;
+    --workspace-sidebar-control-hover: #254137;
+    --workspace-sidebar-control-line: #365349;
+    --workspace-sidebar-menu-line: #3e6054;
+    --workspace-mark: #a7f1d7;
+    --workspace-mark-ink: #1e3e33;
+  }
+}
+
+:root[data-workspace="aider"][data-theme="dark"] {
+  --workspace-accent: #00f8a0;
+  --workspace-solid: #008355;
+  --workspace-hover: #006f48;
+  --workspace-tint: #1f322c;
+  --workspace-tint-ink: #00f8a0;
+  --workspace-tint-border: #4b8b74;
+  --workspace-focus: #00f8a0;
+  --workspace-sidebar: #14211d;
+  --workspace-sidebar-ink: #d4deda;
+  --workspace-sidebar-muted: #b8ccc5;
+  --workspace-sidebar-faint: #a0b6ae;
+  --workspace-sidebar-strong: #f6f8f8;
+  --workspace-sidebar-hover: #1f332c;
+  --workspace-sidebar-active: #284d40;
+  --workspace-sidebar-line: #2c443c;
+  --workspace-sidebar-control: #1c2e28;
+  --workspace-sidebar-control-hover: #254137;
+  --workspace-sidebar-control-line: #365349;
+  --workspace-sidebar-menu-line: #3e6054;
+  --workspace-mark: #a7f1d7;
+  --workspace-mark-ink: #1e3e33;
+}
+
+:root[data-workspace="cursor"] {
+  --workspace-accent: #383838;
+  --workspace-solid: #383838;
+  --workspace-hover: #303030;
+  --workspace-tint: #f5f5f5;
+  --workspace-tint-ink: #383838;
+  --workspace-tint-border: #b3b3b3;
+  --workspace-focus: #383838;
+  --workspace-sidebar: #292929;
+  --workspace-sidebar-ink: #d9d9d9;
+  --workspace-sidebar-muted: #c2c2c2;
+  --workspace-sidebar-faint: #ababab;
+  --workspace-sidebar-strong: #f7f7f7;
+  --workspace-sidebar-hover: #363636;
+  --workspace-sidebar-active: #474747;
+  --workspace-sidebar-line: #474747;
+  --workspace-sidebar-control: #303030;
+  --workspace-sidebar-control-hover: #404040;
+  --workspace-sidebar-control-line: #545454;
+  --workspace-sidebar-menu-line: #5e5e5e;
+  --workspace-mark: #cccccc;
+  --workspace-mark-ink: #2e2e2e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-workspace="cursor"]:not([data-theme="light"]) {
+    --workspace-accent: #949494;
+    --workspace-solid: #383838;
+    --workspace-hover: #303030;
+    --workspace-tint: #292929;
+    --workspace-tint-ink: #949494;
+    --workspace-tint-border: #6b6b6b;
+    --workspace-focus: #949494;
+    --workspace-sidebar: #1b1b1b;
+    --workspace-sidebar-ink: #d9d9d9;
+    --workspace-sidebar-muted: #c2c2c2;
+    --workspace-sidebar-faint: #ababab;
+    --workspace-sidebar-strong: #f7f7f7;
+    --workspace-sidebar-hover: #292929;
+    --workspace-sidebar-active: #3b3b3b;
+    --workspace-sidebar-line: #383838;
+    --workspace-sidebar-control: #252525;
+    --workspace-sidebar-control-hover: #333333;
+    --workspace-sidebar-control-line: #454545;
+    --workspace-sidebar-menu-line: #4f4f4f;
+    --workspace-mark: #cccccc;
+    --workspace-mark-ink: #2e2e2e;
+  }
+}
+
+:root[data-workspace="cursor"][data-theme="dark"] {
+  --workspace-accent: #949494;
+  --workspace-solid: #383838;
+  --workspace-hover: #303030;
+  --workspace-tint: #292929;
+  --workspace-tint-ink: #949494;
+  --workspace-tint-border: #6b6b6b;
+  --workspace-focus: #949494;
+  --workspace-sidebar: #1b1b1b;
+  --workspace-sidebar-ink: #d9d9d9;
+  --workspace-sidebar-muted: #c2c2c2;
+  --workspace-sidebar-faint: #ababab;
+  --workspace-sidebar-strong: #f7f7f7;
+  --workspace-sidebar-hover: #292929;
+  --workspace-sidebar-active: #3b3b3b;
+  --workspace-sidebar-line: #383838;
+  --workspace-sidebar-control: #252525;
+  --workspace-sidebar-control-hover: #333333;
+  --workspace-sidebar-control-line: #454545;
+  --workspace-sidebar-menu-line: #4f4f4f;
+  --workspace-mark: #cccccc;
+  --workspace-mark-ink: #2e2e2e;
+}
+
+:root[data-workspace="gemini"] {
+  --workspace-accent: #276ac9;
+  --workspace-solid: #2971d6;
+  --workspace-hover: #2360b6;
+  --workspace-tint: #f2f4f8;
+  --workspace-tint-ink: #276ac9;
+  --workspace-tint-border: #9aaecb;
+  --workspace-focus: #276ac9;
+  --workspace-sidebar: #1f2733;
+  --workspace-sidebar-ink: #d4d8de;
+  --workspace-sidebar-muted: #b8c0cc;
+  --workspace-sidebar-faint: #a0a9b6;
+  --workspace-sidebar-strong: #f6f7f8;
+  --workspace-sidebar-hover: #283343;
+  --workspace-sidebar-active: #31445e;
+  --workspace-sidebar-line: #384556;
+  --workspace-sidebar-control: #242e3d;
+  --workspace-sidebar-control-hover: #2e3d52;
+  --workspace-sidebar-control-line: #425166;
+  --workspace-sidebar-menu-line: #4b5b72;
+  --workspace-mark: #a7c6f1;
+  --workspace-mark-ink: #1e2b3e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-workspace="gemini"]:not([data-theme="light"]) {
+    --workspace-accent: #4190ff;
+    --workspace-solid: #2971d6;
+    --workspace-hover: #2360b6;
+    --workspace-tint: #1f2732;
+    --workspace-tint-ink: #4190ff;
+    --workspace-tint-border: #4b658b;
+    --workspace-focus: #4190ff;
+    --workspace-sidebar: #141a21;
+    --workspace-sidebar-ink: #d4d8de;
+    --workspace-sidebar-muted: #b8c0cc;
+    --workspace-sidebar-faint: #a0a9b6;
+    --workspace-sidebar-strong: #f6f7f8;
+    --workspace-sidebar-hover: #1f2733;
+    --workspace-sidebar-active: #28374d;
+    --workspace-sidebar-line: #2c3644;
+    --workspace-sidebar-control: #1c232e;
+    --workspace-sidebar-control-hover: #253141;
+    --workspace-sidebar-control-line: #364253;
+    --workspace-sidebar-menu-line: #3e4c60;
+    --workspace-mark: #a7c6f1;
+    --workspace-mark-ink: #1e2b3e;
+  }
+}
+
+:root[data-workspace="gemini"][data-theme="dark"] {
+  --workspace-accent: #4190ff;
+  --workspace-solid: #2971d6;
+  --workspace-hover: #2360b6;
+  --workspace-tint: #1f2732;
+  --workspace-tint-ink: #4190ff;
+  --workspace-tint-border: #4b658b;
+  --workspace-focus: #4190ff;
+  --workspace-sidebar: #141a21;
+  --workspace-sidebar-ink: #d4d8de;
+  --workspace-sidebar-muted: #b8c0cc;
+  --workspace-sidebar-faint: #a0a9b6;
+  --workspace-sidebar-strong: #f6f7f8;
+  --workspace-sidebar-hover: #1f2733;
+  --workspace-sidebar-active: #28374d;
+  --workspace-sidebar-line: #2c3644;
+  --workspace-sidebar-control: #1c232e;
+  --workspace-sidebar-control-hover: #253141;
+  --workspace-sidebar-control-line: #364253;
+  --workspace-sidebar-menu-line: #3e4c60;
+  --workspace-mark: #a7c6f1;
+  --workspace-mark-ink: #1e2b3e;
+}
+
+:root[data-workspace="grok"] {
+  --workspace-accent: #383838;
+  --workspace-solid: #383838;
+  --workspace-hover: #303030;
+  --workspace-tint: #f5f5f5;
+  --workspace-tint-ink: #383838;
+  --workspace-tint-border: #b3b3b3;
+  --workspace-focus: #383838;
+  --workspace-sidebar: #292929;
+  --workspace-sidebar-ink: #d9d9d9;
+  --workspace-sidebar-muted: #c2c2c2;
+  --workspace-sidebar-faint: #ababab;
+  --workspace-sidebar-strong: #f7f7f7;
+  --workspace-sidebar-hover: #363636;
+  --workspace-sidebar-active: #474747;
+  --workspace-sidebar-line: #474747;
+  --workspace-sidebar-control: #303030;
+  --workspace-sidebar-control-hover: #404040;
+  --workspace-sidebar-control-line: #545454;
+  --workspace-sidebar-menu-line: #5e5e5e;
+  --workspace-mark: #cccccc;
+  --workspace-mark-ink: #2e2e2e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-workspace="grok"]:not([data-theme="light"]) {
+    --workspace-accent: #949494;
+    --workspace-solid: #383838;
+    --workspace-hover: #303030;
+    --workspace-tint: #292929;
+    --workspace-tint-ink: #949494;
+    --workspace-tint-border: #6b6b6b;
+    --workspace-focus: #949494;
+    --workspace-sidebar: #1b1b1b;
+    --workspace-sidebar-ink: #d9d9d9;
+    --workspace-sidebar-muted: #c2c2c2;
+    --workspace-sidebar-faint: #ababab;
+    --workspace-sidebar-strong: #f7f7f7;
+    --workspace-sidebar-hover: #292929;
+    --workspace-sidebar-active: #3b3b3b;
+    --workspace-sidebar-line: #383838;
+    --workspace-sidebar-control: #252525;
+    --workspace-sidebar-control-hover: #333333;
+    --workspace-sidebar-control-line: #454545;
+    --workspace-sidebar-menu-line: #4f4f4f;
+    --workspace-mark: #cccccc;
+    --workspace-mark-ink: #2e2e2e;
+  }
+}
+
+:root[data-workspace="grok"][data-theme="dark"] {
+  --workspace-accent: #949494;
+  --workspace-solid: #383838;
+  --workspace-hover: #303030;
+  --workspace-tint: #292929;
+  --workspace-tint-ink: #949494;
+  --workspace-tint-border: #6b6b6b;
+  --workspace-focus: #949494;
+  --workspace-sidebar: #1b1b1b;
+  --workspace-sidebar-ink: #d9d9d9;
+  --workspace-sidebar-muted: #c2c2c2;
+  --workspace-sidebar-faint: #ababab;
+  --workspace-sidebar-strong: #f7f7f7;
+  --workspace-sidebar-hover: #292929;
+  --workspace-sidebar-active: #3b3b3b;
+  --workspace-sidebar-line: #383838;
+  --workspace-sidebar-control: #252525;
+  --workspace-sidebar-control-hover: #333333;
+  --workspace-sidebar-control-line: #454545;
+  --workspace-sidebar-menu-line: #4f4f4f;
+  --workspace-mark: #cccccc;
+  --workspace-mark-ink: #2e2e2e;
 }

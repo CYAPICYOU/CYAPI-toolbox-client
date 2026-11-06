@@ -682,8 +682,12 @@ fn parse_http(message: &str) -> Option<HttpInfo> {
             info.path = parsed.path().to_string();
         }
     }
-    info.request_ips = crate::request_network::from_logfmt(head.split(" body=").next().unwrap_or(""));
-    crate::request_network::merge(&mut info.request_ips, &crate::request_network::from_logfmt(trailing));
+    info.request_ips =
+        crate::request_network::from_logfmt(head.split(" body=").next().unwrap_or(""));
+    crate::request_network::merge(
+        &mut info.request_ips,
+        &crate::request_network::from_logfmt(trailing),
+    );
     if let Some(ip) = crate::request_network::target_url(&info.url) {
         info.request_ips.push(ip);
     }
@@ -1769,6 +1773,23 @@ mod tests {
             rusqlite::params![ts, level, target, body, thread],
         )
         .unwrap();
+    }
+
+    #[test]
+    fn request_ips_exclude_headers_body_and_dns_guesses() {
+        let http = parse_http("Request completed method=POST url=https://example.invalid/v1 status=200 headers={\"remote_ip\":\"192.0.2.99\"} remote_addr=\"[2001:db8::5]:443\" body=remote_ip=192.0.2.88").unwrap();
+        assert_eq!(http.request_ips.len(), 1);
+        assert_eq!(http.request_ips[0].ip, "2001:db8::5");
+        assert_eq!(http.request_ips[0].kind, "remote");
+        let http =
+            parse_http("Request failed method=POST url=https://192.0.2.8/v1 is_connect=true")
+                .unwrap();
+        assert_eq!(http.request_ips[0].kind, "target");
+        let http = parse_http(
+            "Request completed method=POST url=https://example.invalid/v1 status=200 headers={}",
+        )
+        .unwrap();
+        assert!(http.request_ips.is_empty());
     }
 
     #[test]

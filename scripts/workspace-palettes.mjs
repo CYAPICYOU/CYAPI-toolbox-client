@@ -1,7 +1,128 @@
-// Workspace identity is deliberately limited to navigation and interactive accents.
-// Shared surfaces, status colours and chart series keep the application palette.
+// App identity comes from the bundled logo artwork. Shared surfaces, status
+// colours and chart series keep the application palette.
+// SVG colours are sampled from their fills/gradient stops; PNG colours from
+// opaque foreground pixels. Monochrome logos intentionally stay neutral.
+export const LOGO_COLOURS = {
+  codex: '#3941ff', // codex-color.svg: blue-violet gradient
+  claude: '#d97757',
+  opencode: '#383838',
+  dsh: '#4d6bfe',
+  workbuddy: '#01c886',
+  pi: '#f09082', // coral, one of the two largest areas in Pi's three-colour mark
+  minimax: '#e2167e',
+  cline: '#383838',
+  kilo: '#383838',
+  qwen: '#082dff',
+  kimi: '#1783ff',
+  continue: '#303038', // dominant non-white pixels in the official extension icon
+  roo: '#383838',
+  aider: '#00f8a0', // dominant bright foreground in the official website icon
+  cursor: '#383838',
+  gemini: '#3186ff', // base fill underneath the multicolour gradient
+  grok: '#383838',
+};
+
+const rgb = (hex) =>
+  hex
+    .slice(1)
+    .match(/../g)
+    .map((part) => parseInt(part, 16));
+const hex = (channels) =>
+  '#' + channels.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
+const mix = (a, b, amount) => hex(rgb(a).map((v, i) => v * (1 - amount) + rgb(b)[i] * amount));
+
+function hueAndSaturation(colour) {
+  const [r, g, b] = rgb(colour).map((v) => v / 255);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  if (!delta) return [0, 0];
+  const hue =
+    max === r ? ((g - b) / delta + 6) % 6 : max === g ? (b - r) / delta + 2 : (r - g) / delta + 4;
+  return [hue / 6, delta / (1 - Math.abs(max + min - 1))];
+}
+
+function tone(hue, saturation, lightness) {
+  const channel = (n) => {
+    const k = (n + hue * 12) % 12;
+    const a = saturation * Math.min(lightness, 1 - lightness);
+    return 255 * (lightness - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)));
+  };
+  return hex([channel(0), channel(8), channel(4)]);
+}
+
+function contrast(a, b) {
+  const luminance = (colour) => {
+    const c = rgb(colour)
+      .map((v) => v / 255)
+      .map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722;
+  };
+  const values = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (values[0] + 0.05) / (values[1] + 0.05);
+}
+
+// Keep the original hue, changing only how far it is mixed toward black/white
+// until small labels and white button text have enough contrast.
+function readable(colour, backgrounds, towards) {
+  for (let step = 0; step <= 100; step++) {
+    const candidate = mix(colour, towards, step / 100);
+    if (backgrounds.every((background) => contrast(candidate, background) >= 4.7)) return candidate;
+  }
+  return towards;
+}
+
+function logoPalette(seed) {
+  const [hue, saturation] = hueAndSaturation(seed);
+  const colour = (s, l) => tone(hue, saturation * s, l);
+  const lightTint = colour(0.28, 0.96);
+  const darkTint = colour(0.23, 0.16);
+  const accent = readable(seed, ['#ffffff', lightTint], '#000000');
+  const darkAccent = readable(seed, ['#1e2226', darkTint], '#ffffff');
+  const solid = readable(seed, ['#ffffff'], '#000000');
+  const navigation = (dark) => ({
+    sidebar: colour(0.25, dark ? 0.105 : 0.16),
+    'sidebar-ink': colour(0.13, 0.85),
+    'sidebar-muted': colour(0.16, 0.76),
+    'sidebar-faint': colour(0.13, 0.67),
+    'sidebar-strong': colour(0.12, 0.97),
+    'sidebar-hover': colour(0.25, dark ? 0.16 : 0.21),
+    'sidebar-active': colour(0.31, dark ? 0.23 : 0.28),
+    'sidebar-line': colour(0.21, dark ? 0.22 : 0.28),
+    'sidebar-control': colour(0.25, dark ? 0.145 : 0.19),
+    'sidebar-control-hover': colour(0.28, dark ? 0.2 : 0.25),
+    'sidebar-control-line': colour(0.21, dark ? 0.27 : 0.33),
+    'sidebar-menu-line': colour(0.21, dark ? 0.31 : 0.37),
+    mark: colour(0.72, 0.8),
+    'mark-ink': colour(0.35, 0.18),
+  });
+  return {
+    light: {
+      accent,
+      solid,
+      hover: mix(solid, '#000000', 0.15),
+      tint: lightTint,
+      'tint-ink': accent,
+      'tint-border': colour(0.32, 0.7),
+      focus: accent,
+      ...navigation(false),
+    },
+    dark: {
+      accent: darkAccent,
+      solid,
+      hover: mix(solid, '#000000', 0.15),
+      tint: darkTint,
+      'tint-ink': darkAccent,
+      'tint-border': colour(0.3, 0.42),
+      focus: darkAccent,
+      ...navigation(true),
+    },
+  };
+}
+
+// The workflow workbench has no selected App and retains the Toolbox identity.
 export const WORKSPACE_PALETTES = {
-  codex: {
+  toolbox: {
     light: {
       accent: '#29644d',
       solid: '#2a674d',
@@ -12,7 +133,7 @@ export const WORKSPACE_PALETTES = {
       focus: '#72a589',
       sidebar: '#1c3c32',
       'sidebar-ink': '#c4d3c9',
-      'sidebar-muted': '#9db8a7',
+      'sidebar-muted': '#a8c1b1',
       'sidebar-faint': '#8ba899',
       'sidebar-strong': '#f2f7f1',
       'sidebar-hover': '#274a3c',
@@ -35,135 +156,8 @@ export const WORKSPACE_PALETTES = {
       focus: '#7cb99a',
     },
   },
-  claude: {
-    light: {
-      accent: '#95513b',
-      solid: '#9b563f',
-      hover: '#80442f',
-      tint: '#f6eee8',
-      'tint-ink': '#925e48',
-      'tint-border': '#c6a18c',
-      focus: '#b78065',
-      sidebar: '#3e302b',
-      'sidebar-ink': '#d9cec7',
-      'sidebar-muted': '#c3ada0',
-      'sidebar-faint': '#b49c8f',
-      'sidebar-strong': '#faf3ee',
-      'sidebar-hover': '#4c3b33',
-      'sidebar-active': '#60483c',
-      'sidebar-line': '#574238',
-      'sidebar-control': '#49382f',
-      'sidebar-control-hover': '#584236',
-      'sidebar-control-line': '#685043',
-      'sidebar-menu-line': '#745a4b',
-      mark: '#e6b98e',
-      'mark-ink': '#513728',
-    },
-    dark: {
-      accent: '#dfa98b',
-      solid: '#995840',
-      hover: '#a86249',
-      tint: '#382c27',
-      'tint-ink': '#dfb499',
-      'tint-border': '#87634f',
-      focus: '#ce9a7b',
-      sidebar: '#302723',
-      'sidebar-hover': '#41332c',
-      'sidebar-active': '#554035',
-      'sidebar-control': '#3c2f29',
-      'sidebar-control-hover': '#4b392f',
-    },
-  },
-  opencode: {
-    light: {
-      accent: '#50545b',
-      solid: '#50545b',
-      hover: '#3e4248',
-      tint: '#eef0f2',
-      'tint-ink': '#626870',
-      'tint-border': '#a7adb5',
-      focus: '#8a929d',
-      sidebar: '#2c2e32',
-      'sidebar-ink': '#d1d3d7',
-      'sidebar-muted': '#b1b5bd',
-      'sidebar-faint': '#9da3ad',
-      'sidebar-strong': '#f3f4f5',
-      'sidebar-hover': '#383b40',
-      'sidebar-active': '#464a51',
-      'sidebar-line': '#42464d',
-      'sidebar-control': '#35383d',
-      'sidebar-control-hover': '#41454c',
-      'sidebar-control-line': '#50555e',
-      'sidebar-menu-line': '#5c626c',
-      mark: '#d4d7dc',
-      'mark-ink': '#34373d',
-    },
-    dark: {
-      accent: '#c3c8d0',
-      solid: '#535962',
-      hover: '#646c77',
-      tint: '#2c3036',
-      'tint-ink': '#c2c8d1',
-      'tint-border': '#707985',
-      focus: '#a1aab7',
-      sidebar: '#222428',
-      'sidebar-hover': '#303339',
-      'sidebar-active': '#3f444c',
-      'sidebar-control': '#2c2f34',
-      'sidebar-control-hover': '#393e45',
-    },
-  },
+  ...Object.fromEntries(Object.entries(LOGO_COLOURS).map(([id, seed]) => [id, logoPalette(seed)])),
 };
-
-// Additional model-only tools keep the same readable navigation structure,
-// while having their own identity in both the selector and selected workspace.
-const additionalPalettes = {
-  dsh: {
-    accent: '#2457a1', solid: '#285da8', hover: '#204a88', tint: '#eaf1fb',
-    'tint-ink': '#3e618e', 'tint-border': '#8daacb', focus: '#7099ca',
-    sidebar: '#263c59', 'sidebar-hover': '#304966', 'sidebar-active': '#385775',
-    'sidebar-control': '#2d4663', 'sidebar-control-hover': '#395573', mark: '#8cbcff',
-    darkAccent: '#91bdf6', darkTint: '#26354b', darkTintInk: '#b8d1f2',
-  },
-  workbuddy: {
-    accent: '#316a4b', solid: '#326f4e', hover: '#28583e', tint: '#eaf5ed',
-    'tint-ink': '#416c50', 'tint-border': '#93bea0', focus: '#72aa83',
-    sidebar: '#29483b', 'sidebar-hover': '#345749', 'sidebar-active': '#3d6553',
-    'sidebar-control': '#315343', 'sidebar-control-hover': '#3d6551', mark: '#a6e6b6',
-    darkAccent: '#91d8aa', darkTint: '#263a2e', darkTintInk: '#b5dcc1',
-  },
-  pi: {
-    accent: '#6c4a92', solid: '#70509a', hover: '#593e7d', tint: '#f1edf8',
-    'tint-ink': '#6e5789', 'tint-border': '#af9bc8', focus: '#a489c0',
-    sidebar: '#3b304c', 'sidebar-hover': '#493b5c', 'sidebar-active': '#59476d',
-    'sidebar-control': '#453856', 'sidebar-control-hover': '#554466', mark: '#cfb3f3',
-    darkAccent: '#c5a9e8', darkTint: '#352c40', darkTintInk: '#d3c0e9',
-  },
-  minimax: {
-    accent: '#a03d48', solid: '#a3434d', hover: '#83323c', tint: '#faeeee',
-    'tint-ink': '#93545b', 'tint-border': '#ca9b9e', focus: '#bf858a',
-    sidebar: '#4b3035', 'sidebar-hover': '#5b3a40', 'sidebar-active': '#6b454b',
-    'sidebar-control': '#57383d', 'sidebar-control-hover': '#684349', mark: '#ffadb1',
-    darkAccent: '#f0a3a8', darkTint: '#402c30', darkTintInk: '#e8b9bc',
-  },
-};
-for (const [name, p] of Object.entries(additionalPalettes)) {
-  WORKSPACE_PALETTES[name] = {
-    light: {
-      ...WORKSPACE_PALETTES.opencode.light,
-      accent: p.accent, solid: p.solid, hover: p.hover, tint: p.tint,
-      'tint-ink': p['tint-ink'], 'tint-border': p['tint-border'], focus: p.focus,
-      sidebar: p.sidebar, 'sidebar-hover': p['sidebar-hover'], 'sidebar-active': p['sidebar-active'],
-      'sidebar-control': p['sidebar-control'], 'sidebar-control-hover': p['sidebar-control-hover'],
-      'sidebar-ink': '#e5e9ee', 'sidebar-muted': '#d4dbe3', 'sidebar-faint': '#c2cbd5',
-      mark: p.mark, 'mark-ink': '#20252b',
-    },
-    dark: {
-      accent: p.darkAccent, solid: p.solid, hover: p.hover, tint: p.darkTint,
-      'tint-ink': p.darkTintInk, 'tint-border': p['tint-border'], focus: p.focus,
-    },
-  };
-}
 
 export function workspaceVariables(workspace, appearance) {
   const palette = WORKSPACE_PALETTES[workspace];
@@ -178,7 +172,7 @@ export function renderWorkspaceTheme() {
     );
   const lines = [
     '',
-    '/* Subtle software-specific accents; shared surfaces stay neutral. */',
+    '/* App accents derived from the bundled logo colours. */',
     ':root {',
     ...Object.entries(WORKSPACE_PALETTES).map(
       ([workspace, palette]) => `  --agent-${workspace}: ${palette.light.mark};`,
@@ -189,19 +183,19 @@ export function renderWorkspaceTheme() {
   for (const workspace of Object.keys(WORKSPACE_PALETTES)) {
     const selector = `:root[data-workspace="${workspace}"]`;
     lines.push(
-      workspace === 'codex' ? `:root,\n${selector} {` : `${selector} {`,
+      workspace === 'toolbox' ? `:root,\n${selector} {` : `${selector} {`,
       ...declarations(workspace, 'light'),
       '}',
       '',
       '@media (prefers-color-scheme: dark) {',
-      workspace === 'codex'
+      workspace === 'toolbox'
         ? `  :root:not([data-theme="light"]):not([data-workspace]),\n  ${selector}:not([data-theme="light"]) {`
         : `  ${selector}:not([data-theme="light"]) {`,
       ...declarations(workspace, 'dark', '    '),
       '  }',
       '}',
       '',
-      workspace === 'codex'
+      workspace === 'toolbox'
         ? `:root[data-theme="dark"]:not([data-workspace]),\n${selector}[data-theme="dark"] {`
         : `${selector}[data-theme="dark"] {`,
       ...declarations(workspace, 'dark'),

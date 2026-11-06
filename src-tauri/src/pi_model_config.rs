@@ -100,24 +100,36 @@ pub(crate) fn version() -> Result<String> {
 
 fn supported(version: &str) -> bool {
     let parts: Vec<_> = version.split('.').collect();
-    parts.len() == 3 && parts[0] == "1" && matches!(parts[1], "4" | "5")
-        && !parts[2].is_empty() && parts[2].bytes().all(|b| b.is_ascii_digit())
+    parts.len() == 3
+        && parts[0] == "1"
+        && matches!(parts[1], "4" | "5")
+        && !parts[2].is_empty()
+        && parts[2].bytes().all(|b| b.is_ascii_digit())
 }
 
 fn version_on_path(bins: &[PathBuf]) -> Result<String> {
     for bin in bins {
-        if !bin.is_absolute() { continue; }
+        if !bin.is_absolute() {
+            continue;
+        }
         #[cfg(windows)]
         let launchers = [bin.join("pi.exe"), bin.join("pi.cmd"), bin.join("pi.ps1")];
         #[cfg(not(windows))]
         let launchers = [bin.join("pi")];
-        let Some(launcher) = launchers.iter().find(|p| p.is_file()) else { continue; };
+        let Some(launcher) = launchers.iter().find(|p| p.is_file()) else {
+            continue;
+        };
         let mut candidates = Vec::new();
         // npm, local node_modules/.bin, standalone releases, and package-manager
         // symlinks (pnpm, Bun, Homebrew). Read metadata without starting Pi.
         if let Ok(real) = fs::canonicalize(launcher) {
             if real != *launcher {
-                candidates.extend(real.ancestors().skip(1).take(5).map(|p| p.join("package.json")));
+                candidates.extend(
+                    real.ancestors()
+                        .skip(1)
+                        .take(5)
+                        .map(|p| p.join("package.json")),
+                );
             }
         }
         candidates.extend([
@@ -136,7 +148,9 @@ fn version_on_path(bins: &[PathBuf]) -> Result<String> {
             if value.get("name").and_then(Value::as_str) == Some("@earendil-works/pi-coding-agent")
             {
                 if let Some(v) = value.get("version").and_then(Value::as_str) {
-                    return if supported(v) { Ok(v.to_owned()) } else {
+                    return if supported(v) {
+                        Ok(v.to_owned())
+                    } else {
                         Err(format!("检测到 Pi {v}，目前支持官方 Pi 1.4.x / 1.5.x"))
                     };
                 }
@@ -197,8 +211,7 @@ fn docs(files: &Files) -> Result<(Value, Value)> {
         );
     }
     if let Some(p) = models.get("providers").and_then(|v| v.get(PROVIDER)) {
-        if p.get("name").and_then(Value::as_str) != Some(NAME)
-        {
+        if p.get("name").and_then(Value::as_str) != Some(NAME) {
             return Err("Pi 已存在同名提供商，未覆盖原配置".into());
         }
     }
@@ -251,7 +264,11 @@ fn save_at(paths: &[PathBuf], input: &Input) -> Result<()> {
         // Pi interpolates '$' and executes leading '!'. Its documented escapes
         // preserve literal keys without evaluating either form.
         let escaped = input.api_key.replace('$', "$$");
-        let escaped = if escaped.starts_with('!') { format!("${escaped}") } else { escaped };
+        let escaped = if escaped.starts_with('!') {
+            format!("${escaped}")
+        } else {
+            escaped
+        };
         provider.insert("apiKey".into(), json!(escaped));
     }
     if !provider
@@ -275,9 +292,17 @@ fn save_at(paths: &[PathBuf], input: &Input) -> Result<()> {
     {
         entries.push(json!({"id":input.model.trim()}));
     }
-    if let Some(model) = entries.iter_mut().find(|m| m["id"].as_str() == Some(input.model.trim())).and_then(Value::as_object_mut) {
-        if model.contains_key("api") { model.insert("api".into(), json!(input.api)); }
-        if model.contains_key("baseUrl") { model.insert("baseUrl".into(), json!(base_url)); }
+    if let Some(model) = entries
+        .iter_mut()
+        .find(|m| m["id"].as_str() == Some(input.model.trim()))
+        .and_then(Value::as_object_mut)
+    {
+        if model.contains_key("api") {
+            model.insert("api".into(), json!(input.api));
+        }
+        if model.contains_key("baseUrl") {
+            model.insert("baseUrl".into(), json!(base_url));
+        }
     }
     settings["defaultProvider"] = json!(PROVIDER);
     settings["defaultModel"] = json!(input.model.trim());
@@ -418,11 +443,19 @@ mod tests {
         fs::write(&paths[1], "{}").unwrap();
         assert!(save_at(&paths, &request).is_err());
         request.revision = revision(&snapshot(&paths).unwrap());
-        for (key, encoded) in [("$SECRET", "$$SECRET"), ("!command", "$!command"), ("a$b", "a$$b")] {
+        for (key, encoded) in [
+            ("$SECRET", "$$SECRET"),
+            ("!command", "$!command"),
+            ("a$b", "a$$b"),
+        ] {
             request.api_key = key.into();
             request.revision = revision(&snapshot(&paths).unwrap());
             save_at(&paths, &request).unwrap();
-            assert_eq!(parse(read_bytes(&paths[0]).unwrap().as_deref()).unwrap()["providers"][PROVIDER]["apiKey"], encoded);
+            assert_eq!(
+                parse(read_bytes(&paths[0]).unwrap().as_deref()).unwrap()["providers"][PROVIDER]
+                    ["apiKey"],
+                encoded
+            );
         }
         fs::remove_dir_all(root).unwrap();
     }
@@ -440,9 +473,19 @@ mod tests {
             let package = dir.join("node_modules/@earendil-works/pi-coding-agent");
             fs::create_dir_all(&package).unwrap();
             fs::write(dir.join(launcher), "").unwrap();
-            fs::write(package.join("package.json"), serde_json::to_vec(&json!({"name":"@earendil-works/pi-coding-agent","version":version})).unwrap()).unwrap();
+            fs::write(
+                package.join("package.json"),
+                serde_json::to_vec(
+                    &json!({"name":"@earendil-works/pi-coding-agent","version":version}),
+                )
+                .unwrap(),
+            )
+            .unwrap();
         }
-        assert_eq!(version_on_path(&[first.clone(), second.clone()]).unwrap(), "1.5.0");
+        assert_eq!(
+            version_on_path(&[first.clone(), second.clone()]).unwrap(),
+            "1.5.0"
+        );
         fs::remove_dir_all(first.join("node_modules")).unwrap();
         assert!(version_on_path(&[first, second]).is_err());
         assert!(supported("1.5.1"));
@@ -464,7 +507,8 @@ mod tests {
         request.api = "openai-responses".into();
         request.base_url = "https://example.invalid/v1/responses".into();
         save_at(&paths, &request).unwrap();
-        let model = &parse(read_bytes(&paths[0]).unwrap().as_deref()).unwrap()["providers"][PROVIDER]["models"][0];
+        let model = &parse(read_bytes(&paths[0]).unwrap().as_deref()).unwrap()["providers"]
+            [PROVIDER]["models"][0];
         assert_eq!(model["api"], "openai-responses");
         assert_eq!(model["baseUrl"], "https://example.invalid/v1");
         assert_eq!(model["contextWindow"], 200000);

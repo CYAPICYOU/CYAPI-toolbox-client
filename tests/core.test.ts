@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { parseAppVisibility, visibleApps } from '../src/features/harness/apps.ts';
 import { catalogCategories, filterCatalog } from '../src/lib/catalog.ts';
 import {
   canManageInstallation,
@@ -43,6 +44,28 @@ import type {
   IntegrationView,
   IntegrationServicesView,
 } from '../src/lib/api/native.ts';
+
+test('App visibility defaults to core and installed apps, with persistent user overrides', () => {
+  const apps = ['codex', 'claude', 'opencode', 'grok', 'cursor', 'gemini'].map((id) => ({
+    id, name: id, hint: '',
+  }));
+  const ids = (preferences = {}, installed = [{ id: 'cursor', installed: true }]) =>
+    visibleApps(apps, preferences, installed).map(({ id }) => id);
+  assert.deepEqual(ids({}, []), ['codex', 'claude', 'opencode']);
+  assert.deepEqual(ids(), ['codex', 'claude', 'opencode', 'cursor']);
+  const saved = parseAppVisibility(
+    JSON.stringify({ cursor: false, grok: true, claude: false, unknown: true, gemini: 'yes' }), apps,
+  );
+  assert.deepEqual(saved, { claude: false, grok: true, cursor: false });
+  assert.deepEqual(ids(saved), ['codex', 'opencode', 'grok']);
+  assert.deepEqual(
+    ids(saved, [{ id: 'cursor', installed: true }, { id: 'gemini', installed: true }]),
+    ['codex', 'opencode', 'grok', 'gemini'],
+  );
+  assert.deepEqual(parseAppVisibility('broken', apps), {});
+  assert.deepEqual(parseAppVisibility('[]', apps), {});
+  assert.deepEqual(ids(Object.fromEntries(apps.map(({ id }) => [id, false]))), []);
+});
 
 test('model selection keeps a single default in the configured set without duplicates', () => {
   assert.deepEqual(configuredModels([' a ', 'b', 'a', ''], 'b'), ['a', 'b']);

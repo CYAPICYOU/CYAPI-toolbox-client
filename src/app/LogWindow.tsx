@@ -125,7 +125,12 @@ export function LogWindow({ operationId, onClose }: { operationId?: string; onCl
             {follow ? <Pause size={14} /> : <Play size={14} />}
             {follow ? '暂停跟随' : '跟随最新'}
           </button>
-          <button className="n-button" disabled={!nativeAvailable} onClick={exportLogs} title="导出所选操作范围的日志，不受关键词和级别筛选影响">
+          <button
+            className="n-button"
+            disabled={!nativeAvailable}
+            onClick={exportLogs}
+            title="导出所选操作范围的日志，不受关键词和级别筛选影响"
+          >
             <Download size={14} />
             导出{operation ? '本次操作' : '最近日志'}
           </button>
@@ -160,7 +165,17 @@ export function LogWindow({ operationId, onClose }: { operationId?: string; onCl
             查看全部操作
           </button>
         )}
-        {(query || level) && <button className="n-button" onClick={() => { setQuery(''); setLevel(''); }}>清除筛选</button>}
+        {(query || level) && (
+          <button
+            className="n-button"
+            onClick={() => {
+              setQuery('');
+              setLevel('');
+            }}
+          >
+            清除筛选
+          </button>
+        )}
         <button
           className="n-button"
           onClick={async () => {
@@ -170,8 +185,8 @@ export function LogWindow({ operationId, onClose }: { operationId?: string; onCl
                   .map((v) => `${new Date(v.timestamp).toLocaleString()} [${v.level}] ${v.message}`)
                   .join('\n'),
               );
-               setMessage('已复制当前筛选日志');
-               setError('');
+              setMessage('已复制当前筛选日志');
+              setError('');
             } catch {
               setError('复制失败，请使用导出功能。');
             }

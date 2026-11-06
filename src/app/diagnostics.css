@@ -390,12 +390,6 @@
 .d-level-warn .d-log-level {
   color: #f4d086;
 }
-.d-log-source {
-  width: 78px;
-  color: var(--log-muted);
-  flex-shrink: 0;
-  overflow: hidden;
-}
 .d-log-message {
   white-space: nowrap;
   overflow: hidden;

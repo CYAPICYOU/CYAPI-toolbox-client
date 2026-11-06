@@ -352,6 +352,14 @@ fn event(
         .ok();
     let method = identifier(get(&["http.method", "method"]));
     let request = identifier(get(&["request-id", "request_id", "requestId"]));
+    let mut request_ips = crate::request_network::from_fields(
+        f.iter().map(|(key, value)| (key.as_str(), value.as_str())),
+    );
+    if let Some(ip) =
+        crate::request_network::target_url(get(&["http.url", "url", "requestUrl", "request_url"]))
+    {
+        request_ips.push(ip);
+    }
     let summary = if http {
         format!(
             "运行日志 HTTP · {method} · {}",
@@ -388,7 +396,7 @@ fn event(
         failed,
         status,
         request_id: (!request.is_empty()).then_some(request.clone()),
-        request_ips: crate::request_network::from_fields(f.iter().map(|(k, v)| (k.as_str(), v.as_str()))),
+        request_ips,
         duration_ms: duration,
         location: locate(src, path, format!("字节偏移 {offset}")),
         sequence: offset,

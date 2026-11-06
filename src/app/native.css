@@ -2191,6 +2191,33 @@ code {
 .n-workspace-dot.workbuddy { background: var(--agent-workbuddy); }
 .n-workspace-dot.pi { background: var(--agent-pi); }
 .n-workspace-dot.minimax { background: var(--agent-minimax); }
+.n-app-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+}
+.n-app-logo-large {
+  width: 32px;
+  height: 32px;
+}
+.n-app-logo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+}
+.n-app-logo-mono {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: currentColor;
+  mask: var(--app-logo-url) center / contain no-repeat;
+  -webkit-mask: var(--app-logo-url) center / contain no-repeat;
+}
 .n-workspace-menu {
   position: absolute;
   z-index: 30;
@@ -2203,7 +2230,14 @@ code {
   background: var(--workspace-sidebar-control);
   box-shadow: 0 12px 28px #0b1f1766;
 }
-.n-workspace-menu > button {
+.n-workspace-options {
+  max-height: min(360px, calc(100dvh - 330px));
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--workspace-sidebar-muted) transparent;
+}
+.n-workspace-menu > button,
+.n-workspace-options > button {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -2214,11 +2248,13 @@ code {
   text-align: left;
 }
 .n-workspace-menu > button:hover,
-.n-workspace-menu > button.active {
+.n-workspace-options > button:hover,
+.n-workspace-options > button.active {
   background: var(--workspace-sidebar-control-hover);
   color: var(--workspace-sidebar-strong);
 }
-.n-workspace-menu > button > span:nth-child(2) {
+.n-workspace-menu > button > span:nth-child(2),
+.n-workspace-options > button > span:nth-child(2) {
   flex: 1;
   min-width: 0;
 }
@@ -2233,9 +2269,82 @@ code {
   font-size: 10.5px;
   color: var(--workspace-sidebar-muted);
 }
-.n-workspace-menu > button > svg {
+.n-workspace-menu > button > svg,
+.n-workspace-options > button > svg {
   color: var(--workspace-mark);
   flex-shrink: 0;
+}
+.n-workspace-menu > .n-workspace-manage {
+  margin-top: 4px;
+  border-top: 1px solid var(--workspace-sidebar-menu-line);
+  border-radius: 0 0 6px 6px;
+  padding-block: 11px;
+}
+.n-manage-apps {
+  width: min(640px, calc(100vw - 32px));
+}
+.n-manage-apps > .n-config-note,
+.n-manage-apps > .n-alert {
+  margin: 0 24px 14px;
+}
+.n-manage-apps-toolbar {
+  display: flex;
+  gap: 12px;
+  padding: 0 24px 16px;
+}
+.n-manage-apps-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 10px;
+  color: var(--muted);
+}
+.n-manage-apps-search input {
+  width: 100%;
+  min-height: 34px;
+  border: 0;
+  background: transparent;
+}
+.n-manage-apps-list {
+  overflow-y: auto;
+  max-height: min(460px, calc(100dvh - 300px));
+  padding: 0 24px;
+}
+.n-manage-app-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--line);
+}
+.n-manage-app-info {
+  flex: 1;
+  min-width: 0;
+}
+.n-manage-app-info strong,
+.n-manage-app-info small {
+  display: block;
+}
+.n-manage-app-info small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.n-manage-app-visibility {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.n-manage-app-visibility input {
+  accent-color: var(--green-solid);
+  width: 16px;
+  height: 16px;
 }
 .n-workspace + .primary-nav {
   margin-top: 18px;
