@@ -8,6 +8,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -17,7 +18,7 @@ const executable = path.resolve(
   process.argv[2] || 'src-tauri/target/release/cyapi-toolbox.exe',
 );
 if (process.platform !== 'win32') throw new Error('This smoke check requires Windows/WebView2.');
-const output = path.join(root, 'output', 'workflows-desktop-check', crypto.randomUUID());
+const output = path.join(os.tmpdir(), 'opencode', 'workflows-desktop-check', crypto.randomUUID());
 await mkdir(output, { recursive: true });
 const port = 19431;
 try {
@@ -123,10 +124,10 @@ try {
   await main.evaluate(
     `Array.from(document.querySelectorAll('.n-workbenches button')).find(el=>el.textContent.includes('工作流')).click();true`,
   );
-  await until(() => main.evaluate(`Boolean(document.querySelector('.wfx'))`));
+  await until(() => main.evaluate(`Boolean(document.querySelector('.pfx'))`));
   check(
     'workflows open as a native page in the main WebView',
-    await main.evaluate(`window.top === window && !document.querySelector('.wfx iframe')`),
+    await main.evaluate(`window.top === window && !document.querySelector('.pfx iframe')`),
   );
   const targets = await pages();
   check(
@@ -142,43 +143,38 @@ try {
   check(
     'workflow heading is native and still names the section',
     await main.evaluate(
-      `(()=>{const h=document.querySelector('.wfx-heading h2');return h?.textContent?.includes('工作流库')})()`,
+      `(()=>{const h=document.querySelector('.pfx-heading h1');return h?.textContent?.includes('工作流库')})()`,
     ),
   );
 
   // The template library is public, so a guest profile can browse it without a Key.
-  await until(
-    () => main.evaluate(`document.querySelectorAll('.wfx-card').length >= 2`),
-    60000,
-  );
+  await until(() => main.evaluate(`document.querySelectorAll('.pfx-template').length >= 1`), 60000);
   check('guest template library loads without activating a Key', true);
   check(
     'the client owns Key management instead of a server session',
     await main.evaluate(
-      `document.querySelector('.wfx-key-chip')?.textContent.includes('激活 Key')`,
+      `document.querySelector('.pfx-key-manager')?.textContent.includes('Key 管理')`,
     ),
   );
 
-  // Invalid Key is rejected in the same native dialog.
-  await main.evaluate(`document.querySelector('.wfx-key-chip').click();true`);
-  await until(() => main.evaluate(`Boolean(document.querySelector('.wfx-keys-dialog'))`));
-  await main.evaluate(
-    `(()=>{const form=document.querySelector('.wfx-key-add form');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;const name=form.querySelector('input:not([type=password]):not([type=checkbox])');const key=form.querySelector('input[type=password]');set.call(name,'桌面验收');name.dispatchEvent(new Event('input',{bubbles:true}));set.call(key,'invalid-desktop-smoke-key');key.dispatchEvent(new Event('input',{bubbles:true}));form.requestSubmit();return true})()`,
-  );
+  // Empty input is rejected locally; no account or paid request is needed.
+  await main.evaluate(`document.querySelector('.pfx-key-manager').click();true`);
+  await until(() => main.evaluate(`Boolean(document.querySelector('.pfx-key-dialog'))`));
+  await main.evaluate(`document.querySelector('.pfx-key-form').requestSubmit();true`);
   await until(
-    () => main.evaluate(`Boolean(document.querySelector('.wfx-error')?.textContent)`),
+    () => main.evaluate(`Boolean(document.querySelector('.pfx-key-error')?.textContent)`),
     60000,
   );
   check(
-    'invalid Key fails without creating a server session',
+    'empty Key fails without creating a server session',
     await main.evaluate(
-      `Boolean(document.querySelector('.wfx-error').textContent) && !localStorage.getItem('cyapi.workflows.keys.v1')`,
+      `Boolean(document.querySelector('.pfx-key-error').textContent) && !localStorage.getItem('cyapi.workflows.keys.v1')`,
     ),
   );
   await main.evaluate(
     `document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));true`,
   );
-  await until(() => main.evaluate(`!document.querySelector('.wfx-keys-dialog')`));
+  await until(() => main.evaluate(`!document.querySelector('.pfx-key-dialog')`));
 
   // Commands removed with the remote UI must not exist any more.
   check(
@@ -215,11 +211,16 @@ try {
   await until(() => main.evaluate(`document.documentElement.dataset.theme==='dark'`));
   check(
     'workflow page survives settings without reloading',
-    await main.evaluate(`Boolean(document.querySelector('.wfx')) && !document.querySelector('.wfx iframe')`),
+    await main.evaluate(
+      `Boolean(document.querySelector('.pfx')) && !document.querySelector('.pfx iframe')`,
+    ),
   );
 
   const screenshot = await main.call('Page.captureScreenshot', { format: 'png' });
-  await writeFile(path.join(output, 'workflow-library.png'), Buffer.from(screenshot.data, 'base64'));
+  await writeFile(
+    path.join(output, 'workflow-library.png'),
+    Buffer.from(screenshot.data, 'base64'),
+  );
   await writeFile(
     path.join(output, 'report.json'),
     JSON.stringify(

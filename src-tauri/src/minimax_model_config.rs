@@ -11,25 +11,11 @@ const PROVIDER: &str = "cyapi-toolbox";
 const NAME: &str = "CYAPI Toolbox";
 
 fn version() -> Result<String> {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        let script = r#"$k=@('HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*','HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*','HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'); @(Get-ItemProperty $k -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -eq 'MiniMax Code' } | ForEach-Object { $_.DisplayVersion })"#;
-        let output = std::process::Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-Command", script])
-            .creation_flags(0x08000000)
-            .output()
-            .map_err(|_| "无法检测 MiniMax Code 版本")?;
-        let v = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-        if !output.status.success() || v != "3.1.10" {
-            return Err("未检测到受支持的 MiniMax Code 官方桌面版；目前仅适配 3.1.10，旧版本及其他版本暂不支持".into());
-        }
-        Ok(v)
+    let v = crate::desktop_model_config::version("minimax")?;
+    if !matches!(v.as_str(), "3.1.6" | "3.1.10") {
+        return Err(format!("检测到 MiniMax Code {v}，目前已适配 3.1.6 / 3.1.10"));
     }
-    #[cfg(not(windows))]
-    {
-        Err("当前系统尚不能可靠识别 MiniMax Code 桌面版版本，暂不支持写入".into())
-    }
+    Ok(v)
 }
 fn path(dir: &str) -> Result<PathBuf> {
     let root = Path::new(dir.trim());
@@ -48,42 +34,44 @@ fn path(dir: &str) -> Result<PathBuf> {
     }
     Ok(path)
 }
+
+fn resolve_path(home: &Path, dir: &str) -> Result<PathBuf> {
+    if !dir.trim().is_empty() { return path(dir); }
+    let isolated = std::env::var_os("CYAPI_TOOLBOX_HOME_DIR").is_some() || !crate::platform::is_default_home(home);
+    if !isolated {
+        for name in ["MINIMAX_DATA_DIR", "MAVIS_DATA_DIR"] {
+            if let Some(value) = std::env::var_os(name).filter(|v| !v.is_empty()) {
+                return path(value.to_str().ok_or("MiniMax 数据目录编码无效")?);
+            }
+        }
+        #[cfg(windows)]
+        let app_data = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(|| home.join("AppData/Roaming"));
+        #[cfg(target_os = "macos")]
+        let app_data = home.join("Library/Application Support");
+        #[cfg(not(any(windows, target_os = "macos")))]
+        let app_data = home.join(".config");
+        let mut configured = Vec::new();
+        for app in ["MiniMax Code", "MiniMax", "MiniMax Agent"] {
+            for file in ["minimax-agent-cn-config.json", "minimax-agent-config.json"] {
+                let store = app_data.join(app).join(file);
+                no_links(&store)?;
+                let Some(bytes) = read_bytes(&store)? else { continue; };
+                let doc = serde_json::from_slice::<crate::pi_model_config::Strict>(&bytes).map_err(|_| "MiniMax 桌面目录设置无效，请手动指定数据目录")?.0;
+                if let Some(parent) = doc.pointer("/config/localRuntimeDataParentDir").and_then(Value::as_str).filter(|v| !v.trim().is_empty()) {
+                    configured.push(PathBuf::from(parent.trim()).join(".minimax"));
+                }
+            }
+        }
+        configured.sort();
+        configured.dedup();
+        if configured.len() > 1 { return Err("检测到多个 MiniMax 数据目录，请手动指定".into()); }
+        if let Some(dir) = configured.first() { return path(dir.to_str().ok_or("MiniMax 数据目录编码无效")?); }
+    }
+    path(home.join(".minimax").to_str().ok_or("MiniMax 数据目录编码无效")?)
+}
 fn parse(bytes: &[u8]) -> Result<Value> {
     let s = std::str::from_utf8(bytes).map_err(|_| "MiniMax 配置不是 UTF-8")?;
-    // serde_yaml does not preserve comments, anchors, aliases or tags.
-    if s.contains(['#', '&', '*', '!']) {
-        return Err("MiniMax 配置含注释或复杂 YAML，请在应用中配置，未写入文件".into());
-    }
-    let value = serde_yaml_ng::from_str::<crate::pi_model_config::Strict>(s)
-        .map_err(|_| "MiniMax 配置无效或含重复字段，未写入文件")?
-        .0;
-    // The JSON value encoder sorts mappings. Refuse files whose existing
-    // mapping order would change, including the model chooser order.
-    let ordered: serde_yaml_ng::Value =
-        serde_yaml_ng::from_str(s).map_err(|_| "MiniMax 配置无效，未写入文件")?;
-    fn ordered_keys(value: &serde_yaml_ng::Value) -> bool {
-        match value {
-            serde_yaml_ng::Value::Mapping(map) => {
-                let mut previous: Option<&str> = None;
-                for (key, item) in map {
-                    let Some(key) = key.as_str() else {
-                        return false;
-                    };
-                    if previous.is_some_and(|p| p >= key) || !ordered_keys(item) {
-                        return false;
-                    }
-                    previous = Some(key);
-                }
-                true
-            }
-            serde_yaml_ng::Value::Sequence(items) => items.iter().all(ordered_keys),
-            serde_yaml_ng::Value::Tagged(_) => false,
-            _ => true,
-        }
-    }
-    if !ordered_keys(&ordered) {
-        return Err("MiniMax 配置的字段或模型顺序无法安全保留，请在应用中配置，未写入文件".into());
-    }
+    let value = crate::harness_yaml::parse(s)?;
     if !value.is_object() {
         return Err("MiniMax 配置必须是 YAML 对象".into());
     }
@@ -98,7 +86,6 @@ fn provider(doc: &Value) -> Result<Option<&Value>> {
         if let Some(p) = all.get(PROVIDER) {
             if p.get("name").and_then(Value::as_str) != Some(NAME)
                 || p.get("kind").and_then(Value::as_str) != Some("custom")
-                || p.get("api").and_then(Value::as_str) != Some("openai-completions")
             {
                 return Err("MiniMax 已有同名供应商，未覆盖原配置".into());
             }
@@ -107,56 +94,32 @@ fn provider(doc: &Value) -> Result<Option<&Value>> {
     }
     Ok(None)
 }
-pub fn view(dir: &str) -> Result<Value> {
+pub fn view(home: &Path, dir: &str) -> Result<Value> {
     let ver = version()?;
-    view_at(&path(dir)?, &ver)
+    view_at(&resolve_path(home, dir)?, &ver)
 }
 fn view_at(path: &Path, ver: &str) -> Result<Value> {
     no_links(path)?;
     let bytes = read_bytes(path)?.ok_or("MiniMax 配置不存在")?;
     let doc = parse(&bytes)?;
     let p = provider(&doc)?;
-    let model = p
+    let models: Vec<_> = p
         .and_then(|v| v.get("models"))
         .and_then(Value::as_object)
-        .and_then(|v| v.keys().next())
-        .map(String::as_str)
-        .unwrap_or("");
+        .into_iter().flat_map(|m| m.iter()).filter(|(_, m)| m.get("enabled").and_then(Value::as_bool) != Some(false)).map(|(id, _)| id.as_str()).collect();
+    let model = doc.get("defaultModel").and_then(Value::as_str)
+        .and_then(|m| m.strip_prefix("custom_provider:cyapi-toolbox/")).filter(|m| models.contains(m))
+        .or_else(|| models.first().copied()).unwrap_or("");
     Ok(
-        json!({"version":ver,"revision":revision(path,&bytes),"baseUrl":p.and_then(|v|v.pointer("/options/baseURL")).and_then(Value::as_str).unwrap_or(""),"model":model,"apiKeyConfigured":p.and_then(|v|v.pointer("/options/apiKey")).and_then(Value::as_str).is_some_and(|v|!v.is_empty()),"configPath":path}),
+        json!({"version":ver,"revision":revision(path,&bytes),"baseUrl":p.and_then(|v|v.pointer("/options/baseURL")).and_then(Value::as_str).unwrap_or(""),"model":model,"models":models,"api":p.and_then(|v|v.get("api")).and_then(Value::as_str).unwrap_or("openai-completions"),"apiKeyConfigured":p.and_then(|v|v.pointer("/options/apiKey")).and_then(Value::as_str).is_some_and(|v|!v.is_empty()),"configPath":path,"dataDir":path.parent()}),
     )
 }
-pub fn save(dir: &str, input: &Input) -> Result<()> {
+pub fn save(home: &Path, dir: &str, input: &Input) -> Result<()> {
     version()?;
-    save_at(&path(dir)?, input)
+    save_at(&resolve_path(home, dir)?, input)
 }
 fn save_at(path: &Path, input: &Input) -> Result<()> {
-    let url = reqwest::Url::parse(input.base_url.trim()).map_err(|_| "API 地址无效")?;
-    if !matches!(url.scheme(), "http" | "https")
-        || url.host_str().is_none()
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.query().is_some()
-        || url.fragment().is_some()
-        || input.base_url.len() > 2048
-        || input.base_url.chars().any(char::is_control)
-    {
-        return Err("API 地址无效".into());
-    }
-    if input.model.trim().is_empty()
-        || input.model.len() > 200
-        || input.model.chars().any(char::is_control)
-        || input.api_key.len() > 8192
-        || input.api_key.chars().any(char::is_control)
-    {
-        return Err("模型或 API Key 格式无效".into());
-    }
-    if input.model.contains(['#', '&', '*', '!'])
-        || input.api_key.contains(['#', '&', '*', '!'])
-        || input.base_url.contains(['#', '&', '*', '!'])
-    {
-        return Err("此配置包含特殊 YAML 字符，请在 MiniMax Code 中配置".into());
-    }
+    let base_url = crate::desktop_model_config::validate(input)?;
     no_links(path)?;
     let original = read_bytes(path)?.ok_or("MiniMax 配置不存在")?;
     if revision(path, &original) != input.revision {
@@ -179,13 +142,14 @@ fn save_at(path: &Path, input: &Input) -> Result<()> {
     p.insert("name".into(), json!(NAME));
     p.insert("kind".into(), json!("custom"));
     p.insert("enabled".into(), json!(true));
-    p.insert("api".into(), json!("openai-completions"));
+    p.insert("api".into(), json!(input.api));
     let options = p
         .entry("options")
         .or_insert_with(|| json!({}))
         .as_object_mut()
         .ok_or("MiniMax 供应商选项格式无效")?;
-    options.insert("baseURL".into(), json!(input.base_url.trim()));
+    options.insert("baseURL".into(), json!(base_url));
+    options.insert("authMode".into(), json!("api-key"));
     if !input.api_key.is_empty() {
         options.insert("apiKey".into(), json!(input.api_key));
     }
@@ -210,9 +174,7 @@ fn save_at(path: &Path, input: &Input) -> Result<()> {
     models
         .entry(input.model.trim())
         .or_insert_with(|| json!({"name":input.model.trim(),"enabled":true}));
-    let encoded = serde_yaml_ng::to_string(&doc)
-        .map_err(|_| "无法生成 MiniMax 配置")?
-        .into_bytes();
+    let encoded = crate::harness_yaml::update(std::str::from_utf8(&original).map_err(|_| "MiniMax 配置不是 UTF-8")?, &doc)?.into_bytes();
     if encoded.len() > 1_000_000 {
         return Err("生成的配置过大".into());
     }
@@ -253,6 +215,7 @@ mod tests {
             api_key: "fictional-key".into(),
             model: "fictional-model".into(),
             revision: revision(&path, original.as_bytes()),
+            api: crate::desktop_model_config::default_api(),
         };
         save_at(&path, &input).unwrap();
         let contents = fs::read(&path).unwrap();
@@ -282,10 +245,46 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
     #[test]
-    fn refuses_comments_duplicate_keys_and_foreign_provider() {
-        assert!(parse(b"x: 1 # note\n").is_err());
+    fn accepts_comments_and_order_but_rejects_duplicates_and_foreign_provider() {
+        assert!(parse(b"x: 1 # note\n").is_ok());
         assert!(parse(b"x: 1\nx: 2\n").is_err());
-        assert!(parse(b"z: 1\na: 2\n").is_err());
+        assert!(parse(b"z: 1\na: 2\n").is_ok());
         assert!(provider(&json!({"custom_provider":{"cyapi-toolbox":{"name":"other"}}})).is_err());
+    }
+
+    #[test]
+    fn edits_realistic_commented_config_preserving_order_and_model_metadata() {
+        let dir = std::env::temp_dir().join(format!("cyapi-minimax-comment-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.yaml");
+        let original = "# user settings\nzoom: 1\ncustom_provider:\n  cyapi-toolbox:\n    name: CYAPI Toolbox\n    kind: custom\n    api: openai-completions\n    options:\n      baseURL: https://example.invalid/v1\n      apiKey: 'old#key' # key note\n    models:\n      z-model: {name: Z, enabled: true, contextWindow: 200000}\n      a-model: {name: A, enabled: true}\n# default\ndefaultModel: custom_provider:cyapi-toolbox/z-model\n";
+        fs::write(&path, original).unwrap();
+        let request = Input {
+            base_url: "https://example.invalid/v1/responses/".into(), api_key: "!a&#*b".into(),
+            model: "z-model".into(), api: "openai-responses".into(), revision: revision(&path, original.as_bytes()),
+        };
+        save_at(&path, &request).unwrap();
+        let result = fs::read_to_string(&path).unwrap();
+        assert!(result.contains("z-model: {name: Z, enabled: true, contextWindow: 200000}\n      a-model:"));
+        assert!(result.starts_with("# user settings\nzoom: 1\n"));
+        assert!(result.contains("# key note"));
+        assert!(result.contains("# default\ndefaultModel: custom_provider:cyapi-toolbox/z-model"));
+        let view = view_at(&path, "3.1.6").unwrap();
+        assert_eq!(view["model"], "z-model");
+        assert_eq!(view["api"], "openai-responses");
+        assert!(!serde_json::to_string(&view).unwrap().contains("!a&#*b"));
+        assert_eq!(parse(result.as_bytes()).unwrap()["custom_provider"][PROVIDER]["options"]["apiKey"], "!a&#*b");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn resolves_isolated_default_and_explicit_data_directories() {
+        let home = std::env::temp_dir().join(format!("cyapi-minimax-path-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(home.join(".minimax")).unwrap();
+        fs::write(home.join(".minimax/config.yaml"), "{}").unwrap();
+        assert_eq!(resolve_path(&home, "").unwrap(), home.join(".minimax/config.yaml"));
+        assert_eq!(resolve_path(&home, home.join(".minimax").to_str().unwrap()).unwrap(), home.join(".minimax/config.yaml"));
+        assert!(resolve_path(&home, "relative").is_err());
+        fs::remove_dir_all(home).unwrap();
     }
 }

@@ -1,13 +1,3 @@
-.al-page .al-events th:first-child {
-  width: 135px;
-}
-.al-page .al-events th:nth-child(3) {
-  width: 105px;
-}
-.al-page .al-events time {
-  font-size: 11px;
-  line-height: 1.8;
-}
 .al-block {
   display: block;
   margin-top: 5px;
@@ -36,15 +26,8 @@
   color: var(--muted);
   font-size: 10px;
 }
-.al-page .ca-filters {
-  margin: 18px 0;
-}
 .al-page .ca-read-scope code {
   overflow-wrap: anywhere;
-}
-.al-page .ca-evidence {
-  overflow-y: auto;
-  min-height: 0;
 }
 .al-page .ca-source > div p {
   overflow-wrap: anywhere;
@@ -55,28 +38,6 @@
 .al-page .ca-session-heading > .ca-tag {
   white-space: nowrap;
 }
-@media (max-width: 650px) {
-  .al-page .ca-header h2 {
-    font-size: 22px;
-  }
-  .al-page .ca-metrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .al-page .ca-coverage {
-    flex-wrap: wrap;
-  }
-  .al-page .ca-coverage > span {
-    min-width: 200px;
-  }
-  .al-page .ca-filters select {
-    max-width: 100%;
-    flex: 1 1 130px;
-  }
-  .al-page .ca-actions .n-button {
-    padding: 7px 9px;
-  }
-}
-
 .al-page .d-notice {
   padding: 12px 16px;
   border: 1px solid #dce7db;

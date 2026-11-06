@@ -12,7 +12,7 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import type { MockDraft } from './mockTasks';
+import type { LocalWorkflowDraft } from './draftStore';
 import type { WorkflowTemplate } from './library';
 import { WorkflowIcon } from './WorkflowLibrary';
 import { getWorkflowPriceCatalog } from './api';
@@ -32,11 +32,11 @@ export function WorkflowPage({
   busy,
   editorStarting,
 }: {
-  draft: MockDraft;
+  draft: LocalWorkflowDraft;
   template: WorkflowTemplate;
   tab: 'inputs' | 'flow';
   onTab: (tab: 'inputs' | 'flow') => void;
-  onChange: (draft: MockDraft) => void;
+  onChange: (draft: LocalWorkflowDraft) => void;
   onBack: () => void;
   onSave: () => void;
   onSubmit: () => void;
@@ -52,14 +52,24 @@ export function WorkflowPage({
   useEffect(() => {
     let cancelled = false;
     setPrice(null);
-    if (template.source !== 'server') { setPriceLoading(false); return; }
+    if (template.source !== 'server') {
+      setPriceLoading(false);
+      return;
+    }
     setPriceLoading(true);
-    void getWorkflowPriceCatalog().then(catalog => {
-      if (!cancelled) setPrice(workflowReferencePrice(catalog, template.id));
-    }).catch(() => {
-      if (!cancelled) setPrice(null);
-    }).finally(() => { if (!cancelled) setPriceLoading(false); });
-    return () => { cancelled = true; };
+    void getWorkflowPriceCatalog()
+      .then((catalog) => {
+        if (!cancelled) setPrice(workflowReferencePrice(catalog, template.id));
+      })
+      .catch(() => {
+        if (!cancelled) setPrice(null);
+      })
+      .finally(() => {
+        if (!cancelled) setPriceLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [template.id, template.source]);
   const fileInput = useRef<HTMLInputElement>(null);
   const latest = useRef(draft);
@@ -355,10 +365,18 @@ export function WorkflowPage({
         <aside className="pfx-workflow-aside">
           <section className="pfx-card" aria-label="工作流价格">
             <h2>价格参考</h2>
-            <strong>{priceLoading ? '正在获取价格…' : price === null ? '价格暂不可用' : `${formatWorkflowUsd(price)} / 次`}</strong>
-            <p className="pfx-hint">{template.source === 'personal'
-              ? '个人工作流的价格取决于实际节点和输入，暂无法在此预估。'
-              : '按当前 sub2api 扣费单元换算的模板能力参考价，不代表完整节点图总价；请以运行前确认的完整工作流报价及实际账单为准。'}</p>
+            <strong>
+              {priceLoading
+                ? '正在获取价格…'
+                : price === null
+                  ? '价格暂不可用'
+                  : `${formatWorkflowUsd(price)} / 次`}
+            </strong>
+            <p className="pfx-hint">
+              {template.source === 'personal'
+                ? '个人工作流的价格取决于实际节点和输入，暂无法在此预估。'
+                : '按当前 sub2api 扣费单元换算的模板能力参考价，不代表完整节点图总价；请以运行前确认的完整工作流报价及实际账单为准。'}
+            </p>
           </section>
           <section className="pfx-card">
             <h2>工作流信息</h2>
@@ -386,7 +404,8 @@ export function WorkflowPage({
               <div>
                 <strong>运行会提交真实任务</strong>
                 <p>
-                  完整工作流由 Worker ComfyUI 执行，CYAPI 节点在执行时调用 Bridge；提交前会确认报价，关闭客户端不会取消服务端任务。
+                  完整工作流由 Worker ComfyUI 执行，CYAPI 节点在执行时调用
+                  Bridge；提交前会确认报价，关闭客户端不会取消服务端任务。
                 </p>
               </div>
             </section>

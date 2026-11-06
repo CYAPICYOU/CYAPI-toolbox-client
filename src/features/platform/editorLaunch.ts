@@ -81,16 +81,14 @@ export function createEditorLauncher({
       if (controller.signal.aborted) throw new Error('timeout');
       clearTimeout(operation.timer);
       publish('opening');
-       await open(session.url, session.route);
+      await open(session.url, session.route);
       if (current !== operation) return false;
       publish('opened');
       // Retrying must request a fresh token, not reuse the consumed URL.
       return true;
     } catch (cause) {
       const message =
-        cause instanceof Error
-          ? cause.message
-          : String(cause).replace(/^\s*(Error:\s*)+/i, '');
+        cause instanceof Error ? cause.message : String(cause).replace(/^\s*(Error:\s*)+/i, '');
       publish(
         'failed',
         controller.signal.aborted

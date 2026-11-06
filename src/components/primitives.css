@@ -1,0 +1,59 @@
+/* Every dialog body must be able to shrink inside the viewport. */
+.modal-backdrop > .modal {
+  min-width: 0;
+  min-height: 0;
+  max-height: calc(100dvh - 48px);
+  overflow-wrap: anywhere;
+}
+.modal > * {
+  min-width: 0;
+}
+.modal > .modal-header {
+  height: auto;
+  min-height: 60px;
+  gap: 12px;
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+.modal-header > h2 {
+  min-width: 0;
+  max-height: 20dvh;
+  overflow: auto;
+}
+.modal-header > button {
+  flex-shrink: 0;
+}
+.modal > :not(.modal-header):not(.n-dialog-footer):not(.modal-footer):not(form):not(.d-log-window),
+.modal > form > :not(.n-dialog-footer):not(.modal-footer) {
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.modal > form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.modal .n-dialog-footer,
+.modal .modal-footer {
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.modal pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.modal :is(input, select, textarea) {
+  max-width: 100%;
+  min-width: 0;
+}
+@media (max-width: 600px), (max-height: 500px) {
+  div.modal-backdrop {
+    padding: 12px;
+  }
+  .modal-backdrop > .modal {
+    max-height: calc(100dvh - 24px);
+  }
+}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
@@ -14,11 +14,9 @@ import {
 import {
   cancelWorkflowTask,
   createWorkflowDraft,
-  downloadWorkflowArtifact,
   editorToken,
   getActivation,
   getWorkflowCatalog,
-  listWorkflowTasks,
   openEditorWindow,
   quoteWorkflowDraft,
   runWorkflowDraft,
@@ -28,12 +26,12 @@ import {
 import { addKey, loadKeys, maskKey, saveKeys, type StoredKeyState } from './keyStore';
 import { Modal } from '../../components/Primitives';
 import {
-  loadMockState,
-  saveMockState,
+  loadDraftState,
+  saveDraftState,
   validateDraft,
-  type MockDraft,
-  type MockState,
-} from './mockTasks';
+  type LocalWorkflowDraft,
+  type WorkflowDraftState,
+} from './draftStore';
 import {
   importWorkflow,
   loadPersonalWorkflows,
@@ -47,26 +45,13 @@ import { WorkflowPage } from './WorkflowPage';
 import { createEditorLauncher, editorLaunchPending, type EditorLaunchState } from './editorLaunch';
 import type { EditorLaunchNoticeState } from './EditorLaunchNotice';
 import { logWorkflowLaunch } from '../../lib/api/diagnostics';
-import { invoke } from '@tauri-apps/api/core';
-import { nativeAvailable } from '../../lib/api/native';
-import { artifactSourceLabel, groupIdenticalImages, imagePixelHash, saveArtifact, taskArtifactsZip } from './artifactDisplay';
+import { useWorkflowTasks } from './useWorkflowTasks';
+import { WorkflowTaskQueue } from './WorkflowTaskQueue';
+import { WorkflowResults } from './WorkflowResults';
+import { errorText } from './taskState';
 import { formatWorkflowUsd } from './workflowPrice';
 import './platform.css';
 
-const errorText = (error: unknown) =>
-  error instanceof Error ? error.message : typeof error === 'string' && error.trim() ? error : '操作失败，请稍后重试';
-const taskStatusLabel: Record<string, string> = {
-  submitting: '提交中',
-  queued: '排队中',
-  running: '运行中',
-  succeeded: '已完成',
-  failed: '失败',
-  cancelled: '已取消',
-  provider_failed_charged: '上游失败（已扣费）',
-  provider_unknown: '结果待核对',
-  interrupted: '已中断',
-};
-const taskActive = (status: string) => ['submitting', 'queued', 'running'].includes(status);
 const viewContent = {
   library: {
     title: '工作流库',
@@ -99,18 +84,10 @@ export function PlatformWorkbench({
   const [error, setError] = useState('');
   const [connected, setConnected] = useState(false);
   const [retry, setRetry] = useState(0);
-  const [mock, setMock] = useState<MockState>(loadMockState);
-  const [editor, setEditor] = useState<MockDraft | null>(null);
-  const [mockError, setMockError] = useState('');
+  const [draftState, setDraftState] = useState<WorkflowDraftState>(loadDraftState);
+  const [editor, setEditor] = useState<LocalWorkflowDraft | null>(null);
+  const [draftError, setDraftError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [taskState, setTaskState] = useState<{ key: string; tasks: WorkflowTask[] }>({ key: '', tasks: [] });
-  const [taskError, setTaskError] = useState('');
-  const [artifacts, setArtifacts] = useState<Record<string, string>>({});
-  const [artifactErrors, setArtifactErrors] = useState<Record<string, string>>({});
-  const [imageHashes, setImageHashes] = useState<Record<string, string>>({});
-  const [saveNotice, setSaveNotice] = useState('');
-  const [zipTaskId, setZipTaskId] = useState('');
-  const zipBusy = useRef(false);
   const [catalog, setCatalog] = useState<WorkflowCatalog | null>(null);
   const [catalogError, setCatalogError] = useState('');
   const [catalogLoading, setCatalogLoading] = useState(true);
@@ -132,16 +109,17 @@ export function PlatformWorkbench({
   const editorStarting = editorLaunchPending(editorLaunch);
   const importFile = useRef<HTMLInputElement>(null);
   const activeKey = keys.keys.find((entry) => entry.id === keys.activeId)?.key ?? '';
-  const tasks = taskState.key === activeKey ? taskState.tasks : [];
-  const taskGeneration = useRef(0);
+  const {
+    tasks,
+    error: taskError,
+    loading: tasksLoading,
+    refresh: loadTasks,
+  } = useWorkflowTasks(activeKey, visible && (view === 'queue' || view === 'results'));
   const taskIdentity = useRef('');
 
   useEffect(() => {
-    taskGeneration.current += 1;
     taskIdentity.current = activeKey;
-    setTaskError('');
     return () => {
-      taskGeneration.current += 1;
       taskIdentity.current = '';
     };
   }, [activeKey]);
@@ -189,161 +167,25 @@ export function PlatformWorkbench({
   useEffect(() => {
     setEditor(null);
     setCreating(false);
-    setMockError('');
+    setDraftError('');
     // A Key error from another page must not follow the user back to the
     // public catalog.
     setError('');
   }, [view]);
 
-  const loadTasks = useCallback(async () => {
-    if (!activeKey || taskIdentity.current !== activeKey) {
-      return;
-    }
-    const generation = taskGeneration.current;
+  function persistDrafts(next: WorkflowDraftState) {
     try {
-      const result = await listWorkflowTasks(activeKey);
-      if (taskGeneration.current !== generation) return;
-      setTaskState({ key: activeKey, tasks: result.tasks });
-      setTaskError('');
-    } catch (cause) {
-      if (taskGeneration.current === generation) setTaskError(errorText(cause));
-    }
-  }, [activeKey]);
-
-  useEffect(() => {
-    if (!visible || !activeKey || (view !== 'queue' && view !== 'results')) return;
-    void loadTasks();
-  }, [visible, view, activeKey, loadTasks]);
-
-  // Poll only while something is actually running; the server owns the state.
-  useEffect(() => {
-    if (!visible || !activeKey || (view !== 'queue' && view !== 'results')) return;
-    if (!tasks.some((task) => taskActive(task.status))) return;
-    const timer = window.setInterval(() => void loadTasks(), 2500);
-    return () => window.clearInterval(timer);
-  }, [visible, view, activeKey, tasks, loadTasks]);
-
-  const artifactPending = useRef(new Set<string>());
-  const artifactUrls = useRef<string[]>([]);
-  const artifactGeneration = useRef(0);
-  // Results belong to the active identity and must not leak across Key changes.
-  useEffect(() => {
-    artifactGeneration.current += 1;
-    setTaskError('');
-    setArtifacts({});
-    setArtifactErrors({});
-    setImageHashes({});
-    setSaveNotice('');
-    artifactPending.current.clear();
-    return () => {
-      artifactGeneration.current += 1;
-      for (const url of artifactUrls.current) URL.revokeObjectURL(url);
-      artifactUrls.current = [];
-    };
-  }, [activeKey]);
-
-  // Load previews only on the results page. A missing file affects its own
-  // card, not the task list, drafts, or other results.
-  useEffect(() => {
-    if (!visible || !activeKey || view !== 'results') return;
-    const generation = artifactGeneration.current;
-    for (const task of tasks) {
-      if (task.status !== 'succeeded') continue;
-      for (const output of task.outputs) {
-        const id = output.download;
-        if (artifacts[id] || artifactErrors[id] || artifactPending.current.has(id)) continue;
-        artifactPending.current.add(id);
-        void downloadWorkflowArtifact(activeKey, output.download)
-          .then((url) => {
-            if (artifactGeneration.current !== generation) {
-              URL.revokeObjectURL(url);
-              return;
-            }
-            artifactUrls.current.push(url);
-            setArtifacts((current) => ({ ...current, [id]: url }));
-          })
-          .catch((cause) => {
-            if (artifactGeneration.current === generation)
-              setArtifactErrors((current) => ({ ...current, [id]: errorText(cause) }));
-          })
-          .finally(() => {
-            if (artifactGeneration.current === generation) artifactPending.current.delete(id);
-          });
-      }
-    }
-  }, [tasks, view, visible, activeKey, artifacts, artifactErrors]);
-
-  useEffect(() => {
-    let cancelled = false;
-    for (const task of tasks) {
-      if (task.source !== 'editor' && task.mode !== 'worker' || task.outputs.filter(output => output.kind === 'image').length < 2) continue;
-      for (const output of task.outputs) {
-        const url = artifacts[output.download];
-        if (output.kind !== 'image' || !url || imageHashes[output.download]) continue;
-        void imagePixelHash(url).then(hash => {
-          if (!cancelled) setImageHashes(current => ({ ...current, [output.download]: hash }));
-        }).catch(() => {});
-      }
-    }
-    return () => { cancelled = true; };
-  }, [tasks, artifacts, imageHashes]);
-
-  async function saveOutput(output: { id: string; download: string }) {
-    const generation = artifactGeneration.current;
-    setSaveNotice('');
-    try {
-      const saved = await saveArtifact(artifacts[output.download], output.id, nativeAvailable,
-        (filename, base64) => invoke<boolean>('save_workflow_artifact', { filename, base64 }));
-      if (artifactGeneration.current === generation) setSaveNotice(nativeAvailable ? (saved ? '已保存产物。' : '已取消保存。') : '已发起浏览器下载，请查看浏览器下载列表。');
-    } catch (cause) { if (artifactGeneration.current === generation) setSaveNotice(`保存失败：${errorText(cause)}`); }
-  }
-
-  async function saveTaskZip(task: WorkflowTask) {
-    if (zipBusy.current) return;
-    zipBusy.current = true;
-    const generation = artifactGeneration.current;
-    setZipTaskId(task.id);
-    setSaveNotice('');
-    let zipUrl = '';
-    try {
-      const archive = await taskArtifactsZip(task.outputs, async (output) => {
-        if (artifactGeneration.current !== generation) throw new Error('Key 已更换，已取消打包');
-        const existing = artifacts[output.download];
-        const url = existing || await downloadWorkflowArtifact(activeKey, output.download);
-        try {
-          if (artifactGeneration.current !== generation) throw new Error('Key 已更换，已取消打包');
-          const response = await fetch(url);
-          if (!response.ok) throw new Error('无法读取产物');
-          return await response.blob();
-        } finally { if (!existing) URL.revokeObjectURL(url); }
-      });
-      if (artifactGeneration.current !== generation) return;
-      zipUrl = URL.createObjectURL(archive);
-      const saved = await saveArtifact(zipUrl, `workflow-${task.id}.zip`, nativeAvailable,
-        (filename, base64) => invoke<boolean>('save_workflow_artifact', { filename, base64 }));
-      if (artifactGeneration.current === generation) setSaveNotice(nativeAvailable ? (saved ? '已保存任务 ZIP。' : '已取消保存。') : '已发起浏览器下载，请查看浏览器下载列表。');
-    } catch (cause) {
-      if (artifactGeneration.current === generation) setSaveNotice(`打包失败，未生成 ZIP：${errorText(cause)}。请重试或单个下载。`);
-    } finally {
-      if (zipUrl) URL.revokeObjectURL(zipUrl);
-      zipBusy.current = false;
-      setZipTaskId('');
-    }
-  }
-
-  function saveMock(next: MockState) {
-    try {
-      saveMockState(next);
-      setMock(next);
-      setMockError('');
+      saveDraftState(next);
+      setDraftState(next);
+      setDraftError('');
       return true;
     } catch (cause) {
-      setMockError(errorText(cause));
+      setDraftError(errorText(cause));
       return false;
     }
   }
   function openWorkflow(template: WorkflowTemplate, tab: 'inputs' | 'flow' = 'inputs') {
-    setMockError('');
+    setDraftError('');
     setCreating(false);
     setEditorTab(tab);
     setEditor({
@@ -357,13 +199,13 @@ export function PlatformWorkbench({
       updatedAt: Date.now(),
     });
   }
-  function openDraft(item: MockDraft) {
+  function openDraft(item: LocalWorkflowDraft) {
     const template = item.template ?? catalog?.items.find((entry) => entry.kind === item.kind);
     if (!template) {
-      setMockError('暂时无法找到这份草稿的工作流，请重新加载目录后再试。');
+      setDraftError('暂时无法找到这份草稿的工作流，请重新加载目录后再试。');
       return;
     }
-    setMockError('');
+    setDraftError('');
     setEditorTab('inputs');
     setEditor({ ...item, template });
   }
@@ -376,7 +218,7 @@ export function PlatformWorkbench({
       return;
     setEditor(null);
     setCreating(false);
-    setMockError('');
+    setDraftError('');
     onViewChange('library');
   }
   async function launchEditor(template: WorkflowTemplate, prompt = '') {
@@ -457,11 +299,10 @@ export function PlatformWorkbench({
   function saveDraft() {
     if (!editor) return;
     if (
-      saveMock({
-        ...mock,
+      persistDrafts({
         drafts: [
           { ...editor, updatedAt: Date.now() },
-          ...mock.drafts.filter((item) => item.id !== editor.id),
+          ...draftState.drafts.filter((item) => item.id !== editor.id),
         ],
       })
     ) {
@@ -475,14 +316,20 @@ export function PlatformWorkbench({
     const template = item.template;
     const validation = validateDraft(item);
     if (validation) {
-      setMockError(validation);
+      setDraftError(validation);
       return;
     }
     if (!requireKey()) return;
-    if (item.fileData) { setMockError('完整工作流暂不支持从此处上传素材，请在 ComfyUI 编辑器中添加素材并运行。'); return; }
-    if (template.source === 'personal') { setMockError('个人工作流暂不支持从此处直接运行，请打开 ComfyUI 编辑器运行。'); return; }
+    if (item.fileData) {
+      setDraftError('完整工作流暂不支持从此处上传素材，请在 ComfyUI 编辑器中添加素材并运行。');
+      return;
+    }
+    if (template.source === 'personal') {
+      setDraftError('个人工作流暂不支持从此处直接运行，请打开 ComfyUI 编辑器运行。');
+      return;
+    }
     setSubmitting(true);
-    setMockError('');
+    setDraftError('');
     try {
       // The server owns the template graph: create a draft from the published
       // template, fill the prompt, quote, then submit the full graph to ComfyUI.
@@ -493,19 +340,27 @@ export function PlatformWorkbench({
       });
       const quote = await quoteWorkflowDraft(activeKey, draft.id);
       if (taskIdentity.current !== activeKey) throw new Error('Key 已更换，请重新操作');
-      if (!window.confirm(`将由 Worker ComfyUI 执行完整工作流。\nAI 节点预估费用：${formatWorkflowUsd(quote.amount)}\n工作流执行费：${formatWorkflowUsd(quote.runFee)}\n节点实际费用受确认报价上限约束。是否继续？`)) return;
+      if (
+        !window.confirm(
+          `将由 Worker ComfyUI 执行完整工作流。\nAI 节点预估费用：${formatWorkflowUsd(quote.amount)}\n工作流执行费：${formatWorkflowUsd(quote.runFee)}\n节点实际费用受确认报价上限约束。是否继续？`,
+        )
+      )
+        return;
       try {
         await runWorkflowDraft(activeKey, draft.id, saved.revision, quote);
       } catch (cause) {
-        throw new Error(`${errorText(cause)}。提交状态可能未知，请先检查任务列表和工作区队列，勿重复运行以免重复扣费。`);
+        throw new Error(
+          `${errorText(cause)}。提交状态可能未知，请先检查任务列表和工作区队列，勿重复运行以免重复扣费。`,
+        );
       }
-      if (mock.drafts.some((entry) => entry.id === item.id))
-        saveMock({ drafts: mock.drafts.filter((entry) => entry.id !== item.id) });
+      if (taskIdentity.current !== activeKey) return;
+      if (draftState.drafts.some((entry) => entry.id === item.id))
+        persistDrafts({ drafts: draftState.drafts.filter((entry) => entry.id !== item.id) });
       setEditor(null);
       onViewChange('queue');
       await loadTasks();
     } catch (cause) {
-      setMockError(errorText(cause));
+      if (taskIdentity.current === activeKey) setDraftError(errorText(cause));
     } finally {
       setSubmitting(false);
     }
@@ -644,7 +499,7 @@ export function PlatformWorkbench({
             onSave={saveDraft}
             onSubmit={submitRun}
             onEditor={() => void launchEditor(editor.template!, editor.prompt)}
-            error={mockError}
+            error={draftError}
             busy={busy || submitting}
             editorStarting={editorStarting}
           />
@@ -731,9 +586,9 @@ export function PlatformWorkbench({
           />
         ) : (
           <>
-            {mockError && (
+            {draftError && (
               <div className="pfx-alert" role="alert">
-                {mockError}
+                {draftError}
               </div>
             )}
             {(view === 'queue' || view === 'results') && taskError && (
@@ -746,15 +601,15 @@ export function PlatformWorkbench({
               </div>
             )}
             {view === 'drafts' ? (
-              mock.drafts.length ? (
-                mock.drafts.map((item) => (
-                  <article key={item.id} className="pfx-card pfx-mock-row">
+              draftState.drafts.length ? (
+                draftState.drafts.map((item) => (
+                  <article key={item.id} className="pfx-card pfx-task-row">
                     <div>
                       <strong>{item.title}</strong>
                       <p>{item.prompt || item.fileName || '未填写内容'}</p>
                       <small>更新于 {new Date(item.updatedAt).toLocaleString()}</small>
                     </div>
-                    <div className="pfx-mock-actions">
+                    <div className="pfx-task-actions">
                       <button className="pfx-secondary" onClick={() => openDraft(item)}>
                         继续编辑
                       </button>
@@ -762,9 +617,8 @@ export function PlatformWorkbench({
                         className="pfx-ghost"
                         onClick={() => {
                           if (window.confirm('删除这份草稿？'))
-                            saveMock({
-                              ...mock,
-                              drafts: mock.drafts.filter((entry) => entry.id !== item.id),
+                            persistDrafts({
+                              drafts: draftState.drafts.filter((entry) => entry.id !== item.id),
                             });
                         }}
                       >
@@ -777,106 +631,28 @@ export function PlatformWorkbench({
                 <div className="pfx-card pfx-empty">还没有草稿，前往工作流库选择一个工作流。</div>
               )
             ) : null}
-            {view === 'queue' ? (
-              tasks.length ? (
-                tasks.map((task) => (
-                  <article key={task.id} className="pfx-card pfx-mock-row">
-                    <div>
-                      <strong>{task.name}</strong>
-                      <p>{task.description || '未填写内容'}</p>
-                      <small>
-                        {taskStatusLabel[task.status] ?? task.status}
-                        {task.message ? ` · ${task.message}` : ''}
-                        {' · '}
-                        {new Date(task.createdAt).toLocaleString()}
-                      </small>
-                    </div>
-                    <div className="pfx-mock-actions">
-                      {task.status === 'succeeded' && task.outputs.length > 0 && (
-                        <button className="pfx-secondary" onClick={() => onViewChange('results')}>
-                          查看结果
-                        </button>
-                      )}
-                      {taskActive(task.status) && (
-                        <button className="pfx-ghost" onClick={() => void cancelTask(task)}>
-                          取消任务
-                        </button>
-                      )}
-                    </div>
-                  </article>
-                ))
-              ) : (
-                <div className="pfx-card pfx-empty">还没有任务，选择工作流并运行。</div>
-              )
-            ) : null}
-            {view === 'results' ? (
-              <>{saveNotice && <div className="pfx-alert" role="status">{saveNotice}</div>}{tasks.some((task) => task.status === 'succeeded' && (task.outputs.length > 0 || task.source === 'editor' || task.mode === 'worker')) ? (
-                tasks
-                  .filter((task) => task.status === 'succeeded' && (task.outputs.length > 0 || task.source === 'editor' || task.mode === 'worker'))
-                  .map((task) => (
-                    <article key={task.id} className="pfx-card pfx-mock-result">
-                      <div className="pfx-mock-row">
-                        <strong>{task.name}</strong>
-                        <div className="pfx-result-meta">
-                          <small>{new Date(task.createdAt).toLocaleString()}</small>
-                          <small>建议 30 天内下载，超过后文件可能过期</small>
-                        </div>
-                      </div>
-                      {task.outputs.length > 0 && <button type="button" className="pfx-secondary pfx-download-zip" disabled={Boolean(zipTaskId)} onClick={() => void saveTaskZip(task)}>{zipTaskId === task.id ? '正在打包…' : '下载全部（ZIP）'}</button>}
-                      {(task.source === 'editor' || task.mode === 'worker') && task.message && <small>{task.message}</small>}
-                      {(task.source === 'editor' || task.mode === 'worker') && task.outputs.length === 0 && <p>没有可下载的归档文件。请检查编辑器中的输出；需要保留结果时，请连接对应的保存节点。中间计算结果不会自动保存。</p>}
-                      <div className="pfx-results">
-                        {(task.source === 'editor' || task.mode === 'worker' ? groupIdenticalImages(task.outputs, imageHashes) : task.outputs.map(output => [output])).map((group) => { const output = group[0]; return (
-                          <figure key={output.id} className="pfx-result">
-                            {(task.source === 'editor' || task.mode === 'worker') && <small>{output.role === 'preview' ? '预览图（临时文件，可能不是原始质量）' : output.role === 'file' ? '输出文件' : output.role === 'temporary' ? '临时文件（来源节点未确认为预览）' : '历史文件（来源类型未知）'}</small>}
-                            {(task.source === 'editor' || task.mode === 'worker') && group.map(item => <small key={item.id}>{artifactSourceLabel(item)}</small>)}
-                            {artifacts[output.download] ? (
-                              output.kind === 'video' ? (
-                                <video src={artifacts[output.download]} controls playsInline />
-                              ) : output.kind === 'image' ? (
-                                <img src={artifacts[output.download]} alt={output.title || '生成结果'} />
-                              ) : output.kind === 'audio' ? (
-                                <audio src={artifacts[output.download]} controls />
-                              ) : (
-                                <div>{output.title || '文件'}</div>
-                              )
-                            ) : artifactErrors[output.download] ? (
-                              <div className="pfx-result-loading" role="alert">
-                                <span>产物无法加载：{artifactErrors[output.download]}</span>
-                                <button className="pfx-secondary" onClick={() => {
-                                  setArtifactErrors((current) => {
-                                    const next = { ...current };
-                                    delete next[output.download];
-                                    return next;
-                                  });
-                                }}>重试</button>
-                              </div>
-                            ) : (
-                              <div className="pfx-result-loading">
-                                <LoaderCircle size={14} className="pfx-spin" />
-                                正在加载产物…
-                              </div>
-                            )}
-                            {artifacts[output.download] && (
-                              <button type="button" className="pfx-secondary" onClick={() => void saveOutput(output)}>下载{output.role === 'preview' ? '预览' : output.role === 'file' ? '文件' : ''}</button>
-                            )}
-                            {group.length > 1 && <small>预览与输出图像的像素相同；两个原文件均已保留。</small>}
-                            {group.slice(1).map((alternative, index) => artifacts[alternative.download] && <button type="button" className="pfx-secondary" key={alternative.id} onClick={() => void saveOutput(alternative)}>下载预览 {index + 1}</button>)}
-                          </figure>
-                        ); })}
-                      </div>
-                      {task.billing && (
-                        <small>
-                          {task.billing.amount > 0
-                            ? `${task.billing.status === 'quoted' || task.mode === 'worker' ? '预估费用' : '本次费用'} ${task.billing.amount} ${task.billing.unit}`
-                            : task.mode === 'worker' ? '预估费用 0 USD，实际费用请查看账单' : '未产生费用'}
-                        </small>
-                      )}
-                    </article>
-                  ))
-              ) : (
-                <div className="pfx-card pfx-empty">暂无已完成的结果。</div>
-              )}</>
+            {(view === 'queue' || view === 'results') && tasksLoading && !tasks.length ? (
+              <div className="pfx-loading" role="status">
+                <LoaderCircle size={14} className="pfx-spin" />
+                正在加载任务…
+              </div>
+            ) : view === 'queue' ? (
+              <WorkflowTaskQueue
+                key={activeKey}
+                tasks={tasks}
+                activeKey={activeKey}
+                visible={visible}
+                busy={busy}
+                onCancel={(task) => void cancelTask(task)}
+                onResults={() => onViewChange('results')}
+              />
+            ) : view === 'results' ? (
+              <WorkflowResults
+                key={activeKey}
+                tasks={tasks}
+                activeKey={activeKey}
+                visible={visible}
+              />
             ) : null}
           </>
         )}

@@ -95,20 +95,37 @@ pub(crate) fn version() -> Result<String> {
     // Do not execute an unrelated `pi` on PATH, or start Pi just to read its
     // version: its startup can migrate or write user settings.
     let path = std::env::var_os("PATH").ok_or("无法检测 Pi 安装路径")?;
-    let mut found = Vec::new();
-    for bin in std::env::split_paths(&path) {
+    version_on_path(&std::env::split_paths(&path).collect::<Vec<_>>())
+}
+
+fn supported(version: &str) -> bool {
+    let parts: Vec<_> = version.split('.').collect();
+    parts.len() == 3 && parts[0] == "1" && matches!(parts[1], "4" | "5")
+        && !parts[2].is_empty() && parts[2].bytes().all(|b| b.is_ascii_digit())
+}
+
+fn version_on_path(bins: &[PathBuf]) -> Result<String> {
+    for bin in bins {
+        if !bin.is_absolute() { continue; }
         #[cfg(windows)]
-        let candidates = [bin.join("node_modules/@earendil-works/pi-coding-agent/package.json")];
+        let launchers = [bin.join("pi.exe"), bin.join("pi.cmd"), bin.join("pi.ps1")];
         #[cfg(not(windows))]
-        let candidates =
-            [bin.join("../lib/node_modules/@earendil-works/pi-coding-agent/package.json")];
-        #[cfg(windows)]
-        let launcher = bin.join("pi.cmd");
-        #[cfg(not(windows))]
-        let launcher = bin.join("pi");
-        if !launcher.exists() {
-            continue;
+        let launchers = [bin.join("pi")];
+        let Some(launcher) = launchers.iter().find(|p| p.is_file()) else { continue; };
+        let mut candidates = Vec::new();
+        // npm, local node_modules/.bin, standalone releases, and package-manager
+        // symlinks (pnpm, Bun, Homebrew). Read metadata without starting Pi.
+        if let Ok(real) = fs::canonicalize(launcher) {
+            if real != *launcher {
+                candidates.extend(real.ancestors().skip(1).take(5).map(|p| p.join("package.json")));
+            }
         }
+        candidates.extend([
+            bin.join("node_modules/@earendil-works/pi-coding-agent/package.json"),
+            bin.join("../lib/node_modules/@earendil-works/pi-coding-agent/package.json"),
+            bin.join("../@earendil-works/pi-coding-agent/package.json"),
+            bin.join("package.json"),
+        ]);
         for manifest in candidates {
             let Ok(Some(bytes)) = read_bytes(&manifest) else {
                 continue;
@@ -119,19 +136,17 @@ pub(crate) fn version() -> Result<String> {
             if value.get("name").and_then(Value::as_str) == Some("@earendil-works/pi-coding-agent")
             {
                 if let Some(v) = value.get("version").and_then(Value::as_str) {
-                    found.push(v.to_owned());
+                    return if supported(v) { Ok(v.to_owned()) } else {
+                        Err(format!("检测到 Pi {v}，目前支持官方 Pi 1.4.x / 1.5.x"))
+                    };
                 }
             }
         }
+        // The first executable wins on PATH. Never identify a later install as
+        // the active one when an unrelated or unidentifiable launcher shadows it.
+        return Err("发现 Pi 启动器，但无法确认其官方安装信息；请检查 PATH 和安装目录".into());
     }
-    found.sort();
-    found.dedup();
-    if found.as_slice() != ["1.4.0"] {
-        return Err(
-            "未检测到受支持的官方 Pi npm 安装；目前仅适配 1.4.0，其他安装方式或版本暂不支持".into(),
-        );
-    }
-    Ok(found.remove(0))
+    Err("未检测到官方 Pi 安装，请安装 Pi 1.4.x / 1.5.x 并将其加入 PATH".into())
 }
 pub(crate) fn paths(home: &Path) -> Result<Vec<PathBuf>> {
     let dir = std::env::var_os("PI_CODING_AGENT_DIR")
@@ -183,7 +198,6 @@ fn docs(files: &Files) -> Result<(Value, Value)> {
     }
     if let Some(p) = models.get("providers").and_then(|v| v.get(PROVIDER)) {
         if p.get("name").and_then(Value::as_str) != Some(NAME)
-            || p.get("api").and_then(Value::as_str) != Some("openai-completions")
         {
             return Err("Pi 已存在同名提供商，未覆盖原配置".into());
         }
@@ -207,7 +221,7 @@ fn view_at(paths: &[PathBuf], version: &str) -> Result<Value> {
         ""
     };
     Ok(
-        json!({"version":version,"revision":revision(&files),"baseUrl":p.and_then(|p| p.get("baseUrl")).and_then(Value::as_str).unwrap_or(""),"model":model,"apiKeyConfigured":p.and_then(|p| p.get("apiKey")).and_then(Value::as_str).is_some_and(|v| !v.is_empty()),"configPath":paths[0]}),
+        json!({"version":version,"revision":revision(&files),"baseUrl":p.and_then(|p| p.get("baseUrl")).and_then(Value::as_str).unwrap_or(""),"model":model,"api":p.and_then(|p|p.get("api")).and_then(Value::as_str).unwrap_or("openai-completions"),"models":p.and_then(|p|p.get("models")).and_then(Value::as_array).map(|m|m.iter().filter_map(|m|m.get("id").and_then(Value::as_str)).collect::<Vec<_>>()).unwrap_or_default(),"apiKeyConfigured":p.and_then(|p| p.get("apiKey")).and_then(Value::as_str).is_some_and(|v| !v.is_empty()),"configPath":paths[0]}),
     )
 }
 pub fn save(home: &Path, input: &Input) -> Result<()> {
@@ -215,30 +229,7 @@ pub fn save(home: &Path, input: &Input) -> Result<()> {
     save_at(&paths(home)?, input)
 }
 fn save_at(paths: &[PathBuf], input: &Input) -> Result<()> {
-    let url = reqwest::Url::parse(input.base_url.trim()).map_err(|_| "API 地址无效")?;
-    if !matches!(url.scheme(), "http" | "https")
-        || url.host_str().is_none()
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.query().is_some()
-        || url.fragment().is_some()
-        || input.base_url.len() > 2048
-        || input.base_url.chars().any(char::is_control)
-    {
-        return Err("API 地址无效".into());
-    }
-    if input.model.trim().is_empty()
-        || input.model.len() > 200
-        || input.model.chars().any(char::is_control)
-        || input.api_key.len() > 8192
-        || input.api_key.chars().any(char::is_control)
-    {
-        return Err("模型或 API Key 格式无效".into());
-    }
-    // Literal dollar and command syntax must never be interpreted by Pi.
-    if input.api_key.contains('$') || input.api_key.starts_with('!') {
-        return Err("Pi API Key 不能包含 $ 或以 ! 开头，请在 Pi 中手动配置特殊凭据".into());
-    }
+    let base_url = crate::desktop_model_config::validate(input)?;
     let files = snapshot(paths)?;
     if revision(&files) != input.revision {
         return Err("配置已变化，请重新读取后保存".into());
@@ -257,7 +248,11 @@ fn save_at(paths: &[PathBuf], input: &Input) -> Result<()> {
         .as_object_mut()
         .ok_or("Pi 提供商格式无效")?;
     if !input.api_key.is_empty() {
-        provider.insert("apiKey".into(), json!(input.api_key));
+        // Pi interpolates '$' and executes leading '!'. Its documented escapes
+        // preserve literal keys without evaluating either form.
+        let escaped = input.api_key.replace('$', "$$");
+        let escaped = if escaped.starts_with('!') { format!("${escaped}") } else { escaped };
+        provider.insert("apiKey".into(), json!(escaped));
     }
     if !provider
         .get("apiKey")
@@ -267,8 +262,8 @@ fn save_at(paths: &[PathBuf], input: &Input) -> Result<()> {
         return Err("请填写 API Key".into());
     }
     provider.insert("name".into(), json!(NAME));
-    provider.insert("api".into(), json!("openai-completions"));
-    provider.insert("baseUrl".into(), json!(input.base_url.trim()));
+    provider.insert("api".into(), json!(input.api));
+    provider.insert("baseUrl".into(), json!(base_url));
     let entries = provider
         .entry("models")
         .or_insert_with(|| json!([]))
@@ -279,6 +274,10 @@ fn save_at(paths: &[PathBuf], input: &Input) -> Result<()> {
         .any(|v| v.get("id").and_then(Value::as_str) == Some(input.model.trim()))
     {
         entries.push(json!({"id":input.model.trim()}));
+    }
+    if let Some(model) = entries.iter_mut().find(|m| m["id"].as_str() == Some(input.model.trim())).and_then(Value::as_object_mut) {
+        if model.contains_key("api") { model.insert("api".into(), json!(input.api)); }
+        if model.contains_key("baseUrl") { model.insert("baseUrl".into(), json!(base_url)); }
     }
     settings["defaultProvider"] = json!(PROVIDER);
     settings["defaultModel"] = json!(input.model.trim());
@@ -366,6 +365,7 @@ mod tests {
             api_key: "fictional-key".into(),
             model: "test-model".into(),
             revision: revision(&snapshot(paths).unwrap()),
+            api: crate::desktop_model_config::default_api(),
         }
     }
     #[test]
@@ -412,17 +412,63 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
-    fn rejects_stale_revision_and_special_keys() {
+    fn rejects_stale_revision_and_escapes_literal_keys() {
         let (root, paths) = fixture();
         let mut request = input(&paths);
         fs::write(&paths[1], "{}").unwrap();
         assert!(save_at(&paths, &request).is_err());
         request.revision = revision(&snapshot(&paths).unwrap());
-        for key in ["$SECRET", "!command", "a$b"] {
+        for (key, encoded) in [("$SECRET", "$$SECRET"), ("!command", "$!command"), ("a$b", "a$$b")] {
             request.api_key = key.into();
-            assert!(save_at(&paths, &request).is_err());
+            request.revision = revision(&snapshot(&paths).unwrap());
+            save_at(&paths, &request).unwrap();
+            assert_eq!(parse(read_bytes(&paths[0]).unwrap().as_deref()).unwrap()["providers"][PROVIDER]["apiKey"], encoded);
         }
-        assert!(!paths[0].exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn detects_current_package_and_obeys_path_precedence() {
+        let (root, _) = fixture();
+        let first = root.join("first");
+        let second = root.join("second");
+        #[cfg(windows)]
+        let launcher = "pi.cmd";
+        #[cfg(not(windows))]
+        let launcher = "pi";
+        for (dir, version) in [(&first, "1.5.0"), (&second, "1.4.0")] {
+            let package = dir.join("node_modules/@earendil-works/pi-coding-agent");
+            fs::create_dir_all(&package).unwrap();
+            fs::write(dir.join(launcher), "").unwrap();
+            fs::write(package.join("package.json"), serde_json::to_vec(&json!({"name":"@earendil-works/pi-coding-agent","version":version})).unwrap()).unwrap();
+        }
+        assert_eq!(version_on_path(&[first.clone(), second.clone()]).unwrap(), "1.5.0");
+        fs::remove_dir_all(first.join("node_modules")).unwrap();
+        assert!(version_on_path(&[first, second]).is_err());
+        assert!(supported("1.5.1"));
+        assert!(!supported("1.5.0-dev"));
+        assert!(!supported("2.0.0"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn switching_protocol_updates_selected_model_overrides() {
+        let (root, paths) = fixture();
+        save_at(&paths, &input(&paths)).unwrap();
+        let mut doc = parse(read_bytes(&paths[0]).unwrap().as_deref()).unwrap();
+        doc["providers"][PROVIDER]["models"][0]["api"] = json!("openai-completions");
+        doc["providers"][PROVIDER]["models"][0]["baseUrl"] = json!("https://old.invalid/v1");
+        doc["providers"][PROVIDER]["models"][0]["contextWindow"] = json!(200000);
+        fs::write(&paths[0], serde_json::to_vec(&doc).unwrap()).unwrap();
+        let mut request = input(&paths);
+        request.api = "openai-responses".into();
+        request.base_url = "https://example.invalid/v1/responses".into();
+        save_at(&paths, &request).unwrap();
+        let model = &parse(read_bytes(&paths[0]).unwrap().as_deref()).unwrap()["providers"][PROVIDER]["models"][0];
+        assert_eq!(model["api"], "openai-responses");
+        assert_eq!(model["baseUrl"], "https://example.invalid/v1");
+        assert_eq!(model["contextWindow"], 200000);
+        assert_eq!(view_at(&paths, "1.5.0").unwrap()["api"], "openai-responses");
         fs::remove_dir_all(root).unwrap();
     }
 }

@@ -6,16 +6,13 @@ import {
   CheckCircle2,
   ChevronRight,
   Database,
-  Download,
   FileText,
   FolderOpen,
   LoaderCircle,
-  Pause,
-  Play,
-  RefreshCw,
   Search,
 } from 'lucide-react';
-import { Modal } from '../components/Primitives';
+import { LogCoverage, LogDetailModal, LogEvents, LogFilters, LogHeader, LogTabs } from './LogAnalysisShared';
+import type { LogTab } from './LogAnalysisShared';
 import { nativeAvailable } from '../lib/api/native';
 import {
   analyzeCodex,
@@ -37,14 +34,6 @@ import type {
 import './diagnostics.css';
 import './codex-analysis.css';
 
-const windows = [
-  ['1 小时', 3600],
-  ['6 小时', 21600],
-  ['24 小时', 86400],
-  ['3 天', 259200],
-  ['7 天', 604800],
-  ['全部', 0],
-] as const;
 const roles: Record<string, string> = {
   runtime: '运行数据库',
   index: '会话索引',
@@ -93,7 +82,6 @@ const bytes = (n: number) =>
   n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1024).toFixed(1)} KB`;
 const title = (s: AnalysisSession) => s.title.trim() || s.id.slice(0, 8);
 const reason = (e: unknown) => (e instanceof Error ? e.message : String(e));
-type Tab = 'overview' | 'sessions' | 'requests' | 'issues' | 'events' | 'sources';
 
 export interface CodexAnalysisClient {
   available: boolean;
@@ -123,73 +111,12 @@ function EventList({
   onOpen: (event: AnalysisEvent) => void;
   onSession: (id: string) => void;
 }) {
-  if (!events.length) return <div className="ca-empty">当前读取范围内没有匹配的记录。</div>;
-  return (
-    <div className="ca-table-scroll">
-      <table className="x-table ca-events">
-        <thead>
-          <tr>
-            <th>时间 / 来源</th>
-            <th>{requests ? '请求地址 / 结果' : '事件'}</th>
-            <th>会话</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {events.map((e) => (
-            <tr key={e.id}>
-              <td>
-                <time title={date(e.time)}>{clock(e.time)}</time>
-                <small>
-                  {roles[e.location.sourceRole] ?? e.location.sourceRole}
-                  {e.mirrors.length > 0 && ' · 已合并镜像'}
-                </small>
-              </td>
-              <td>
-                <div className="ca-event-title">
-                  <span
-                    className={`ca-tag ${(e.http && !e.http.ok) || e.level === 'ERROR' ? 'ca-tag-error' : e.level === 'WARN' ? 'ca-tag-warn' : ''}`}
-                  >
-                    {e.http
-                      ? (e.http.status ?? (e.http.timeout ? '超时' : '连接失败'))
-                      : (kinds[e.kind] ?? e.kind)}
-                  </span>
-                  <span>
-                    {requests && e.http
-                      ? `${e.http.method} ${e.http.host}${e.http.path}`
-                      : e.summary}
-                  </span>
-                </div>
-                <small className="ca-mono">
-                  {requests
-                    ? `request-id: ${e.http?.requestId ?? '未记录'}`
-                    : `${e.level} · ${e.target}`}
-                </small>
-              </td>
-              <td>
-                {e.threadId ? (
-                  <button
-                    className="x-link ca-mono"
-                    onClick={() => onSession(e.threadId!)}
-                    title={e.threadId}
-                  >
-                    {e.threadId.slice(0, 8)}
-                  </button>
-                ) : (
-                  <span className="ca-muted">未关联</span>
-                )}
-              </td>
-              <td>
-                <button className="x-link" onClick={() => onOpen(e)}>
-                  证据
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+  return <LogEvents rows={events.map(e => ({
+    id: e.id, time: e.time, sessionId: e.threadId, model: e.model,
+    severity: (e.http && !e.http.ok) || e.level === 'ERROR' ? 'error' : e.level === 'WARN' ? 'warn' : '',
+    label: String(e.http ? e.http.status ?? (e.http.timeout ? '超时' : '连接失败') : kinds[e.kind] ?? e.kind),
+    summary: requests && e.http ? `${e.http.method} ${e.http.host}${e.http.path}` : e.summary,
+  }))} onOpen={id => { const event = events.find(e => e.id === id); if (event) onOpen(event); }} onSession={onSession} />;
 }
 
 function IssueCard({
@@ -222,7 +149,7 @@ function IssueCard({
         <div className="ca-actions">
           {issue.eventIds.map((id, i) => (
             <button key={id} className="x-link" onClick={() => onOpen(id)}>
-              证据 {i + 1}
+              查看记录 {i + 1}
             </button>
           ))}
           {issue.threads.slice(0, 3).map((id) => (
@@ -247,7 +174,7 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
   } = client;
   const [analysis, setAnalysis] = useState<Analysis>();
   const [windowSeconds, setWindowSeconds] = useState(86400);
-  const [tab, setTab] = useState<Tab>('overview');
+  const [tab, setTab] = useState<LogTab>('overview');
   const [live, setLive] = useState(false);
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -270,13 +197,16 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
   const [issueCategory, setIssueCategory] = useState('');
   const [detail, setDetail] = useState<AnalysisDetail>();
   const [detailBusy, setDetailBusy] = useState(false);
+  const [detailError, setDetailError] = useState('');
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const evidenceTarget = useRef<AnalysisEvent | string>('');
   const refreshTicket = useRef(0);
   const refreshPending = useRef(false);
   const eventsTicket = useRef(0);
   const detailTicket = useRef(0);
 
   const refresh = useCallback(async () => {
-    if (!nativeAvailable) return;
+    if (!nativeAvailable || refreshPending.current) return;
     const ticket = ++refreshTicket.current;
     refreshPending.current = true;
     setBusy(true);
@@ -294,6 +224,7 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
     }
   }, [windowSeconds, nativeAvailable, analyzeCodex]);
   useEffect(() => {
+    refreshPending.current = false;
     setAnalysis(undefined);
     setPage(undefined);
     setSession(undefined);
@@ -301,32 +232,33 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
     void refresh();
     return () => {
       refreshTicket.current++;
+      detailTicket.current++;
     };
   }, [refresh]);
   useEffect(() => {
     if (!live || !nativeAvailable) return;
     const timer = window.setInterval(() => {
-      if (!refreshPending.current) void refresh();
+      if (!refreshPending.current && !evidenceOpen && !exporting) void refresh();
     }, 15000);
     return () => window.clearInterval(timer);
-  }, [live, refresh, nativeAvailable]);
+  }, [live, refresh, nativeAvailable, evidenceOpen, exporting]);
   useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedSearch(search), 200);
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 200);
     return () => window.clearTimeout(timer);
   }, [search]);
   const filter = useMemo<AnalysisFilter>(
     () => ({
-      kinds: tab === 'requests' ? ['request'] : eventKind ? [eventKind] : undefined,
+      kinds: tab === 'activity' ? ['request'] : eventKind ? [eventKind] : undefined,
       levels: tab === 'events' && level ? [level] : undefined,
       threadId: thread || undefined,
       search: debouncedSearch || undefined,
-      outcome: tab === 'requests' && onlyFailed ? 'failed' : undefined,
+      outcome: tab === 'activity' && onlyFailed ? 'failed' : undefined,
     }),
     [tab, eventKind, level, thread, debouncedSearch, onlyFailed],
   );
   useEffect(() => {
     const ticket = ++eventsTicket.current;
-    if (!analysis || (tab !== 'events' && tab !== 'requests')) return;
+    if (!analysis || (tab !== 'events' && tab !== 'activity')) return;
     setEventsBusy(true);
     setPage(undefined);
     void analysisEvents(analysis.id, filter, sourceRole || undefined)
@@ -399,13 +331,20 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
     };
   }, [analysis, tab, effectiveSession?.id, analyzeSession]);
   function openSession(id: string) {
+    if (!analysis?.sessions.some(s => s.id === id)) {
+      setNotice(`会话 ${id} 未包含在当前读取范围，可扩大时间范围后刷新。`);
+      return;
+    }
     setSessionSearch('');
     setSelectedSession(id);
     setTab('sessions');
   }
   async function openEvidence(eventOrId: AnalysisEvent | string) {
     if (!analysis) return;
+    evidenceTarget.current = eventOrId;
     const ticket = ++detailTicket.current;
+    setEvidenceOpen(true);
+    setDetailError('');
     setDetailBusy(true);
     setDetail(undefined);
     try {
@@ -424,11 +363,22 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
             );
       if (ticket === detailTicket.current) setDetail(next);
     } catch (e) {
-      if (ticket === detailTicket.current) setError(reason(e));
+      if (ticket === detailTicket.current) setDetailError(reason(e));
     } finally {
       if (ticket === detailTicket.current) setDetailBusy(false);
     }
   }
+  function closeEvidence() {
+    detailTicket.current++;
+    setEvidenceOpen(false);
+    setDetailBusy(false);
+    setDetail(undefined);
+  }
+  function resetFilters() {
+    setSearch(''); setDebouncedSearch(''); setSourceRole(''); setThread('');
+    setEventKind(''); setLevel(''); setOnlyFailed(false);
+  }
+  function changeTab(next: LogTab) { resetFilters(); setTab(next); }
   async function saveReport() {
     if (!analysis || exporting) return;
     setExporting(true);
@@ -445,8 +395,6 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
       setExporting(false);
     }
   }
-  const readableSources =
-    analysis?.sources.filter((s) => s.status === 'available' && s.role !== 'rollout').length ?? 0;
   const issues =
     analysis?.issues.filter((i) => !issueCategory || i.category === issueCategory) ?? [];
   const modelSourceAvailable = analysis?.sources.some(
@@ -455,54 +403,10 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
 
   return (
     <div className="ca-page">
-      <header className="ca-header">
-        <div>
-          <span className="ca-eyebrow">
-            <Activity size={14} /> CODEX
-          </span>
-          <h2>日志分析</h2>
-          <p>关联模型请求、桌面运行与会话回合，沿记录定位问题。</p>
-        </div>
-        <div className="ca-actions">
-          <select
-            aria-label="分析时间范围"
-            value={windowSeconds}
-            disabled={busy}
-            onChange={(e) => setWindowSeconds(Number(e.target.value))}
-          >
-            {windows.map(([label, seconds]) => (
-              <option value={seconds} key={seconds}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <button
-            className={`n-button ${live ? 'ca-live' : ''}`}
-            disabled={!nativeAvailable}
-            onClick={() => setLive(!live)}
-            title="每 15 秒更新分析快照"
-          >
-            {live ? <Pause size={14} /> : <Play size={14} />}
-            {live ? '暂停更新' : '自动更新'}
-          </button>
-          <button
-            className="n-button"
-            disabled={busy || !nativeAvailable}
-            onClick={() => void refresh()}
-          >
-            <RefreshCw size={14} className={busy ? 'n-spin' : ''} />
-            刷新
-          </button>
-          <button
-            className="n-button"
-            disabled={!analysis || exporting}
-            onClick={() => void saveReport()}
-          >
-            <Download size={14} />
-            {exporting ? '导出中…' : tab === 'sessions' ? '导出会话报告' : '导出报告'}
-          </button>
-        </div>
-      </header>
+      <LogHeader name="Codex" windowSeconds={windowSeconds} onWindow={setWindowSeconds}
+        live={live} onLive={() => setLive(!live)} busy={busy} available={nativeAvailable}
+        exporting={exporting} canExport={!!analysis && (tab !== 'sessions' || !!effectiveSession)} sessionReport={tab === 'sessions'}
+        onRefresh={() => void refresh()} onExport={() => void saveReport()} />
       {!nativeAvailable && (
         <div className="n-alert">
           <FileText size={16} />
@@ -529,70 +433,23 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
       )}
       {analysis && (
         <>
-          <div className={`ca-coverage ${analysis.partial ? 'ca-coverage-partial' : ''}`}>
-            {analysis.partial ? <AlertCircle size={16} /> : <Database size={16} />}
-            <span>
-              <strong>
-                {analysis.partial
-                  ? '统计基于部分记录'
-                  : `已读取 ${number(analysis.eventCount)} 条事件`}
-              </strong>
-              <small>
-                {readableSources} 个运行 / 索引来源 · {number(analysis.totals.sessions)} 个关联会话
-                · 更新于 {clock(analysis.generatedAt)}
-              </small>
-            </span>
-            <button className="x-link" onClick={() => setTab('sources')}>
-              查看读取范围 <ArrowRight size={12} />
-            </button>
-          </div>
-          <nav className="d-tabs ca-tabs" aria-label="Codex 日志分析">
-            {(
-              [
-                ['overview', '概览'],
-                ['sessions', '会话分析'],
-                ['requests', '模型请求'],
-                ['issues', '故障归类'],
-                ['events', '全部事件'],
-                ['sources', '数据来源'],
-              ] as const
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                className={tab === id ? 'active' : ''}
-                aria-current={tab === id ? 'page' : undefined}
-                onClick={() => setTab(id)}
-              >
-                {label}
-                {id === 'issues' && analysis.issues.length > 0 && (
-                  <span className="ca-count">{analysis.issues.length}</span>
-                )}
-              </button>
-            ))}
-          </nav>
+           <LogCoverage count={analysis.eventCount} generatedAt={analysis.generatedAt} partial={analysis.partial} onSources={() => changeTab('sources')} />
+           <LogTabs tab={tab} onChange={changeTab} issues={analysis.issues.length} />
           {tab === 'overview' && (
             <>
               <div className="ca-metrics">
                 {(
                   [
-                    ['模型请求', analysis.totals.requests, '实际记录的 HTTP 尝试', 'requests'],
-                    [
-                      'HTTP 失败',
-                      analysis.totals.failed,
-                      `${analysis.totals.ok} 次 HTTP 成功`,
-                      'requests',
-                    ],
-                    ['请求重试', analysis.totals.retries, '与请求次数分别统计', 'issues'],
-                    ['回合错误', analysis.totals.turnErrors, '不由 HTTP 状态推测', 'issues'],
-                    ['关联会话', analysis.totals.sessions, '含无请求日志的会话', 'sessions'],
+                    ['关联会话', analysis.totals.sessions, '查看会话时间线', 'sessions'],
+                    ['模型请求', analysis.totals.requests, `${analysis.totals.failed} 次 HTTP 失败`, 'activity'],
+                    ['问题分组', analysis.issues.length, '查看排查建议与相关记录', 'issues'],
                   ] as const
                 ).map(([label, value, help, target]) => (
                   <button
                     key={label}
-                    className={`ca-metric ${label === 'HTTP 失败' && value ? 'ca-metric-error' : ''}`}
+                    className={`ca-metric ${label === '问题分组' && value ? 'ca-metric-error' : ''}`}
                     onClick={() => {
-                      setTab(target);
-                      setOnlyFailed(label === 'HTTP 失败');
+                      changeTab(target);
                     }}
                   >
                     <span>{label}</span>
@@ -612,7 +469,7 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
                   <div className="d-section-title">
                     <h3>优先排查</h3>
                     <button className="x-link" onClick={() => setTab('issues')}>
-                      全部归类 <ArrowRight size={12} />
+                      查看全部 <ArrowRight size={12} />
                     </button>
                   </div>
                   {analysis.issues.slice(0, 4).map((issue) => (
@@ -631,10 +488,11 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
                     </div>
                   )}
                 </section>
-                <section className="n-panel">
+                <details className="n-panel ca-overview-details">
+                  <summary>模型与请求地址</summary>
                   <div className="d-section-title">
                     <h3>实际模型请求地址</h3>
-                    <button className="x-link" onClick={() => setTab('requests')}>
+                    <button className="x-link" onClick={() => changeTab('activity')}>
                       请求明细 <ArrowRight size={12} />
                     </button>
                   </div>
@@ -668,14 +526,15 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
                     HTTP 成功表示收到正常响应；回合是否完成，请查看会话时间线。地址不同需结合会话
                     provider 和配置覆盖判断。
                   </p>
-                </section>
+                </details>
               </div>
               <section className="n-panel">
                 <div className="d-section-title">
-                  <h3>最近告警与重试</h3>
+                  <h3>最近需要关注的事件</h3>
+                  <button className="x-link" onClick={() => changeTab('events')}>全部事件</button>
                 </div>
                 <EventList
-                  events={analysis.recent}
+                  events={analysis.recent.slice(0, 5)}
                   onOpen={(e) => void openEvidence(e)}
                   onSession={openSession}
                 />
@@ -745,7 +604,6 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
                             : session.session.origin || '本地会话'}
                         </span>
                       </div>
-                      <p className="ca-mono ca-muted">{session.session.id}</p>
                       <div className="ca-session-meta">
                         <span>
                           <FolderOpen size={14} />
@@ -790,8 +648,9 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
                           <span>{session.source.note}</span>
                         </div>
                       )}
-                      <details className="ca-read-scope">
-                        <summary>会话文件与统计范围</summary>
+                       <details className="ca-read-scope">
+                         <summary>会话信息与统计范围</summary>
+                         <code>会话 ID：{session.session.id}</code>
                         <code>{session.source.path}</code>
                         <p>{session.note}</p>
                       </details>
@@ -859,45 +718,27 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
               </div>
             </section>
           )}
-          {(tab === 'requests' || tab === 'events') && (
+          {(tab === 'activity' || tab === 'events') && (
             <section className="n-panel">
               <div className="d-section-title">
                 <h3>
-                  {tab === 'requests' ? '模型 HTTP 尝试' : '合并事件'}
+                  {tab === 'activity' ? '模型活动' : '全部事件'}
                   {page && <small className="ca-muted"> · {number(page.total)} 条匹配记录</small>}
                 </h3>
               </div>
-              <div className="ca-filters">
-                <label className="ca-search">
-                  <Search size={15} />
-                  <input
-                    aria-label="搜索事件"
-                    placeholder="关键词、URL、request-id、会话 ID"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                  />
-                </label>
+              <LogFilters search={search} onSearch={setSearch} session={thread} onSession={setThread} sessions={analysis.sessions}
+                advancedCount={[sourceRole, eventKind, level].filter(Boolean).length}
+                active={!!(search || sourceRole || thread || eventKind || level || onlyFailed)} onReset={resetFilters}
+                failed={onlyFailed} onFailed={tab === 'activity' ? setOnlyFailed : undefined}>
                 <select
                   aria-label="筛选日志来源"
                   value={sourceRole}
                   onChange={(e) => setSourceRole(e.target.value)}
                 >
-                  <option value="">全部运行来源</option>
+                  <option value="">全部来源</option>
                   {['runtime', 'cli', 'desktop'].map((r) => (
                     <option key={r} value={r}>
                       {roles[r]}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  aria-label="筛选会话"
-                  value={thread}
-                  onChange={(e) => setThread(e.target.value)}
-                >
-                  <option value="">全部会话</option>
-                  {analysis.sessions.map((s) => (
-                    <option value={s.id} key={s.id}>
-                      {title(s).slice(0, 35)}
                     </option>
                   ))}
                 </select>
@@ -941,36 +782,13 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
                     </select>
                   </>
                 )}
-                {tab === 'requests' && (
-                  <label className="ca-check">
-                    <input
-                      type="checkbox"
-                      checked={onlyFailed}
-                      onChange={(e) => setOnlyFailed(e.target.checked)}
-                    />
-                    只看失败
-                  </label>
-                )}
-                <button
-                  className="x-link"
-                  onClick={() => {
-                    setSearch('');
-                    setSourceRole('');
-                    setThread('');
-                    setEventKind('');
-                    setLevel('');
-                    setOnlyFailed(false);
-                  }}
-                >
-                  清除筛选
-                </button>
-              </div>
-              <p className="d-help">
-                {tab === 'requests'
+              </LogFilters>
+              <details className="ca-read-scope"><summary>记录范围与统计口径</summary><p>
+                {tab === 'activity'
                   ? '只统计模型接口的 HTTP 尝试；401 / 429 / 5xx 均记为失败。'
-                  : '运行数据库与文本日志合并后分页；会话 JSONL 的回合和工具记录在「会话分析」中按需读取。'}{' '}
+                  : '运行数据库与文本日志合并后分页；会话 JSONL 的回合和工具记录在「会话」中按需读取。'}{' '}
                 所有筛选基于同一次分析快照。
-              </p>
+              </p></details>
               {eventsBusy && !page && (
                 <div className="n-progress" role="status">
                   <LoaderCircle size={15} className="n-spin" />
@@ -980,7 +798,7 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
               {page && (
                 <EventList
                   events={page.events}
-                  requests={tab === 'requests'}
+                  requests={tab === 'activity'}
                   onOpen={(e) => void openEvidence(e)}
                   onSession={openSession}
                 />
@@ -1136,107 +954,24 @@ export function CodexAnalysis({ client = localClient }: { client?: CodexAnalysis
           </button>
         </div>
       )}
-      {(detail || detailBusy) && (
-        <Modal
-          title="日志证据"
-          wide
-          onClose={() => {
-            detailTicket.current++;
-            setDetail(undefined);
-            setDetailBusy(false);
-          }}
-        >
-          <div className="ca-evidence">
-            {detailBusy && (
-              <div className="n-progress" role="status">
-                <LoaderCircle size={15} className="n-spin" />
-                正在读取证据…
-              </div>
-            )}
-            {detail && (
-              <>
-                <div className="ca-actions">
-                  <span
-                    className={`ca-tag ${detail.event.level === 'ERROR' ? 'ca-tag-error' : ''}`}
-                  >
-                    {detail.event.level}
-                  </span>
-                  <span>{date(detail.event.time)}</span>
-                  <code>{detail.event.target}</code>
-                </div>
-                <h3>{detail.event.summary}</h3>
-                <dl>
-                  <dt>来源</dt>
-                  <dd>
-                    {roles[detail.event.location.sourceRole]}
-                    <code>{detail.event.location.path}</code>
-                    <small>{detail.event.location.position}</small>
-                  </dd>
-                  {detail.event.mirrors.map((m) => (
-                    <dd key={`${m.sourceId}:${m.position}`}>
-                      镜像：<code>{m.path}</code>
-                      <small>{m.position}</small>
-                    </dd>
-                  ))}
-                  {detail.event.threadId && (
-                    <>
-                      <dt>会话 / 回合</dt>
-                      <dd>
-                        <button
-                          className="x-link"
-                          onClick={() => {
-                            openSession(detail.event.threadId!);
-                            setDetail(undefined);
-                          }}
-                        >
-                          {detail.event.threadId}
-                        </button>
-                        <code>{detail.event.turnId || '回合 ID 未记录'}</code>
-                      </dd>
-                    </>
-                  )}
-                  {detail.event.http && (
-                    <>
-                      <dt>HTTP</dt>
-                      <dd>
-                        <code>
-                          {detail.event.http.method} {detail.event.http.url}
-                        </code>
-                        <span>
-                          状态：{detail.event.http.status ?? '未收到响应'} · request-id：
-                          {detail.event.http.requestId ?? '未记录'}
-                        </span>
-                      </dd>
-                    </>
-                  )}
-                </dl>
-                <h4>记录内容</h4>
-                <pre>{detail.message}</pre>
-                {detail.span && (
-                  <details>
-                    <summary>跨度上下文</summary>
-                    <pre>{detail.span}</pre>
-                  </details>
-                )}
-                <p className="d-help">{detail.note}</p>
-                <button
-                  className="n-button"
-                  onClick={() => {
-                    void navigator.clipboard
-                      .writeText(
-                        `${date(detail.event.time)} ${detail.event.location.path} ${detail.event.location.position}\n${detail.message}`,
-                      )
-                      .then(() => setNotice('已复制脱敏证据。'))
-                      .catch((e) => setError(`复制失败：${reason(e)}`));
-                  }}
-                >
-                  复制脱敏证据
-                </button>
-              </>
-            )}
-          </div>
-        </Modal>
-      )}
+      {evidenceOpen && <LogDetailModal busy={detailBusy} error={detailError} onClose={closeEvidence}
+        onRetry={() => void openEvidence(evidenceTarget.current)} detail={detail ? {
+          summary: detail.event.summary, time: detail.event.time, kind: kinds[detail.event.kind] ?? detail.event.kind,
+          level: detail.event.level, content: detail.message, context: detail.span, note: detail.note,
+          copy: `${date(detail.event.time)} ${detail.event.location.path} ${detail.event.location.position}\n${JSON.stringify(detail.event, null, 2)}\n${detail.message}${detail.span ? `\n${detail.span}` : ''}`,
+          facts: <>
+            {detail.event.model && <><dt>模型</dt><dd>{detail.event.model}</dd></>}
+            {detail.event.http && <><dt>请求结果</dt><dd>{detail.event.http.status ?? (detail.event.http.timeout ? '超时' : '连接失败')} · {detail.event.http.method} {detail.event.http.host}{detail.event.http.path}</dd></>}
+            {detail.event.threadId && <><dt>会话</dt><dd><button className="x-link ca-mono" onClick={() => { closeEvidence(); openSession(detail.event.threadId!); }}>{detail.event.threadId}</button></dd></>}
+          </>,
+          metadata: <>
+            <dt>来源</dt><dd>{roles[detail.event.location.sourceRole]}<code>{detail.event.location.path}</code><code>{detail.event.location.position}</code></dd>
+            {detail.event.mirrors.length > 0 && <><dt>合并的记录位置</dt><dd>{detail.event.mirrors.map((m, i) => <code key={i}>{m.path} · {m.position}</code>)}</dd></>}
+            <dt>模块</dt><dd>{detail.event.target || '未记录'}</dd>
+            {detail.event.turnId && <><dt>回合 ID</dt><dd>{detail.event.turnId}</dd></>}
+            {detail.event.http && <><dt>完整地址 / request-id</dt><dd><code>{detail.event.http.url}</code><code>{detail.event.http.requestId ?? '未记录'}</code></dd></>}
+          </>,
+        } : undefined} />}
     </div>
   );
 }

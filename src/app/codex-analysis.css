@@ -2,6 +2,8 @@
   display: grid;
   gap: 18px;
   min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+  overflow-wrap: anywhere;
 }
 .ca-page .n-panel {
   margin: 0;
@@ -112,7 +114,7 @@
 }
 .ca-metrics {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 .ca-metric {
@@ -254,13 +256,13 @@
   min-width: 520px;
 }
 .ca-events th:first-child {
-  width: 117px;
+  width: 135px;
 }
 .ca-events th:nth-child(3) {
   width: 80px;
 }
 .ca-events th:last-child {
-  width: 34px;
+  width: 54px;
 }
 .ca-events td > small {
   display: block;
@@ -278,6 +280,14 @@
 .ca-event-title > span:last-child {
   overflow-wrap: anywhere;
   line-height: 1.7;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.ca-events time {
+  font-size: 11px;
+  line-height: 1.8;
 }
 .ca-tag {
   display: inline-flex;
@@ -568,9 +578,14 @@
   padding-left: 18px;
 }
 .ca-evidence {
-  padding: 4px 24px 24px;
+  padding: 20px 24px 24px;
   font-size: 12px;
   line-height: 1.8;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
 }
 .ca-evidence h3 {
   font-size: 14px;
@@ -579,6 +594,7 @@
 .ca-evidence dl {
   display: grid;
   gap: 8px;
+  min-width: 0;
 }
 .ca-evidence dt {
   color: #7a8377;
@@ -589,6 +605,98 @@
   gap: 5px;
   margin: 0;
   overflow-wrap: anywhere;
+  min-width: 0;
+  text-align: left;
+}
+.ca-evidence dd .x-link {
+  text-align: left;
+  justify-self: start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+.modal.ca-detail-modal {
+  width: 760px;
+}
+.ca-detail-footer > span {
+  flex: 1 1 180px;
+  min-width: 0;
+  max-height: 60px;
+  overflow: auto;
+}
+.ca-evidence pre {
+  max-height: 300px;
+  max-width: 100%;
+  overscroll-behavior: contain;
+}
+.ca-disclosure {
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.ca-disclosure > summary,
+.ca-overview-details > summary {
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ca-disclosure > div,
+.ca-overview-details[open] > summary {
+  margin-bottom: 16px;
+}
+.ca-overview-usage {
+  order: 1;
+}
+.ca-filter-group {
+  margin: 16px 0;
+}
+.ca-advanced {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.ca-advanced > summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.ca-advanced > .ca-filters {
+  margin-top: 12px;
+}
+.ca-filter-group .x-link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ca-coverage {
+  flex-wrap: wrap;
+  padding: 10px 14px;
+}
+.ca-coverage > span {
+  min-width: 0;
+}
+.ca-page details > summary:focus-visible,
+.ca-detail-modal summary:focus-visible,
+.ca-detail-modal pre:focus-visible {
+  outline: 2px solid #6a8d56;
+  outline-offset: 2px;
+}
+@media (max-width: 600px) {
+  .ca-page .ca-metrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ca-metric {
+    grid-template-columns: 1fr auto;
+    align-items: center;
+  }
+  .ca-metric small {
+    grid-column: 1 / -1;
+  }
+  .ca-evidence {
+    padding: 16px;
+  }
+  .ca-filters select {
+    max-width: 100%;
+    flex: 1 1 130px;
+  }
 }
 .ca-evidence .ca-actions code {
   overflow-wrap: anywhere;

@@ -14,6 +14,9 @@ export function PiMcpManager() {
   const [command, setCommand] = useState('');
   const [args, setArgs] = useState('');
   const [url, setUrl] = useState('');
+  const [env, setEnv] = useState('');
+  const [headers, setHeaders] = useState('');
+  const [cwd, setCwd] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   async function load() {
@@ -50,15 +53,31 @@ export function PiMcpManager() {
       !window.confirm('添加 MCP 后，Pi 可能在启动时执行该程序或连接服务。请确认来源可信。继续吗？')
     )
       return;
+    let fields: Record<string, string>;
+    try {
+      const value: unknown = JSON.parse((transport === 'stdio' ? env : headers).trim() || '{}');
+      if (
+        !value ||
+        typeof value !== 'object' ||
+        Array.isArray(value) ||
+        Object.values(value).some((v) => typeof v !== 'string')
+      )
+        throw new Error('请填写值为字符串的 JSON 对象。');
+      fields = value as Record<string, string>;
+    } catch (error) {
+      setNotice(`环境变量或请求头格式错误：${String(error)}`);
+      return;
+    }
     await change('pi-mcp-save', {
       name,
       transport,
       command,
       args: args
         .split('\n')
-        .map((s) => s.trim())
-        .filter(Boolean),
+        .map((s) => s.replace(/\r$/, ''))
+        .filter((s) => s !== ''),
       url,
+      ...(transport === 'stdio' ? { env: fields, cwd } : { headers: fields }),
     });
   }
   return (
@@ -156,22 +175,48 @@ export function PiMcpManager() {
                       onChange={(e) => setArgs(e.target.value)}
                     />
                   </div>
+                  <div className="n-config-field">
+                    <label htmlFor="pi-mcp-cwd">工作目录（可选）</label>
+                    <input id="pi-mcp-cwd" value={cwd} onChange={(e) => setCwd(e.target.value)} />
+                  </div>
+                  <div className="n-config-field">
+                    <label htmlFor="pi-mcp-env">环境变量（JSON，可选）</label>
+                    <textarea
+                      id="pi-mcp-env"
+                      value={env}
+                      onChange={(e) => setEnv(e.target.value)}
+                      placeholder={'{"API_KEY":"${MY_API_KEY}"}'}
+                      spellCheck={false}
+                    />
+                  </div>
                 </>
               ) : (
-                <div className="n-config-field">
-                  <label htmlFor="pi-mcp-url">服务 URL</label>
-                  <input
-                    id="pi-mcp-url"
-                    type="url"
-                    value={url}
-                    onChange={(e) => setUrl(e.target.value)}
-                    required
-                  />
-                </div>
+                <>
+                  <div className="n-config-field">
+                    <label htmlFor="pi-mcp-url">服务 URL</label>
+                    <input
+                      id="pi-mcp-url"
+                      type="url"
+                      value={url}
+                      onChange={(e) => setUrl(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="n-config-field">
+                    <label htmlFor="pi-mcp-headers">请求头（JSON，可选）</label>
+                    <textarea
+                      id="pi-mcp-headers"
+                      value={headers}
+                      onChange={(e) => setHeaders(e.target.value)}
+                      placeholder={'{"Authorization":"Bearer ${MY_TOKEN}"}'}
+                      spellCheck={false}
+                    />
+                  </div>
+                </>
               )}
             </fieldset>
             <p className="n-config-note">
-              认证、请求头和高级配置请在 Pi 中管理；新增不会覆盖已有服务。
+              环境变量和请求头支持 Pi 的 ${'{NAME}'} 引用语法；OAuth 登录请在 Pi 中完成。
             </p>
             <button className="n-button n-primary" type="submit" disabled={busy}>
               添加 MCP

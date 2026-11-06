@@ -1,5 +1,11 @@
 import { invoke } from '@tauri-apps/api/core';
-import { cyapiDownload, cyapiRequest, nativeAvailable, SERVER_URL, type HostedRoute } from '../../lib/api/native';
+import {
+  cyapiDownload,
+  cyapiRequest,
+  nativeAvailable,
+  SERVER_URL,
+  type HostedRoute,
+} from '../../lib/api/native';
 import type { WorkflowCatalog } from './library';
 
 const SERVER = SERVER_URL.replace(/\/+$/, '');
@@ -7,7 +13,6 @@ export const PLATFORM_API = `${SERVER}/workflow/platform/api`;
 // Native transport joins the request path onto the server origin, so it needs
 // the same platform prefix the browser uses.
 const PLATFORM_API_PATH = PLATFORM_API.slice(SERVER.length);
-export const WORKFLOW_EDITOR_PATH = `${SERVER}/workflow/`;
 
 export interface WorkspaceState {
   id: string;
@@ -33,48 +38,6 @@ export interface Activation {
   };
 }
 
-export type BillingRunStatus =
-  'pending' | 'settling' | 'charged' | 'simulated' | 'unpaid' | 'failed' | 'cancelled' | 'unknown';
-
-export interface BillingRun {
-  id: string;
-  promptId: string;
-  status: BillingRunStatus;
-  reason: string | null;
-  priceUsd: number;
-  currency: string;
-  createdAt: number;
-  finishedAt: number | null;
-  chargedAt: number | null;
-}
-
-export interface BillingSummary {
-  enabled: boolean;
-  mode?: 'live' | 'simulate';
-  model: string;
-  priceUsd: number;
-  currency: string;
-  precheck: boolean;
-  recent: BillingRun[];
-}
-
-export interface ModelList {
-  object: string;
-  data: { id: string; object?: string }[];
-}
-
-export interface NodeInstall {
-  id: string;
-  workspaceId: string;
-  name: string;
-  repo: string;
-  ref: string | null;
-  status: 'queued' | 'running' | 'completed' | 'failed';
-  log: string;
-  createdAt: number;
-  finishedAt: number | null;
-}
-
 export class PlatformError extends Error {
   status: number;
   code: string;
@@ -90,22 +53,11 @@ type RequestResponse<T> = { status: number; route: HostedRoute; body: T; text?: 
 
 async function readError(response: Response) {
   const text = await response.text().catch(() => '');
-  if (!text) return { message: `请求失败（${response.status}）`, code: 'request_failed' };
   try {
-    const value = JSON.parse(text) as {
-      error?: { code?: string; message?: string } | string;
-    };
-    if (value.error && typeof value.error === 'object') {
-      return {
-        message: value.error.message || `请求失败（${response.status}）`,
-        code: value.error.code || 'request_failed',
-      };
-    }
-    if (typeof value.error === 'string') return { message: value.error, code: 'request_failed' };
+    return nativeError(response.status, JSON.parse(text), text);
   } catch {
-    // Plain text is still useful.
+    return nativeError(response.status, null, text);
   }
-  return { message: text.slice(0, 400), code: 'request_failed' };
 }
 
 function nativeError(status: number, body: unknown, text = '') {
@@ -141,6 +93,7 @@ async function requestResponse<T>(
     base?: string;
   } = {},
 ): Promise<RequestResponse<T>> {
+  signal?.throwIfAborted();
   if (nativeAvailable) {
     let result: RequestResponse<T>;
     try {
@@ -152,6 +105,7 @@ async function requestResponse<T>(
         timeoutMs,
       });
     } catch (cause) {
+      signal?.throwIfAborted();
       const message = (cause instanceof Error ? cause.message : String(cause))
         .replace(/^\s*(Error:\s*)+/i, '')
         .trim();
@@ -190,9 +144,16 @@ async function requestResponse<T>(
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
-      signal,
+      signal: timeoutMs
+        ? signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
+          : AbortSignal.timeout(timeoutMs)
+        : signal,
     });
-  } catch {
+  } catch (cause) {
+    signal?.throwIfAborted();
+    if (cause instanceof Error && cause.name === 'TimeoutError')
+      throw new PlatformError('等待 CYAPI 服务响应超时，请稍后重试', 0, 'timeout');
     throw new PlatformError('无法连接 CYAPI 服务，请检查网络后重试', 0, 'network');
   }
   if (!response.ok) {
@@ -219,37 +180,8 @@ async function request<T>(
   } = {},
 ): Promise<T> {
   return (await requestResponse<T>(path, { method, key, body, signal, timeoutMs })).body;
-}export const getActivation = (key: string) => request<Activation>('/workspace', { key });
-export const recordActivity = (key: string) =>
-  request<{ ok: boolean }>('/workspace/activity', { method: 'POST', key });
-export const startWorkspace = (key: string) =>
-  request<{ workspace: WorkspaceState; workspaceCapacity: Activation['workspaceCapacity'] }>(
-    '/workspace/start',
-    {
-      method: 'POST',
-      key,
-      // A cold workspace starts a container and waits for ComfyUI to answer.
-      timeoutMs: 180_000,
-    },
-  );
-export const stopWorkspace = (key: string) =>
-  request<{ workspace: WorkspaceState; workspaceCapacity: Activation['workspaceCapacity'] }>(
-    '/workspace/stop',
-    {
-      method: 'POST',
-      key,
-      timeoutMs: 120_000,
-    },
-  );
-export const restartWorkspace = (key: string) =>
-  request<{ workspace: WorkspaceState; workspaceCapacity: Activation['workspaceCapacity'] }>(
-    '/workspace/restart',
-    {
-      method: 'POST',
-      key,
-      timeoutMs: 180_000,
-    },
-  );
+}
+export const getActivation = (key: string) => request<Activation>('/workspace', { key });
 export const getWorkflowCatalog = async () => {
   const catalog = await request<WorkflowCatalog>('/public/catalog');
   if (
@@ -284,24 +216,6 @@ export const editorToken = (
     // This call waits for the workspace; the native default is only 15s.
     timeoutMs: 180_000,
   }).then((response) => ({ ...response.body, route: response.route }));
-export const listModels = (key: string) => request<ModelList>('/models', { key });
-export const getUsage = (key: string) => request<unknown>('/usage', { key });
-export const getBilling = (key: string, limit = 10) =>
-  request<BillingSummary>(`/billing?limit=${limit}`, { key });
-export const listNodes = (key: string) => request<{ data: NodeInstall[] }>('/nodes', { key });
-export const installNode = (key: string, repo: string, ref?: string) =>
-  request<{ data: NodeInstall }>('/nodes/install', {
-    method: 'POST',
-    key,
-    body: { repo, ...(ref ? { ref } : {}) },
-  });
-export const nodeInstall = (key: string, id: string) =>
-  request<{ data: NodeInstall }>(`/nodes/installs/${encodeURIComponent(id)}`, { key });
-export const removeNode = (key: string, name: string) =>
-  request<{ data: { name: string; removed: boolean } }>(`/nodes/${encodeURIComponent(name)}`, {
-    method: 'DELETE',
-    key,
-  });
 
 // ---------------------------------------------------------------------------
 // Real workflow execution. These routes live at the server root (`/api/workflows`)
@@ -310,6 +224,12 @@ export const removeNode = (key: string, name: string) =>
 const WORKFLOW_API_PATH = '/api/workflows';
 
 export type WorkflowTaskStatus =
+  | 'created'
+  | 'charging'
+  | 'charge_rejected'
+  | 'charge_unknown'
+  | 'provider_submitting'
+  | 'provider_running'
   | 'submitting'
   | 'queued'
   | 'running'
@@ -347,6 +267,23 @@ export interface WorkflowTask {
   billing?: { mode: string; status: string; amount: number; unit: string };
 }
 
+export interface WorkflowTaskLog {
+  id: number;
+  at: number;
+  level: 'info' | 'warning' | 'error';
+  event: string;
+  message: string;
+  nodeId?: string;
+}
+
+export interface WorkflowTaskLogPage {
+  taskId: string;
+  status: WorkflowTaskStatus;
+  entries: WorkflowTaskLog[];
+  cursor: number;
+  truncated: boolean;
+}
+
 export interface WorkflowDraft {
   id: string;
   templateId: string;
@@ -372,16 +309,26 @@ async function workflowRequest<T>(
     key?: string;
     body?: unknown;
     timeoutMs?: number;
+    signal?: AbortSignal;
   } = {},
 ): Promise<T> {
   return (await requestResponse<T>(path, { ...options, base: WORKFLOW_API_PATH })).body;
 }
 
-export const listWorkflowTasks = (key: string, limit = 50) =>
-  workflowRequest<{ tasks: WorkflowTask[]; total: number }>(`/tasks?limit=${limit}`, { key });
-export const getWorkflowPriceCatalog = () => workflowRequest<unknown>('/catalog', { timeoutMs: 30_000 });
-export const getWorkflowTask = (key: string, id: string) =>
-  workflowRequest<WorkflowTask>(`/tasks/${encodeURIComponent(id)}`, { key });
+export const listWorkflowTasks = (key: string, limit = 50, signal?: AbortSignal) =>
+  workflowRequest<{ tasks: WorkflowTask[]; total: number }>(`/tasks?limit=${limit}`, {
+    key,
+    signal,
+    timeoutMs: 30_000,
+  });
+export const getWorkflowTaskLogs = (key: string, id: string, after = 0, signal?: AbortSignal) =>
+  workflowRequest<WorkflowTaskLogPage>(`/tasks/${encodeURIComponent(id)}/logs?after=${after}`, {
+    key,
+    signal,
+    timeoutMs: 15_000,
+  });
+export const getWorkflowPriceCatalog = () =>
+  workflowRequest<unknown>('/catalog', { timeoutMs: 30_000 });
 export const cancelWorkflowTask = (key: string, id: string) =>
   workflowRequest<WorkflowTask>(`/tasks/${encodeURIComponent(id)}/cancel`, {
     method: 'POST',
@@ -401,13 +348,11 @@ export const saveWorkflowDraft = (
     body: input,
   });
 export const quoteWorkflowDraft = (key: string, id: string) =>
-  workflowRequest<WorkflowQuote>(`/drafts/${encodeURIComponent(id)}/pipeline-quote`, { key, timeoutMs: 180_000 });
-export const runWorkflowDraft = (
-  key: string,
-  id: string,
-  revision: number,
-  quote: WorkflowQuote,
-) =>
+  workflowRequest<WorkflowQuote>(`/drafts/${encodeURIComponent(id)}/pipeline-quote`, {
+    key,
+    timeoutMs: 180_000,
+  });
+export const runWorkflowDraft = (key: string, id: string, revision: number, quote: WorkflowQuote) =>
   workflowRequest<WorkflowTask>(`/drafts/${encodeURIComponent(id)}/pipeline-run`, {
     method: 'POST',
     key,

@@ -1002,16 +1002,17 @@ impl Service {
                 roots.push(root(home.join("skills"), target, "global", visible(target, false)));
             }
         }
+        if let Some(root) = roots.iter_mut().find(|r| r.path == self.home.join(".agents/skills")) {
+            root.visible_targets.push("pi".into());
+        }
         if self.config_env("DSH_AGENTS_HOME").is_none() {
             if let Some(root) = roots.iter_mut().find(|r| r.path == self.home.join(".agents/skills")) {
                 root.visible_targets.push("dsh".into());
-                root.visible_targets.push("pi".into());
             }
-        } else if let Some(dir) = self.config_env("DSH_AGENTS_HOME").map(PathBuf::from).filter(|p| p.is_absolute()) {
+        } else if let Some(dir) = self.config_env("DSH_AGENTS_HOME").map(PathBuf::from)
+            .map(|p| p.strip_prefix("~").map(|rest| self.home.join(rest)).unwrap_or(p))
+            .filter(|p| p.is_absolute()) {
             roots.push(root(dir.join("skills"), "dsh", "global", visible("dsh", false)));
-            if let Some(root) = roots.iter_mut().find(|r| r.path == self.home.join(".agents/skills")) {
-                root.visible_targets.push("pi".into());
-            }
         }
         // OpenCode always imports ~/.claude; CLAUDE_CONFIG_DIR only redirects
         // Claude Code itself. Keep the source separate from the visible agents.
@@ -1044,6 +1045,7 @@ impl Service {
         };
         let mut seen_projects = HashSet::new();
         for project in projects {
+            let dsh_project = self.dsh_project_root(project);
             for directory in project.ancestors() {
                 if seen_projects.insert(crate::installed::path_key(directory)) {
                     roots.extend([
@@ -1065,17 +1067,24 @@ impl Service {
                             "project",
                             visible("opencode", false),
                         ),
-                        root(directory.join(".dsh/skills"), "dsh", "project", visible("dsh", false)),
                         root(directory.join(".pi/skills"), "pi", "project", visible("pi", false)),
                         root(directory.join(".workbuddy/skills"), "workbuddy", "project", visible("workbuddy", false)),
                     ]);
                     if let Some(root) = roots.iter_mut().rev().find(|r| r.path == directory.join(".agents/skills")) {
-                        root.visible_targets.push("dsh".into());
                         root.visible_targets.push("pi".into());
                     }
                 }
                 if directory.join(".git").exists() || directory == self.home {
                     break;
+                }
+            }
+            let dsh_skills = dsh_project.join(".dsh/skills");
+            if !roots.iter().any(|r| r.path == dsh_skills) {
+                roots.push(root(dsh_skills, "dsh", "project", visible("dsh", false)));
+            }
+            if let Some(root) = roots.iter_mut().find(|r| r.path == dsh_project.join(".agents/skills")) {
+                if !root.visible_targets.iter().any(|target| target == "dsh") {
+                    root.visible_targets.push("dsh".into());
                 }
             }
         }
@@ -1455,6 +1464,10 @@ impl Service {
         crate::configuration::no_links(&value)?;
         Ok(value)
     }
+    fn dsh_project_root<'a>(&self, project: &'a Path) -> &'a Path {
+        project.ancestors().take_while(|p| p.starts_with(&self.home) || !project.starts_with(&self.home))
+            .find(|p| p.join(".git").exists()).unwrap_or(project)
+    }
     fn config_env(&self, name: &str) -> Option<std::ffi::OsString> {
         env::var_os(name)
             .filter(|value| !value.is_empty())
@@ -1577,6 +1590,9 @@ impl Service {
                 canonical
             }
         };
+        let base = if target == "dsh" && scope == "project" {
+            self.dsh_project_root(&base).to_path_buf()
+        } else { base };
         let path = if scope == "global" {
             base.join("skills")
         } else {
@@ -2515,7 +2531,7 @@ exit 1
             }
             "desktop-model-read" => {
                 if request.workspace.as_deref() == Some("minimax") {
-                    return crate::minimax_model_config::view(request.project_path.as_deref().unwrap_or(""));
+                    return crate::minimax_model_config::view(&self.home, request.project_path.as_deref().unwrap_or(""));
                 }
                 if request.workspace.as_deref() == Some("pi") {
                     return crate::pi_model_config::view(&self.home);
@@ -2529,8 +2545,8 @@ exit 1
                 let tool = request.workspace.as_deref().ok_or("缺少工具标识")?;
                 if tool == "minimax" {
                     let dir = request.project_path.as_deref().unwrap_or("");
-                    crate::minimax_model_config::save(dir, request.desktop_model.as_ref().ok_or("缺少模型配置")?)?;
-                    return crate::minimax_model_config::view(dir);
+                    crate::minimax_model_config::save(&self.home, dir, request.desktop_model.as_ref().ok_or("缺少模型配置")?)?;
+                    return crate::minimax_model_config::view(&self.home, dir);
                 }
                 if tool == "pi" {
                     crate::pi_model_config::save(&self.home, request.desktop_model.as_ref().ok_or("缺少模型配置")?)?;
@@ -3455,6 +3471,25 @@ print(json.dumps({'upstreamDraft': str(draft), 'tracks': len(content['tracks'])}
         assert!(shared.visible_targets.contains(&"dsh".into()));
         assert!(shared.visible_targets.contains(&"pi".into()));
         assert_eq!(shared.target, "codex");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn dsh_skills_follow_nearest_repository_root_instead_of_every_ancestor() {
+        let root = env::temp_dir().join(format!("cyapi-dsh-project-roots-{}", uuid::Uuid::new_v4()));
+        let home = root.join("home");
+        let project = home.join("project");
+        let child = project.join("packages/app");
+        fs::create_dir_all(project.join(".git")).unwrap();
+        fs::create_dir_all(&child).unwrap();
+        let service = Service::new(root.join("data"), home).unwrap();
+        assert_eq!(service.dsh_project_root(&child), project);
+        let roots = service.skill_roots(Some(&child));
+        assert!(roots.iter().any(|r| r.path == project.join(".dsh/skills")));
+        assert!(!roots.iter().any(|r| r.path == child.join(".dsh/skills")));
+        let shared_child = roots.iter().find(|r| r.path == child.join(".agents/skills")).unwrap();
+        assert!(!shared_child.visible_targets.contains(&"dsh".into()));
+        assert!(shared_child.visible_targets.contains(&"pi".into()));
         fs::remove_dir_all(root).unwrap();
     }
 

@@ -1,9 +1,17 @@
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import test from 'node:test';
-import { artifactSourceLabel, groupIdenticalImages, saveArtifact, taskArtifactsZip } from '../src/features/platform/artifactDisplay.ts';
+import {
+  artifactSourceLabel,
+  groupIdenticalImages,
+  saveArtifact,
+  taskArtifactsZip,
+} from '../src/features/platform/artifactDisplay.ts';
 import { unzipSync, strFromU8 } from 'fflate';
-import { formatWorkflowUsd, workflowReferencePrice } from '../src/features/platform/workflowPrice.ts';
+import {
+  formatWorkflowUsd,
+  workflowReferencePrice,
+} from '../src/features/platform/workflowPrice.ts';
 import {
   createEditorLauncher,
   editorLaunchPending,
@@ -11,9 +19,10 @@ import {
 } from '../src/features/platform/editorLaunch.ts';
 import {
   validateDraft,
-  loadMockState,
-  saveMockState,
-} from '../src/features/platform/mockTasks.ts';
+  loadDraftState,
+  saveDraftState,
+} from '../src/features/platform/draftStore.ts';
+import { pollResource } from '../src/features/platform/polling.ts';
 import {
   importWorkflow,
   loadPersonalWorkflows,
@@ -30,13 +39,90 @@ import {
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const exists = (path: string) => existsSync(new URL(`../${path}`, import.meta.url));
 
+test('task polling coalesces refreshes and discards responses after identity disposal', async () => {
+  let complete!: (value: string) => void;
+  let calls = 0;
+  let signal!: AbortSignal;
+  const values: string[] = [];
+  const poller = pollResource({
+    request: (requestSignal) => {
+      calls++;
+      signal = requestSignal;
+      return new Promise<string>((resolve) => {
+        complete = resolve;
+      });
+    },
+    onValue: (value) => values.push(value),
+    onError: () => assert.fail('disposed requests must not surface errors'),
+    delay: () => null,
+  });
+  const first = poller.refresh();
+  assert.equal(poller.refresh(), first);
+  await Promise.resolve();
+  assert.equal(calls, 1);
+  poller.dispose();
+  assert.equal(signal.aborted, true);
+  complete('previous user');
+  await first;
+  assert.deepEqual(values, []);
+  await poller.refresh();
+  assert.equal(calls, 1);
+});
+
+test('task polling recovers from both synchronous and asynchronous failures', async () => {
+  let calls = 0;
+  const errors: string[] = [];
+  const values: number[] = [];
+  const poller = pollResource({
+    request: () => {
+      if (++calls === 1) throw new Error('offline');
+      if (calls === 2) return Promise.reject(new Error('retry'));
+      return Promise.resolve(calls);
+    },
+    onValue: (value) => values.push(value),
+    onError: (cause) => errors.push((cause as Error).message),
+    delay: () => null,
+  });
+  await poller.refresh();
+  await poller.refresh();
+  await poller.refresh();
+  assert.deepEqual(errors, ['offline', 'retry']);
+  assert.deepEqual(values, [3]);
+  poller.dispose();
+});
+
 test('workflow reference prices accept only the matching verified USD catalog value', () => {
-  const catalog = { templates: [{ id: 'test', display: { price: { amount: 0, currency: 'USD', unit: '次' } } }] };
+  const catalog = {
+    templates: [{ id: 'test', display: { price: { amount: 0, currency: 'USD', unit: '次' } } }],
+  };
   assert.equal(workflowReferencePrice(catalog, 'test'), 0);
   assert.equal(workflowReferencePrice(catalog, 'other'), null);
-  assert.equal(workflowReferencePrice({ templates: [catalog.templates[0], catalog.templates[0]] }, 'test'), null);
-  assert.equal(workflowReferencePrice({ templates: [{ id: 'test', display: { price: { amount: '0.01', currency: 'USD', unit: '次' } } }] }, 'test'), null);
-  assert.equal(workflowReferencePrice({ templates: [{ id: 'test', display: { price: { amount: -1, currency: 'USD', unit: '次' } } }] }, 'test'), null);
+  assert.equal(
+    workflowReferencePrice({ templates: [catalog.templates[0], catalog.templates[0]] }, 'test'),
+    null,
+  );
+  assert.equal(
+    workflowReferencePrice(
+      {
+        templates: [
+          { id: 'test', display: { price: { amount: '0.01', currency: 'USD', unit: '次' } } },
+        ],
+      },
+      'test',
+    ),
+    null,
+  );
+  assert.equal(
+    workflowReferencePrice(
+      {
+        templates: [
+          { id: 'test', display: { price: { amount: -1, currency: 'USD', unit: '次' } } },
+        ],
+      },
+      'test',
+    ),
+    null,
+  );
   assert.equal(formatWorkflowUsd(0.00000001), '$0.00000001 USD');
   assert.equal(formatWorkflowUsd(0), '$0 USD');
 });
@@ -46,7 +132,7 @@ test('workflow execution uses the complete Worker pipeline and asks for confirma
   const page = read('src/features/platform/PlatformWorkbench.tsx');
   assert.match(api, /\/pipeline-quote/);
   assert.match(api, /\/pipeline-run/);
-  assert.match(page, /window\.confirm\(`将由 Worker ComfyUI/);
+  assert.match(page, /window\.confirm\(\s*`将由 Worker ComfyUI/);
   assert.match(page, /提交状态可能未知/);
   assert.match(page, /个人工作流暂不支持/);
   assert.match(page, /暂不支持从此处上传素材/);
@@ -54,34 +140,85 @@ test('workflow execution uses the complete Worker pipeline and asks for confirma
 
 test('tool selector retains the desktop model integrations', () => {
   const app = read('src/app/App.tsx');
-  for (const name of ['DeepSeek Harness', 'WorkBuddy', 'Pi Coding Agent', 'MiniMax Code']) assert.ok(app.includes(name));
-  for (const hint of ["id: 'dsh', name: 'DeepSeek Harness', hint: 'Deepseek'", "id: 'workbuddy', name: 'WorkBuddy', hint: 'Tencent'", "id: 'pi', name: 'Pi Coding Agent', hint: '开源'", "id: 'minimax', name: 'MiniMax Code', hint: 'Mininax'"]) assert.ok(app.includes(hint));
+  for (const name of ['DeepSeek Harness', 'WorkBuddy', 'Pi Coding Agent', 'MiniMax Code'])
+    assert.ok(app.includes(name));
+  for (const hint of [
+    "id: 'dsh', name: 'DeepSeek Harness', hint: 'Deepseek'",
+    "id: 'workbuddy', name: 'WorkBuddy', hint: 'Tencent'",
+    "id: 'pi', name: 'Pi Coding Agent', hint: '开源'",
+    "id: 'minimax', name: 'MiniMax Code', hint: 'Mininax'",
+  ])
+    assert.ok(app.includes(hint));
   assert.match(app, /<DesktopModelSettings key=\{desktopTool\} tool=\{desktopTool\}/);
   const service = read('src-tauri/src/service.rs');
   assert.match(service, /desktop-model-read/);
   assert.match(service, /desktop-model-save/);
-  for (const module of ['desktop_model_config', 'pi_model_config', 'minimax_model_config']) assert.ok(service.includes(module));
+  for (const module of ['desktop_model_config', 'pi_model_config', 'minimax_model_config'])
+    assert.ok(service.includes(module));
 });
 
 test('identical editor images group without losing either original', () => {
-  const preview = { id: 'preview', kind: 'image', download: '/preview', storageType: 'temp', role: 'preview' as const };
-  const saved = { id: 'saved', kind: 'image', download: '/saved', storageType: 'output', role: 'file' as const };
-  const other = { id: 'other', kind: 'image', download: '/other', storageType: 'output', role: 'file' as const };
-  assert.deepEqual(groupIdenticalImages([preview, saved, other], { '/preview': 'same', '/saved': 'same', '/other': 'different' }), [[saved, preview], [other]]);
+  const preview = {
+    id: 'preview',
+    kind: 'image',
+    download: '/preview',
+    storageType: 'temp',
+    role: 'preview' as const,
+  };
+  const saved = {
+    id: 'saved',
+    kind: 'image',
+    download: '/saved',
+    storageType: 'output',
+    role: 'file' as const,
+  };
+  const other = {
+    id: 'other',
+    kind: 'image',
+    download: '/other',
+    storageType: 'output',
+    role: 'file' as const,
+  };
+  assert.deepEqual(
+    groupIdenticalImages([preview, saved, other], {
+      '/preview': 'same',
+      '/saved': 'same',
+      '/other': 'different',
+    }),
+    [[saved, preview], [other]],
+  );
   assert.deepEqual(groupIdenticalImages([preview], {}), [[preview]]);
   assert.deepEqual(groupIdenticalImages([saved], {}), [[saved]]);
   assert.deepEqual(groupIdenticalImages([preview, saved], {}), [[saved], [preview]]);
-  assert.deepEqual(groupIdenticalImages([saved, other], { '/saved': 'same', '/other': 'same' }), [[saved], [other]]);
+  assert.deepEqual(groupIdenticalImages([saved, other], { '/saved': 'same', '/other': 'same' }), [
+    [saved],
+    [other],
+  ]);
   const unknown = { id: 'unknown', kind: 'image', download: '/unknown' };
-  assert.deepEqual(groupIdenticalImages([preview, unknown], { '/preview': 'same', '/unknown': 'same' }), [[preview], [unknown]]);
+  assert.deepEqual(
+    groupIdenticalImages([preview, unknown], { '/preview': 'same', '/unknown': 'same' }),
+    [[preview], [unknown]],
+  );
   const video = { id: 'video', kind: 'video', download: '/video' };
-  assert.deepEqual(groupIdenticalImages([preview, video], { '/preview': 'same', '/video': 'same' }), [[preview], [video]]);
+  assert.deepEqual(
+    groupIdenticalImages([preview, video], { '/preview': 'same', '/video': 'same' }),
+    [[preview], [video]],
+  );
 });
 
 test('source labels show the recorded node name and explicitly mark missing history', () => {
   const output = { id: 'x', kind: 'image', download: '/x' };
-  assert.equal(artifactSourceLabel({ ...output, sourceNode: { id: '3', type: 'SaveImage', title: '最终图片' } }), '来源节点：最终图片 · SaveImage（ID 3）');
-  assert.equal(artifactSourceLabel({ ...output, sourceNode: { id: '4', type: 'PreviewImage' } }), '来源节点：PreviewImage（ID 4）');
+  assert.equal(
+    artifactSourceLabel({
+      ...output,
+      sourceNode: { id: '3', type: 'SaveImage', title: '最终图片' },
+    }),
+    '来源节点：最终图片 · SaveImage（ID 3）',
+  );
+  assert.equal(
+    artifactSourceLabel({ ...output, sourceNode: { id: '4', type: 'PreviewImage' } }),
+    '来源节点：PreviewImage（ID 4）',
+  );
   assert.match(artifactSourceLabel(output), /未知/);
 });
 
@@ -90,48 +227,71 @@ test('task ZIP retains all originals, avoids unsafe names and fails on missing f
     { id: '../same.png', kind: 'image', download: '/one', role: 'preview' as const },
     { id: '../same.png', kind: 'image', download: '/two', role: 'file' as const },
   ];
-  const zip = await taskArtifactsZip(outputs, async output => new Blob([output.download]));
+  const zip = await taskArtifactsZip(outputs, async (output) => new Blob([output.download]));
   const unpacked = unzipSync(new Uint8Array(await zip.arrayBuffer()));
   assert.deepEqual(Object.keys(unpacked), ['001-_same.png', '002-_same.png']);
-  assert.deepEqual(Object.values(unpacked).map(value => strFromU8(value)), ['/one', '/two']);
-  await assert.rejects(taskArtifactsZip(outputs, async output => {
-    if (output.download === '/two') throw new Error('missing');
-    return new Blob(['ok']);
-  }), /missing/);
-  await assert.rejects(taskArtifactsZip([], async () => new Blob()), /没有可下载/);
-  await assert.rejects(taskArtifactsZip([outputs[0]], async () => new Blob([new Uint8Array(30 * 1024 * 1024 + 1)])), /超过 30 MB/);
+  assert.deepEqual(
+    Object.values(unpacked).map((value) => strFromU8(value)),
+    ['/one', '/two'],
+  );
+  await assert.rejects(
+    taskArtifactsZip(outputs, async (output) => {
+      if (output.download === '/two') throw new Error('missing');
+      return new Blob(['ok']);
+    }),
+    /missing/,
+  );
+  await assert.rejects(
+    taskArtifactsZip([], async () => new Blob()),
+    /没有可下载/,
+  );
+  await assert.rejects(
+    taskArtifactsZip([outputs[0]], async () => new Blob([new Uint8Array(30 * 1024 * 1024 + 1)])),
+    /超过 30 MB/,
+  );
 });
 
 test('native artifact save returns cancellation and propagates write errors', async () => {
   const url = URL.createObjectURL(new Blob(['example']));
   try {
-    assert.equal(await saveArtifact(url, 'example.png', true, async (name, data) => {
-      assert.equal(name, 'example.png');
-      assert.equal(atob(data), 'example');
-      return false;
-    }), false);
-    await assert.rejects(saveArtifact(url, 'example.png', true, async () => { throw new Error('disk full'); }), /disk full/);
+    assert.equal(
+      await saveArtifact(url, 'example.png', true, async (name, data) => {
+        assert.equal(name, 'example.png');
+        assert.equal(atob(data), 'example');
+        return false;
+      }),
+      false,
+    );
+    await assert.rejects(
+      saveArtifact(url, 'example.png', true, async () => {
+        throw new Error('disk full');
+      }),
+      /disk full/,
+    );
     assert.equal(await saveArtifact(url, 'example.png', true, async () => true), true);
-  } finally { URL.revokeObjectURL(url); }
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 });
 
 test('missing result previews stay isolated from task queue and drafts', () => {
   const page = read('src/features/platform/PlatformWorkbench.tsx');
-  assert.match(page, /view !== 'results'\) return;/);
-  assert.match(page, /artifactErrors\[id\]/);
-  assert.match(page, /setArtifactErrors\(\(current\)/);
+  const artifacts = read('src/features/platform/useWorkflowArtifacts.ts');
+  assert.match(artifacts, /!enabled \|\| !activeKey/);
+  assert.match(artifacts, /artifactErrors\[id\]/);
   assert.match(page, /\(view === 'queue' \|\| view === 'results'\) && taskError/);
-  assert.match(page, /产物无法加载/);
-  assert.match(page, /typeof error === 'string'/);
-  assert.doesNotMatch(page, /setTaskError\(errorText\(cause\)\);\s*\}\);\s*\}\s*\}\s*\}, \[tasks, view/);
+  assert.match(read('src/features/platform/WorkflowResults.tsx'), /产物无法加载/);
+  assert.doesNotMatch(artifacts, /setTaskError/);
 });
 
 test('task responses and visible results are scoped to the active Key', () => {
   const page = read('src/features/platform/PlatformWorkbench.tsx');
-  assert.match(page, /taskState\.key === activeKey \? taskState\.tasks : \[\]/);
-  assert.match(page, /const generation = taskGeneration\.current/);
-  assert.match(page, /if \(taskGeneration\.current !== generation\) return;\s*setTaskState\(\{ key: activeKey, tasks: result\.tasks \}\)/);
-  assert.match(page, /if \(taskGeneration\.current === generation\) setTaskError/);
+  assert.match(
+    read('src/features/platform/useWorkflowTasks.ts'),
+    /state\.key === activeKey \? state\.tasks : \[\]/,
+  );
+  assert.match(page, /<WorkflowResults\s+key=\{activeKey\}/);
+  assert.match(page, /<WorkflowTaskQueue\s+key=\{activeKey\}/);
 });
 
 test('workflows ship in standard builds with no research switch', () => {
@@ -530,13 +690,20 @@ test('the shared toolbox log entry is global and workflow lifecycle logs contain
 });
 
 test('ComfyUI import accepts canvas, API and shared graphs and rejects unrelated JSON', () => {
-  const graph = { '1': { class_type: 'CYAPI_CogView3Flash', inputs: { prompt: '', size: '1024x1024' } } };
+  const graph = {
+    '1': { class_type: 'CYAPI_CogView3Flash', inputs: { prompt: '', size: '1024x1024' } },
+  };
   const fromApi = importWorkflow(JSON.stringify(graph), '灵感.json');
   assert.equal(fromApi.title, '灵感');
   assert.equal(fromApi.source, 'personal');
   assert.deepEqual(fromApi.apiGraph, graph);
   assert.deepEqual(workflowDocument(fromApi, 'new prompt'), {
-    prompt: { '1': { class_type: 'CYAPI_CogView3Flash', inputs: { prompt: 'new prompt', size: '1024x1024' } } },
+    prompt: {
+      '1': {
+        class_type: 'CYAPI_CogView3Flash',
+        inputs: { prompt: 'new prompt', size: '1024x1024' },
+      },
+    },
   });
   assert.equal(
     fromApi.apiGraph?.['1'].inputs.prompt,
@@ -634,8 +801,8 @@ test('local drafts persist and storage errors are surfaced', () => {
     fileData: '',
     updatedAt: 1,
   };
-  saveMockState({ drafts: [draft] });
-  assert.deepEqual(loadMockState().drafts, [draft]);
+  saveDraftState({ drafts: [draft] });
+  assert.deepEqual(loadDraftState().drafts, [draft]);
   Object.defineProperty(globalThis, 'localStorage', {
     configurable: true,
     value: {
@@ -644,6 +811,6 @@ test('local drafts persist and storage errors are surfaced', () => {
       },
     },
   });
-  assert.throws(() => saveMockState({ drafts: [draft] }), /存储空间不足/);
+  assert.throws(() => saveDraftState({ drafts: [draft] }), /存储空间不足/);
   delete (globalThis as { localStorage?: unknown }).localStorage;
 });

@@ -1,50 +1,7 @@
 import { useEffect, useId, useRef } from 'react';
 import type { ReactNode } from 'react';
-import {
-  Blocks,
-  Braces,
-  Check,
-  CodeXml,
-  FileText,
-  GitBranch,
-  Palette,
-  ScanSearch,
-  Sparkles,
-  X,
-} from 'lucide-react';
-import type { Skill, TargetId } from '../skills/types';
-
-const icons = {
-  terminal: CodeXml,
-  palette: Palette,
-  file: FileText,
-  git: GitBranch,
-  search: ScanSearch,
-  blocks: Blocks,
-};
-
-export function SkillAvatar({ skill, large = false }: { skill: Skill; large?: boolean }) {
-  const Icon = icons[skill.icon];
-  return (
-    <span className={`skill-avatar avatar-${skill.icon}${large ? ' large' : ''}`}>
-      <Icon size={large ? 29 : 23} strokeWidth={1.65} />
-    </span>
-  );
-}
-
-export function AgentLogo({ target }: { target: TargetId }) {
-  return (
-    <span aria-hidden="true" className={`agent-logo ${target}`}>
-      {target === 'codex' ? (
-        <CodeXml size={17} />
-      ) : target === 'claude' ? (
-        <Sparkles size={18} />
-      ) : (
-        <Braces size={17} />
-      )}
-    </span>
-  );
-}
+import { Check, X } from 'lucide-react';
+import './primitives.css';
 
 export function Modal({
   title,
@@ -86,7 +43,7 @@ export function Modal({
       if (event.key !== 'Tab' || !node) return;
       const focusables = Array.from(
         node.querySelectorAll<HTMLElement>(
-          'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]',
+          'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], summary, [tabindex="0"]',
         ),
       ).filter((element) => element.getClientRects().length > 0);
       if (!focusables.length) {
@@ -130,7 +87,12 @@ export function Modal({
       >
         <div className="modal-header">
           <h2 id={titleId}>{title}</h2>
-          <button className="icon-button" onClick={onClose} disabled={locked} aria-label="关闭对话框">
+          <button
+            className="icon-button"
+            onClick={onClose}
+            disabled={locked}
+            aria-label="关闭对话框"
+          >
             <X size={20} />
           </button>
         </div>
@@ -180,33 +142,3 @@ export function RestartPrompt({
     </Modal>
   );
 }
-
-export function EmptyState({
-  icon,
-  title,
-  description,
-  action,
-}: {
-  icon: ReactNode;
-  title: string;
-  description: string;
-  action?: ReactNode;
-}) {
-  return (
-    <div className="empty-state">
-      <span className="empty-icon">{icon}</span>
-      <h3>{title}</h3>
-      <p>{description}</p>
-      {action}
-    </div>
-  );
-}
-
-export const formatDate = (value: string) =>
-  new Intl.DateTimeFormat('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(new Date(value));

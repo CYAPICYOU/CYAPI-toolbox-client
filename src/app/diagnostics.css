@@ -277,8 +277,8 @@
   right: 20px;
   bottom: 16px;
   height: min(430px, 62vh);
-  min-height: 250px;
-  max-height: 85vh;
+  min-height: min(250px, calc(100dvh - 32px));
+  max-height: calc(100dvh - 32px);
   z-index: 250;
   display: flex;
   flex-direction: column;
@@ -297,6 +297,8 @@
   padding: 13px 16px;
   border-bottom: 1px solid var(--log-line);
   gap: 12px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
 }
 .d-log-header h2 {
   display: flex;
@@ -326,6 +328,8 @@
   align-items: center;
   gap: 10px;
   padding: 10px 16px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
 }
 .d-log-toolbar .d-search {
   max-width: 330px;
@@ -431,6 +435,7 @@
   border-top: 1px solid var(--log-line);
   color: var(--log-muted);
   font-size: 11px;
+  flex-shrink: 0;
 }
 .d-log-footer > span {
   white-space: nowrap;
@@ -451,6 +456,34 @@
 @media (prefers-reduced-motion: reduce) {
   .d-chevron {
     transition: none;
+  }
+}
+@media (max-width: 700px) {
+  .d-log-window {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    height: min(540px, calc(100dvh - 24px));
+    max-height: calc(100dvh - 24px);
+  }
+  .d-log-header .d-actions {
+    flex-wrap: wrap;
+  }
+  .d-log-toolbar .d-search {
+    flex: 1 1 160px;
+    min-width: 0;
+  }
+  .d-log-detail {
+    padding-left: 12px;
+  }
+}
+@media (max-height: 500px) {
+  .d-log-window {
+    height: calc(100dvh - 32px);
+    overflow: auto;
+  }
+  .d-log-list {
+    flex: 1 0 100px;
   }
 }
 

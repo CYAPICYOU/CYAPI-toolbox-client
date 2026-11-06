@@ -186,43 +186,27 @@
   min-width: 0;
   flex: 1 1 180px;
 }
-.pfx-mock-notice {
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--workspace-tint);
-  color: var(--workspace-tint-ink);
-  font-size: 12px;
-  line-height: 1.6;
-}
-.pfx-mock-row {
+.pfx-task-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
-.pfx-mock-row p {
+.pfx-task-row p {
   margin: 7px 0;
   color: var(--muted);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.pfx-mock-row small,
-.pfx-mock-result small {
+.pfx-task-row small,
+.pfx-task-result small {
   color: var(--muted);
 }
-.pfx-mock-actions {
+.pfx-task-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-}
-.pfx-mock-result pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font: inherit;
-  line-height: 1.6;
-  color: var(--muted);
 }
 .pfx-results {
   display: flex;
@@ -423,7 +407,6 @@
   text-align: center;
   color: var(--muted);
 }
-.pfx-footnote,
 .pfx-connecting {
   display: flex;
   align-items: center;
@@ -431,11 +414,6 @@
   margin: 20px 0;
   color: var(--muted);
   font-size: 12px;
-}
-.pfx-node-page > p {
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.7;
 }
 @media (max-width: 600px) {
   .pfx-library-search-row .n-search {
@@ -931,55 +909,6 @@
   }
 }
 
-.pfx-keys {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.pfx-key {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border-radius: 99px;
-  border: 1px solid var(--line);
-  background: var(--surface, #fff);
-  color: #42573d;
-  cursor: pointer;
-}
-
-.pfx-key.active {
-  border-color: var(--workspace-tint-border);
-  background: var(--workspace-tint);
-  color: var(--workspace-tint-ink);
-}
-
-.pfx-key small {
-  font:
-    11px ui-monospace,
-    Consolas,
-    monospace;
-}
-
-.pfx-key-remove {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  font-size: 12px;
-  line-height: 1;
-  color: var(--muted);
-}
-
-.pfx-key-remove:hover {
-  background: rgba(0, 0, 0, 0.08);
-  color: #a1523f;
-}
-
 .pfx-body {
   flex: 1;
   min-height: 0;
@@ -995,41 +924,6 @@
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 16px;
-}
-
-.pfx-onboard {
-  display: flex;
-  gap: 16px;
-  align-items: flex-start;
-}
-
-.pfx-onboard-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 42px;
-  height: 42px;
-  flex-shrink: 0;
-  border-radius: 11px;
-  background: var(--workspace-tint);
-  color: var(--workspace-tint-ink);
-}
-
-.pfx-onboard-copy {
-  flex: 1;
-  min-width: 0;
-}
-
-.pfx-onboard-copy h2 {
-  margin: 2px 0 6px;
-  font-size: 15px;
-}
-
-.pfx-onboard-copy p {
-  margin: 0 0 12px;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--muted);
 }
 
 .pfx-form {
@@ -1157,195 +1051,11 @@
   }
 }
 
-.pfx-status-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
-}
-
-.pfx-stat {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding: 12px;
-  border-radius: 10px;
-  background: var(--surface-muted, #f7f8f6);
-  border: 1px solid var(--line);
-}
-
-.pfx-stat-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.pfx-stat strong {
-  font-size: 15px;
-  font-weight: 600;
-  word-break: break-all;
-}
-
-.pfx-stat small {
-  font-size: 11px;
-  color: var(--muted);
-  word-break: break-all;
-}
-
-.pfx-badge {
-  display: inline-flex;
-  align-items: center;
-  align-self: flex-start;
-  padding: 2px 9px;
-  border-radius: 99px;
-  font-size: 12px;
-}
-
-.pfx-badge.running {
-  background: #e4f2e7;
-  color: #256543;
-}
-
-.pfx-badge.starting {
-  background: #fbf0d9;
-  color: #8a6320;
-}
-
-.pfx-badge.stopped {
-  background: #f0f1ef;
-  color: #6c7770;
-}
-
-.pfx-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 14px;
-}
-
 .pfx-hint {
   margin: 10px 0 0;
   font-size: 12px;
   line-height: 1.6;
   color: var(--muted);
-}
-
-.pfx-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 14px;
-}
-
-@media (max-width: 900px) {
-  .pfx-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-.pfx-card-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0 0 12px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #3c5347;
-}
-
-.pfx-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.pfx-chip {
-  padding: 3px 9px;
-  border-radius: 99px;
-  background: var(--workspace-tint);
-  color: var(--workspace-tint-ink);
-  font:
-    11px ui-monospace,
-    Consolas,
-    monospace;
-}
-
-.pfx-pre {
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--surface-muted, #f7f8f6);
-  border: 1px solid var(--line);
-  font:
-    11px ui-monospace,
-    Consolas,
-    monospace;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 180px;
-  overflow: auto;
-}
-
-.pfx-nodes {
-  list-style: none;
-  margin: 14px 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.pfx-nodes li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 11px;
-  border-radius: 9px;
-  border: 1px solid var(--line);
-  background: var(--surface-muted, #f7f8f6);
-}
-
-.pfx-node-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.pfx-node-main strong {
-  font-size: 12px;
-}
-
-.pfx-node-main small {
-  font-size: 11px;
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.pfx-node-status {
-  flex-shrink: 0;
-  padding: 2px 8px;
-  border-radius: 99px;
-  font-size: 11px;
-}
-
-.pfx-node-status.completed {
-  background: #e4f2e7;
-  color: #256543;
-}
-
-.pfx-node-status.running,
-.pfx-node-status.queued {
-  background: #fbf0d9;
-  color: #8a6320;
-}
-
-.pfx-node-status.failed {
-  background: #fbe9e5;
-  color: #a1523f;
 }
 
 .pfx-icon-button {
@@ -1366,74 +1076,79 @@
   color: #a1523f;
 }
 
-.pfx-billing-head {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-bottom: 10px;
+.pfx-task-logs {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  min-width: 0;
 }
-
-.pfx-billing-head strong {
-  font-size: 15px;
-}
-
-.pfx-billing-head small {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.pfx-runs {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.pfx-runs li {
+.pfx-log-toggle {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  gap: 7px;
+  width: 100%;
+  padding: 5px 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
   font-size: 12px;
+  text-align: left;
+  cursor: pointer;
 }
-
-.pfx-runs code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: var(--muted);
-}
-
-.pfx-runs small {
+.pfx-log-toggle > span {
   margin-left: auto;
   color: var(--muted);
   font-size: 11px;
 }
-
-.pfx-run-status {
-  flex-shrink: 0;
-  padding: 2px 8px;
-  border-radius: 99px;
+.pfx-log-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 10px 0;
   font-size: 11px;
-  background: #eef0ee;
-  color: #4a5a51;
+  color: var(--muted);
 }
-
-.pfx-run-status.charged {
-  background: #e4f2e7;
-  color: #256543;
+.pfx-log-toolbar > small {
+  margin-right: auto;
 }
-
-.pfx-run-status.pending,
-.pfx-run-status.settling {
-  background: #fbf0d9;
-  color: #8a6320;
+.pfx-log-toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
-
-.pfx-run-status.failed,
-.pfx-run-status.unpaid {
-  background: #fbe9e5;
-  color: #a1523f;
+.pfx-log-content {
+  max-height: 260px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  font:
+    12px/1.8 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+}
+.pfx-log-entry {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 3px 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.pfx-log-entry time {
+  color: var(--muted);
+}
+.pfx-log-warning .pfx-log-level {
+  color: #a16c1c;
+}
+.pfx-log-error .pfx-log-level {
+  color: #b35842;
+}
+.pfx-log-content:focus-visible,
+.pfx-log-toggle:focus-visible {
+  outline: 2px solid var(--workspace-focus);
 }

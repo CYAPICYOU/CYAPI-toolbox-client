@@ -1,10 +1,9 @@
 /** Local draft form state. Real runs are submitted to the server workflow API. */
 import type { WorkflowTemplate } from './library.ts';
 
-export type MockKind = WorkflowTemplate['kind'];
-export interface MockDraft {
+export interface LocalWorkflowDraft {
   id: string;
-  kind: MockKind;
+  kind: WorkflowTemplate['kind'];
   title: string;
   prompt: string;
   fileName: string;
@@ -12,13 +11,13 @@ export interface MockDraft {
   updatedAt: number;
   template?: WorkflowTemplate;
 }
-export interface MockState {
-  drafts: MockDraft[];
+export interface WorkflowDraftState {
+  drafts: LocalWorkflowDraft[];
 }
-export const MOCK_STORAGE = 'cyapi.workflows.local-mock.v1';
-export const EMPTY_MOCK: MockState = { drafts: [] };
+// Keep the existing storage key so upgrading does not discard saved drafts.
+const DRAFT_STORAGE = 'cyapi.workflows.local-mock.v1';
 
-export function validateDraft(draft: MockDraft) {
+export function validateDraft(draft: LocalWorkflowDraft) {
   if (draft.template) {
     if (draft.template.form.prompt?.required && !draft.prompt.trim()) return '请输入文字内容。';
     if (draft.template.form.file?.required && !draft.fileData) return '请选择素材文件。';
@@ -30,9 +29,9 @@ export function validateDraft(draft: MockDraft) {
   return '';
 }
 
-export function loadMockState(): MockState {
+export function loadDraftState(): WorkflowDraftState {
   try {
-    const value = JSON.parse(localStorage.getItem(MOCK_STORAGE) || 'null');
+    const value = JSON.parse(localStorage.getItem(DRAFT_STORAGE) || 'null');
     if (!value || !Array.isArray(value.drafts)) return { drafts: [] };
     return { drafts: value.drafts };
   } catch {
@@ -40,9 +39,9 @@ export function loadMockState(): MockState {
   }
 }
 
-export function saveMockState(state: MockState) {
+export function saveDraftState(state: WorkflowDraftState) {
   try {
-    localStorage.setItem(MOCK_STORAGE, JSON.stringify(state));
+    localStorage.setItem(DRAFT_STORAGE, JSON.stringify(state));
   } catch {
     throw new Error('本地存储空间不足，未能保存。请减少素材大小或删除旧记录。');
   }

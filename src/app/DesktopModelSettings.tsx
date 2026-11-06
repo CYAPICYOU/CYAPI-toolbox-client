@@ -13,6 +13,9 @@ interface View {
   model: string;
   apiKeyConfigured: boolean;
   configPath: string;
+  api: string;
+  models?: string[];
+  dataDir?: string;
 }
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -21,6 +24,7 @@ export function DesktopModelSettings({ tool }: { tool: Tool }) {
   const [baseUrl, setBaseUrl] = useState(CYAPI_DEFAULT_URL);
   const [key, setKey] = useState('');
   const [model, setModel] = useState('');
+  const [api, setApi] = useState('openai-completions');
   const [models, setModels] = useState<string[]>([]);
   const [mode, setMode] = useState<'cyapi' | 'custom'>('cyapi');
   const [busy, setBusy] = useState(false);
@@ -37,8 +41,10 @@ export function DesktopModelSettings({ tool }: { tool: Tool }) {
         : 'custom',
     );
     setModel(next.model);
-    setModels([]);
+    setApi(next.api || 'openai-completions');
+    setModels(next.models ?? []);
     setKey('');
+    if (tool === 'minimax' && next.dataDir) setDataDir(next.dataDir);
   }
   async function reload() {
     setBusy(true);
@@ -58,7 +64,7 @@ export function DesktopModelSettings({ tool }: { tool: Tool }) {
     }
   }
   useEffect(() => {
-    if (nativeAvailable && tool !== 'minimax') void reload();
+    if (nativeAvailable) void reload();
   }, [tool]);
 
   async function save(event: React.FormEvent) {
@@ -71,9 +77,10 @@ export function DesktopModelSettings({ tool }: { tool: Tool }) {
         await nativeCall<View>('desktop-model-save', {
           workspace: tool,
           projectPath: tool === 'minimax' ? dataDir : undefined,
-          desktopModel: { baseUrl, apiKey: key, model, revision: view.revision },
+          desktopModel: { baseUrl, apiKey: key, model, api, revision: view.revision },
         }),
       );
+      if (tool === 'minimax') setModel(model.trim());
       setNotice({
         text:
           tool === 'dsh'
@@ -96,11 +103,11 @@ export function DesktopModelSettings({ tool }: { tool: Tool }) {
     setNotice(undefined);
     try {
       const result = await nativeCall<{ models: string[] }>('models-list', {
-        baseUrl,
+        baseUrl: baseUrl.trim().replace(/\/(chat\/completions|responses|messages)\/?$/, ''),
         apiKey: key,
-        modelApi: 'openai',
+        modelApi: api === 'anthropic-messages' ? 'anthropic' : 'openai',
       });
-      setModels(result.models);
+      setModels([...new Set([...(view?.models ?? []), ...result.models])]);
       if (!result.models.length)
         setNotice({ text: '服务没有返回模型，请手动填写模型 ID。', error: false });
     } catch (error) {
@@ -133,10 +140,11 @@ export function DesktopModelSettings({ tool }: { tool: Tool }) {
               setDataDir(e.target.value);
               setView(undefined);
             }}
-            placeholder="填写已确认的绝对路径"
+            placeholder="留空自动检测，或填写数据目录绝对路径"
           />
           <p className="n-config-note">
-            请先从应用确认数据目录，再点击重新检测。保存前会备份原配置（可能包含密钥），勿同时在应用中修改设置。
+            自动读取环境变量、桌面目录设置或
+            ~/.minimax；也可以指定目录后重新检测。保存前会备份原配置。
           </p>
         </div>
       )}
@@ -204,6 +212,20 @@ export function DesktopModelSettings({ tool }: { tool: Tool }) {
               </div>
             )}
           </section>
+          {tool !== 'workbuddy' && (
+            <div className="n-config-field n-api-section">
+              <label htmlFor="desktop-api-protocol">API 协议</label>
+              <select
+                id="desktop-api-protocol"
+                value={api}
+                onChange={(e) => setApi(e.target.value)}
+              >
+                <option value="openai-completions">OpenAI Chat Completions</option>
+                <option value="openai-responses">OpenAI Responses</option>
+                <option value="anthropic-messages">Anthropic Messages</option>
+              </select>
+            </div>
+          )}
           <div className="n-config-field n-api-section">
             <label htmlFor="desktop-api-key">API Key</label>
             <input
@@ -245,7 +267,7 @@ export function DesktopModelSettings({ tool }: { tool: Tool }) {
           </section>
         </fieldset>
         <p className="n-config-note">
-          保存当前模型配置；使用 OpenAI Chat Completions 兼容接口。
+          保存当前模型配置；请按服务商提供的接口选择协议和 API 地址。
           {tool === 'workbuddy' && 'WorkBuddy 中需手动选择模型。'}
           {tool === 'pi' && 'Pi 将其设为新会话默认模型；项目设置或启动参数可能覆盖默认值。'}
           {tool === 'minimax' && '不会更改默认模型或当前会话，需在 MiniMax Code 中选择。'}

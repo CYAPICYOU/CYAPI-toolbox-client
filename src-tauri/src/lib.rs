@@ -15,6 +15,7 @@ mod diagnostics;
 mod desktop_model_config;
 mod pi_model_config;
 mod minimax_model_config;
+mod harness_yaml;
 mod pi_mcp_config;
 mod external_tools;
 mod installed;
