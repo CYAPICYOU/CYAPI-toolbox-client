@@ -281,6 +281,10 @@ test('missing result previews stay isolated from task queue and drafts', () => {
   assert.match(artifacts, /artifactErrors\[id\]/);
   assert.match(page, /\(view === 'queue' \|\| view === 'results'\) && taskError/);
   assert.match(read('src/features/platform/WorkflowResults.tsx'), /产物无法加载/);
+  assert.match(
+    read('src/features/platform/WorkflowResults.tsx'),
+    /task\.status === 'succeeded' && task\.outputs\.length > 0/,
+  );
   assert.doesNotMatch(artifacts, /setTaskError/);
 });
 

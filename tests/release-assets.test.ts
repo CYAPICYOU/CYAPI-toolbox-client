@@ -26,9 +26,9 @@ test('a release requires both macOS architectures and both Windows packages', as
   try {
     const files = requiredReleaseAssets('1.2.1');
     assert.equal(files.length, 4);
-    for (const file of files.filter((file) => !file.endsWith('-macos-x64.dmg')))
+    for (const file of files.filter((file) => !file.endsWith('-macos-x64-setup.dmg')))
       await writeFile(join(directory, file), 'fixture');
-    await assert.rejects(verifyReleaseAssets(directory, '1.2.1'), /macos-x64\.dmg/);
+    await assert.rejects(verifyReleaseAssets(directory, '1.2.1'), /macos-x64-setup\.dmg/);
     await writeFile(join(directory, files[3]), '');
     await assert.rejects(verifyReleaseAssets(directory, '1.2.1'), /empty release asset/);
     await writeFile(join(directory, files[3]), 'fixture-intel');

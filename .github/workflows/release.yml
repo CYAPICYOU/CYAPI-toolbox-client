@@ -119,15 +119,15 @@ jobs:
         run: |
           set -euo pipefail
           version="$(node -p "require('./package.json').version")"
-          mv "release/CYAPI-Toolbox_${version}-macos.dmg" "release/CYAPI-Toolbox_${version}-${{ matrix.asset }}.dmg"
-          mv "release/CYAPI-Toolbox_${version}-macos.zip" "release/CYAPI-Toolbox_${version}-${{ matrix.asset }}.zip"
+          mv "release/CYAPI-Toolbox_${version}-macos-setup.dmg" "release/CYAPI-Toolbox_${version}-${{ matrix.asset }}-setup.dmg"
+          mv "release/CYAPI-Toolbox_${version}-macos-portable.zip" "release/CYAPI-Toolbox_${version}-${{ matrix.asset }}-portable.zip"
 
       - name: Upload the artifacts
         uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.asset }}
-          # Windows ships installer and portable EXE; macOS ships only the
-          # DMG, the portable ZIP bundle was retired.
+          # Windows ships the setup EXE and the portable EXE; macOS ships only
+          # the DMG, the portable ZIP bundle was retired.
           path: |
             ${{ runner.os == 'Windows' && 'release/CYAPI-Toolbox_*.exe' || 'release/CYAPI-Toolbox_*.dmg' }}
           if-no-files-found: error

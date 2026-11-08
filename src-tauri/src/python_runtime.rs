@@ -104,6 +104,10 @@ pub fn install(data: &Path, archive: &[u8], version: &str) -> Result<PathBuf> {
         use std::os::unix::fs::PermissionsExt;
         let _ = fs::set_permissions(&unpacked, fs::Permissions::from_mode(0o755));
     }
+    // Windows has no executable bit; the path is only resolved here to reject
+    // an archive without an interpreter before it replaces the installed one.
+    #[cfg(not(unix))]
+    drop(unpacked);
     // The directory is replaced as a whole, so a half unpacked runtime never
     // stays behind.
     if root.exists() {

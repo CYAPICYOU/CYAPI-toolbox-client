@@ -25,9 +25,7 @@ export function WorkflowResults({
     retryArtifact,
   } = useWorkflowArtifacts(activeKey, tasks, visible);
   const completed = tasks.filter(
-    (task) =>
-      task.status === 'succeeded' &&
-      (task.outputs.length > 0 || task.source === 'editor' || task.mode === 'worker'),
+    (task) => task.status === 'succeeded' && task.outputs.length > 0,
   );
   return (
     <>
@@ -36,7 +34,11 @@ export function WorkflowResults({
           {saveNotice}
         </div>
       )}
-      {!completed.length && <div className="pfx-card pfx-empty">暂无已完成的结果。</div>}
+      {!completed.length && (
+        <div className="pfx-card pfx-empty">
+          暂无产物。任务成功并生成可下载文件后，会显示在这里。
+        </div>
+      )}
       {completed.map((task) => {
         const worker = task.source === 'editor' || task.mode === 'worker';
         const groups = worker
@@ -62,11 +64,6 @@ export function WorkflowResults({
               </button>
             )}
             {worker && task.message && <small>{task.message}</small>}
-            {worker && task.outputs.length === 0 && (
-              <p>
-                没有可下载的归档文件。请检查编辑器中的输出；需要保留结果时，请连接对应的保存节点。中间计算结果不会自动保存。
-              </p>
-            )}
             <div className="pfx-results">
               {groups.map((group) => {
                 const output = group[0];

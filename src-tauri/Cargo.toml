@@ -37,7 +37,7 @@ tar = "0.4"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [profile.release]
-codegen-units = 1
+codegen-units = 16
 lto = true
 opt-level = "s"
 strip = true

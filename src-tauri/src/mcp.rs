@@ -1933,6 +1933,7 @@ pub fn config_revision(context: &Context, workspace: &str) -> Result<String> {
 }
 
 /// The revision of the MCP entry a software integration writes to.
+#[cfg(test)]
 pub fn entry_revision_for(context: &Context, workspace: &str, key: &str) -> Result<String> {
     let workspace = valid_workspace(workspace)?;
     let current = snapshot(context, workspace)?;

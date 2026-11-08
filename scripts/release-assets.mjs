@@ -6,9 +6,9 @@ export function requiredReleaseAssets(version) {
   if (!/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(version)) throw new Error('Invalid release version');
   return [
     `CYAPI-Toolbox_${version}_x64-setup.exe`,
-    `CYAPI-Toolbox_${version}.exe`,
-    `CYAPI-Toolbox_${version}-macos-arm64.dmg`,
-    `CYAPI-Toolbox_${version}-macos-x64.dmg`,
+    `CYAPI-Toolbox_${version}_portable.exe`,
+    `CYAPI-Toolbox_${version}-macos-arm64-setup.dmg`,
+    `CYAPI-Toolbox_${version}-macos-x64-setup.dmg`,
   ];
 }
 
@@ -26,5 +26,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   if (!directory || !version)
     throw new Error('Usage: node scripts/release-assets.mjs <directory> <version>');
   await verifyReleaseAssets(directory, version);
-  console.log(`Verified Windows, macOS ARM64 and Intel x64 installers for ${version}`);
+  console.log(`Verified Windows setup and portable EXE, macOS ARM64 and Intel x64 installers for ${version}`);
 }
