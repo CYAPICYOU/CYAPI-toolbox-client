@@ -789,6 +789,14 @@ fn associate_request_ips(events: &mut [Event]) {
 }
 
 static CACHE: OnceLock<Mutex<VecDeque<Arc<Snapshot>>>> = OnceLock::new();
+
+pub(crate) fn invalidate(workspace: &str) {
+    if let Some(cache) = CACHE.get() {
+        if let Ok(mut cache) = cache.lock() {
+            cache.retain(|s| s.workspace != workspace);
+        }
+    }
+}
 fn matches(e: &Event, q: &Query) -> bool {
     if q.session_id
         .as_ref()

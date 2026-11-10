@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   ArrowUpRight,
   Check,
@@ -13,6 +13,7 @@ import {
   Palette,
   RefreshCw,
   Sun,
+  Trash2,
   WifiOff,
   Zap,
 } from 'lucide-react';
@@ -20,6 +21,9 @@ import type { UpdateStatus } from '../lib/api/update';
 import type { ThemePreference } from '../lib/theme';
 import { APP_NAME, COPYRIGHT_TEXT, DOWNLOAD_PAGE, OFFICIAL_SITE } from '../lib/app-info';
 import './app-settings.css';
+import { clearToolboxCache } from '../lib/api/cleanup';
+import { cleanupBytes } from '../lib/cleanup';
+import { nativeAvailable } from '../lib/api/native';
 
 const themes = [
   { value: 'system', label: '跟随系统', description: '随系统自动切换', Icon: Monitor },
@@ -53,6 +57,23 @@ export function AppSettings({
   };
 }) {
   const { status, checking, error, checkedAt } = updates;
+  const [clearing, setClearing] = useState(false);
+  const [cacheResult, setCacheResult] = useState('');
+  const [cacheError, setCacheError] = useState('');
+  const clearCache = async () => {
+    setClearing(true);
+    setCacheResult('');
+    setCacheError('');
+    try {
+      const result = await clearToolboxCache();
+      setCacheResult(`已清理 ${cleanupBytes(result.reclaimedBytes)} 工具箱缓存。`);
+      setCacheError(result.errors.join('；'));
+    } catch (e) {
+      setCacheError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setClearing(false);
+    }
+  };
   const UpdateIcon = checking
     ? LoaderCircle
     : error
@@ -201,6 +222,20 @@ export function AppSettings({
             </div>
           </div>
           <p className="n-settings-caption">各工具的配置仍保存在各自的配置目录中。</p>
+          <button
+            className="n-button"
+            disabled={clearing || !nativeAvailable}
+            onClick={() => void clearCache()}
+          >
+            {clearing ? <LoaderCircle size={14} className="n-spin" /> : <Trash2 size={14} />}
+            {clearing ? '正在清理…' : '一键清理缓存'}
+          </button>
+          <p className="n-settings-caption">
+            仅清理超过 24 小时的工具箱安装包缓存，保留备份、运行环境和安装记录。
+            各工具旧会话请前往各自的「空间清理」。
+          </p>
+          {cacheResult && <p role="status">{cacheResult}</p>}
+          {cacheError && <p role="alert" className="n-error-text">{cacheError}</p>}
         </section>
       </div>
 

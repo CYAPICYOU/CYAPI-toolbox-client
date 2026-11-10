@@ -103,6 +103,14 @@ struct Cached {
 }
 static CACHE: OnceLock<Mutex<HashMap<PathBuf, Cached>>> = OnceLock::new();
 
+pub(crate) fn invalidate() {
+    if let Some(cache) = CACHE.get() {
+        if let Ok(mut cache) = cache.lock() {
+            cache.clear();
+        }
+    }
+}
+
 fn digest(value: &str) -> String {
     format!("{:x}", Sha256::digest(value.as_bytes()))[..24].into()
 }

@@ -8,6 +8,7 @@ export type ToolPage =
   | 'mcp'
   | 'diagnostics'
   | 'usage'
+  | 'cleanup'
   | 'environment'
   | 'integrations';
 export type CreationSection = 'library' | 'drafts' | 'queue' | 'results';
@@ -31,6 +32,7 @@ const toolPages: readonly string[] = [
   'mcp',
   'diagnostics',
   'usage',
+  'cleanup',
   'environment',
   'integrations',
 ];

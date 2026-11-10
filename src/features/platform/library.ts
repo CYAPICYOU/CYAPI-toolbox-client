@@ -15,8 +15,9 @@ export interface WorkflowTemplate {
   steps: string[];
   form: {
     prompt?: { label: string; placeholder?: string; required: boolean };
-    file?: { label: string; accept: string; required: boolean; multiple?: boolean };
+    file?: { label: string; accept: string; required: boolean; multiple?: boolean; maxFiles?: number };
     mask?: { label: string; accept: string; required: boolean };
+    markup?: { label: string; accept: string; required: boolean };
     options?: WorkflowFormOption[];
   };
   apiGraph?: WorkflowGraph;
@@ -132,5 +133,20 @@ export function workflowDocument(template: WorkflowTemplate, prompt = '') {
       for (const name of ['prompt', 'text'])
         if (typeof node.inputs[name] === 'string') node.inputs[name] = prompt;
     }
+  // Server templates contain the Bridge node only. Expand the editor graph
+  // without changing the published graph used by the direct Bridge runner.
+  if (template.source === 'server' && ['gpt-image-25-generate', 'gpt-image-25-edit'].includes(template.id)) {
+    const entry = Object.entries(graph).find(([, node]) => node.class_type.startsWith('CYAPI_GPTImage25'));
+    if (entry) {
+      const [id, node] = entry;
+      let next = Math.max(0, ...Object.keys(graph).map(key => Number(key) || 0)) + 1;
+      if (template.id === 'gpt-image-25-edit' && !Array.isArray(node.inputs.image_1)) {
+        const load = String(next++);
+        graph[load] = { class_type: 'LoadImage', inputs: { image: '' }, _meta: { title: '基准图 / 上一轮结果（请选择图片）' } };
+        node.inputs.image_1 = [load, 0];
+      }
+      graph[String(next)] = { class_type: 'SaveImage', inputs: { images: [id, 0], filename_prefix: 'CYAPI' }, _meta: { title: '保存并预览生成结果' } };
+    }
+  }
   return { prompt: graph };
 }

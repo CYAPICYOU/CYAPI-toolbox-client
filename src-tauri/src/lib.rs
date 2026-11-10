@@ -4,6 +4,7 @@ mod blender_service;
 mod cancel;
 mod catalog_cache;
 mod claude_config;
+mod cleanup;
 mod codex_config;
 mod codex_i18n;
 mod codex_logs;
@@ -634,7 +635,10 @@ pub fn run() {
             logging::log_workflow_launch,
             diagnostics::diagnostics,
             codex_logs::codex_logs,
-            agent_logs::agent_logs
+            agent_logs::agent_logs,
+            cleanup::cleanup_scan,
+            cleanup::cleanup_run,
+            cleanup::cleanup_toolbox_cache
         ]);
     builder
         .invoke_handler(move |invoke| {

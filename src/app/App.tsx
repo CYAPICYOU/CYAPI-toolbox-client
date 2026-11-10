@@ -16,6 +16,7 @@ import {
   FolderOpen,
   Globe2,
   Grid2X2,
+  HardDrive,
   // 工作流工作台暂未完成，发布版先屏蔽创作入口；恢复时取消注释。
   // Images,
   Languages,
@@ -42,6 +43,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import { Modal } from '../components/Primitives';
 import { ConfigurationDialog } from './ConfigurationDialog';
 import { AppSettings } from './AppSettings';
+import { StorageCleanup } from './StorageCleanup';
 import { CodexSettings } from './CodexSettings';
 import { CodexLocalize } from './CodexLocalize';
 import { ClaudeSettings } from './ClaudeSettings';
@@ -152,6 +154,7 @@ const pages = {
   mcp: capability('mcp').title,
   diagnostics: '日志',
   usage: '用量统计',
+  cleanup: '空间清理',
   environment: '运行环境',
   settings: '设置',
   integrations: capability('integrations').title,
@@ -743,13 +746,15 @@ export default function App() {
     { id: 'environment', icon: Cpu, label: '运行环境' },
     { id: 'usage', icon: BarChart3, label: '用量统计' },
     { id: 'diagnostics', icon: Activity, label: '日志' },
+    { id: 'cleanup', icon: HardDrive, label: '空间清理' },
   ];
   const agentPage =
     page === 'codex' ||
     page === 'localize' ||
     page === 'mcp' ||
     page === 'diagnostics' ||
-    page === 'usage';
+    page === 'usage' ||
+    page === 'cleanup';
 
   return (
     <div className="app-shell workbench-shell">
@@ -990,6 +995,9 @@ export default function App() {
               <Suspense fallback={<p role="status">正在加载用量统计…</p>}>
                 <UsageStatistics key={workspace} workspace={workspace} />
               </Suspense>
+            )}
+            {page === 'cleanup' && !desktopTool && (
+              <StorageCleanup key={workspace} workspace={workspace} />
             )}
             {page === 'diagnostics' &&
               (workspace === 'claude' ? (

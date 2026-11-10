@@ -345,7 +345,8 @@ export const saveWorkflowDraft = (
     revision: number;
     description: string;
     references?: string[];
-    mask?: string;
+    mask?: string | null;
+    markup?: string | null;
     params?: Record<string, string | number | boolean>;
   },
 ) =>
@@ -379,14 +380,14 @@ export const runBridgeDraft = (key: string, id: string, revision: number, quote:
     timeoutMs: 180_000,
   });
 
-export async function uploadWorkflowAsset(key: string, dataUrl: string, kind?: 'mask') {
+export async function uploadWorkflowAsset(key: string, dataUrl: string, kind?: 'mask' | 'markup', preserveAlpha = false) {
   const match = /^data:([^;,]+)(?:;base64)?,([\s\S]*)$/.exec(dataUrl);
   if (!match || !match[2]) throw new PlatformError('素材数据无效，请重新选择文件', 400, 'invalid_upload');
   const data = match[2].replace(/\s/g, '');
   return workflowRequest<{ id: string }>('/uploads/base64', {
     method: 'POST',
     key,
-    body: { type: match[1], data, ...(kind ? { kind } : {}) },
+    body: { type: match[1], data, ...(kind ? { kind } : {}), ...(preserveAlpha ? { preserveAlpha: true } : {}) },
     timeoutMs: 180_000,
   });
 }

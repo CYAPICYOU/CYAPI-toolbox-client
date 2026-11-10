@@ -11,6 +11,8 @@ export interface LocalWorkflowDraft {
   files?: { name: string; data: string }[];
   maskName?: string;
   maskData?: string;
+  markupName?: string;
+  markupData?: string;
   params?: Record<string, string | number | boolean>;
   updatedAt: number;
   template?: WorkflowTemplate;
@@ -26,6 +28,8 @@ export function validateDraft(draft: LocalWorkflowDraft) {
     if (draft.template.form.prompt?.required && !draft.prompt.trim()) return '请输入文字内容。';
     if (draft.template.form.file?.required && !draft.fileData && !draft.files?.length) return '请选择素材文件。';
     if (draft.template.form.mask?.required && !draft.maskData) return '请选择蒙版文件。';
+    if (draft.template.form.markup?.required && !draft.markupData) return '请选择标注层文件。';
+    if (draft.maskData && draft.markupData) return '蒙版与标注层不能同时使用。';
     return '';
   }
   if (draft.kind !== 'transcription' && !draft.prompt.trim()) return '请输入文字内容。';

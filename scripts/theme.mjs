@@ -19,6 +19,7 @@ const themeFile = path.join(appDirectory, 'theme.css');
 export const STYLE_SHEETS = [
   'native.css',
   'app-settings.css',
+  'storage-cleanup.css',
   'usage-statistics.css',
   'diagnostics.css',
   'codex-analysis.css',
