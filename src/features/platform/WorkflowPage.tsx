@@ -17,6 +17,7 @@ import type { WorkflowTemplate } from './library';
 import { WorkflowIcon } from './WorkflowLibrary';
 import { getWorkflowPriceCatalog } from './api';
 import { formatWorkflowUsd, workflowReferencePrice } from './workflowPrice';
+import { OverlayEditor } from './OverlayEditor';
 
 export function WorkflowPage({
   draft,
@@ -47,6 +48,7 @@ export function WorkflowPage({
 }) {
   const [fileError, setFileError] = useState('');
   const [dragging, setDragging] = useState(false);
+  const [paint, setPaint] = useState<'mask' | 'markup' | null>(null);
   const [price, setPrice] = useState<number | null>(null);
   const [priceLoading, setPriceLoading] = useState(template.source === 'server');
   useEffect(() => {
@@ -79,13 +81,18 @@ export function WorkflowPage({
   const prompt = template.form.prompt;
   const options = template.form.options ?? [];
   const mask = template.form.mask;
+  const markup = template.form.markup;
   const maskInput = useRef<HTMLInputElement>(null);
   const maskRequest = useRef(0);
+  const markupInput = useRef<HTMLInputElement>(null);
+  const markupRequest = useRef(0);
   const hasDocument = Boolean(template.apiGraph || template.workflow);
   async function chooseFile(selected?: File, selectedFiles?: FileList) {
     if (!selected || !file) return;
     const request = ++fileRequest.current;
-    const candidates = file.multiple ? Array.from(selectedFiles ?? [selected]).slice(0, 16) : [selected];
+    const candidates = file.multiple ? Array.from(selectedFiles ?? [selected]) : [selected];
+    const existing = file.multiple ? (latest.current.files ?? []) : [];
+    if (existing.length + candidates.length > (file.maxFiles ?? 16)) { setFileError(`最多选择 ${file.maxFiles ?? 16} 张图片。`); return; }
     if (candidates.some((item) => item.size > 2 * 1024 * 1024)) {
       setFileError('单个素材不能超过 2 MB，请压缩后重试。');
       return;
@@ -103,22 +110,26 @@ export function WorkflowPage({
         reader.readAsDataURL(item);
       })));
       if (latest.current.id !== draft.id || request !== fileRequest.current) return;
+      const files = [...existing, ...data.map((value, index) => ({ name: candidates[index].name, data: value }))];
       onChange({
         ...latest.current,
-        fileName: candidates.map((item) => item.name).join(', '),
-        fileData: data[0] ?? '',
-        files: data.map((value, index) => ({ name: candidates[index].name, data: value })),
+        fileName: files[0]?.name ?? '',
+        fileData: files[0]?.data ?? '',
+        files,
+        ...(!existing.length ? { maskName: '', maskData: '', markupName: '', markupData: '' } : {}),
       });
       setFileError('');
     } catch {
       setFileError('读取素材失败，请重新选择。');
     }
   }
-  async function chooseMask(selected?: File) {
-    if (!selected || !mask) return;
-    const request = ++maskRequest.current;
+  async function chooseOverlay(kind: 'mask' | 'markup', selected?: File) {
+    if (!selected || !(kind === 'mask' ? mask : markup)) return;
+    if (kind === 'mask' ? latest.current.markupData : latest.current.maskData) { setFileError('蒙版与标注层不能同时使用，请先移除另一项。'); return; }
+    const requestRef = kind === 'mask' ? maskRequest : markupRequest;
+    const request = ++requestRef.current;
     if (selected.size > 2 * 1024 * 1024 || selected.type !== 'image/png') {
-      setFileError('蒙版必须是 2 MB 以内的 PNG 文件。');
+      setFileError('蒙版和标注层必须是 2 MB 以内的 PNG 文件。');
       return;
     }
     try {
@@ -128,11 +139,12 @@ export function WorkflowPage({
         reader.onerror = reject;
         reader.readAsDataURL(selected);
       });
-      if (latest.current.id !== draft.id || request !== maskRequest.current) return;
-      onChange({ ...latest.current, maskName: selected.name, maskData: data });
+      if (latest.current.id !== draft.id || request !== requestRef.current) return;
+      if (kind === 'mask' ? latest.current.markupData : latest.current.maskData) { setFileError('蒙版与标注层不能同时使用。'); return; }
+      onChange({ ...latest.current, ...(kind === 'mask' ? { maskName: selected.name, maskData: data } : { markupName: selected.name, markupData: data }) });
       setFileError('');
     } catch {
-      setFileError('读取蒙版失败，请重新选择。');
+      setFileError('读取图片失败，请重新选择。');
     }
   }
   const graphNodes = Object.entries(template.apiGraph ?? {});
@@ -233,7 +245,7 @@ export function WorkflowPage({
                           aria-label="移除素材"
                           onClick={() => {
                             fileRequest.current++;
-                            onChange({ ...draft, fileName: '', fileData: '', files: [] });
+                            onChange({ ...draft, fileName: '', fileData: '', files: [], maskName: '', maskData: '', markupName: '', markupData: '' });
                             setFileError('');
                           }}
                         >
@@ -273,61 +285,30 @@ export function WorkflowPage({
                       </small>
                     </button>
                   )}
+                  {file.multiple && draft.fileData && <>
+                    <p className="pfx-hint">第一张是基准图 / 上一轮结果，后续图片作为参考图；最多 {file.maxFiles ?? 16} 张。</p>
+                    {(draft.files ?? []).slice(1).map((item, index) => <div className="pfx-file-preview" key={`${index}-${item.name}`}>
+                      <img src={item.data} alt={`参考图 ${index + 2}`} /><div><span>参考图 {index + 2}：{item.name}</span><button type="button" className="pfx-icon-button" onClick={() => { const files = (latest.current.files ?? []).filter((_, i) => i !== index + 1); onChange({ ...latest.current, files }); }} aria-label={`移除参考图 ${index + 2}`}><X size={14} /></button></div>
+                    </div>)}
+                    <button type="button" className="pfx-secondary" onClick={() => fileInput.current?.click()}>添加参考图</button>
+                  </>}
                 </div>
               )}
-              {mask && (
-                <div className="pfx-field">
-                  <label htmlFor="workflow-mask">
-                    {mask.label}
-                    <span>{mask.required ? '必填' : '选填'}</span>
-                  </label>
-                  <input
-                    id="workflow-mask"
-                    ref={maskInput}
-                    type="file"
-                    accept={mask.accept}
-                    hidden
-                    onChange={(event) => {
-                      void chooseMask(event.target.files?.[0]);
-                      event.target.value = '';
-                    }}
-                  />
-                  {draft.maskData ? (
-                    <div className="pfx-file-preview">
-                      <img src={draft.maskData} alt={draft.maskName || mask.label} />
-                      <div>
-                        <span>
-                          <Check size={14} />
-                          {draft.maskName || mask.label}
-                        </span>
-                        <button
-                          className="pfx-icon-button"
-                          aria-label="移除蒙版"
-                          onClick={() => {
-                            maskRequest.current++;
-                            onChange({ ...draft, maskName: '', maskData: '' });
-                            setFileError('');
-                          }}
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      className="pfx-upload-zone"
-                      onClick={() => maskInput.current?.click()}
-                    >
-                      <ImagePlus size={27} strokeWidth={1.4} />
-                      <strong>
-                        上传 PNG 蒙版
-                      </strong>
-                      <small>透明区域将作为可编辑区域 · 最大 2 MB</small>
-                    </button>
-                  )}
-                </div>
-              )}
+              {(['mask', 'markup'] as const).map(kind => {
+                const spec = kind === 'mask' ? mask : markup;
+                if (!spec) return null;
+                const label = kind === 'mask' ? '蒙版' : '标注层';
+                const data = kind === 'mask' ? draft.maskData : draft.markupData;
+                const name = kind === 'mask' ? draft.maskName : draft.markupName;
+                const ref = kind === 'mask' ? maskInput : markupInput;
+                const other = kind === 'mask' ? draft.markupData : draft.maskData;
+                return <div className="pfx-field" key={kind}>
+                  <label htmlFor={`workflow-${kind}`}>{spec.label}<span>{spec.required ? '必填' : '选填'}</span></label>
+                  <input id={`workflow-${kind}`} ref={ref} type="file" accept={spec.accept} hidden onChange={event => { void chooseOverlay(kind, event.target.files?.[0]); event.target.value = ''; }} />
+                  {data ? <div className="pfx-file-preview"><img src={data} alt={name || label} /><div><span><Check size={14} />{name || label}</span><button type="button" className="pfx-icon-button" aria-label={`移除${label}`} onClick={() => { (kind === 'mask' ? maskRequest : markupRequest).current++; onChange({ ...latest.current, ...(kind === 'mask' ? { maskName: '', maskData: '' } : { markupName: '', markupData: '' }) }); setFileError(''); }}><X size={14} /></button></div></div> : <div className="pfx-paint-tools"><button type="button" className="pfx-secondary" disabled={!draft.fileData || !!other} onClick={() => setPaint(kind)}>在基准图上绘制{label}</button><button type="button" className="pfx-secondary" disabled={!!other} onClick={() => ref.current?.click()}>上传 PNG {label}</button></div>}
+                  <small>先选择第一张基准图。与处理后的基准图同尺寸，需有透明像素；蒙版和标注层不能同时使用。大图按最长边 2048 像素缩小。</small>
+                </div>;
+              })}
               {prompt && (
                 <div className="pfx-field">
                   <label htmlFor="workflow-prompt">
@@ -358,7 +339,9 @@ export function WorkflowPage({
                         <label htmlFor={`workflow-option-${option.key}`}>
                           {option.label}
                         </label>
-                        {option.kind === 'select' ? (
+                        {option.key === 'background' && template.id.startsWith('gpt-image-25-') ? (
+                          <label className="pfx-toggle" htmlFor={`workflow-option-${option.key}`}><input id={`workflow-option-${option.key}`} type="checkbox" checked={current === 'transparent'} onChange={event => update(event.target.checked ? 'transparent' : 'auto')} /><span>透明背景（PNG）：{current === 'transparent' ? '开启' : '关闭'}</span></label>
+                        ) : option.kind === 'select' ? (
                           <select
                             id={`workflow-option-${option.key}`}
                             value={String(current)}
@@ -548,6 +531,13 @@ export function WorkflowPage({
           )}
         </aside>
       </div>
+      {paint && draft.fileData && <OverlayEditor key={`${draft.id}-${paint}`} image={draft.fileData} kind={paint} onCancel={() => setPaint(null)} onSave={data => {
+        if (latest.current.id === draft.id && !(paint === 'mask' ? latest.current.markupData : latest.current.maskData)) {
+          onChange({ ...latest.current, ...(paint === 'mask' ? { maskName: '绘制的蒙版.png', maskData: data } : { markupName: '绘制的标注层.png', markupData: data }) });
+          setFileError('');
+        }
+        setPaint(null);
+      }} />}
     </div>
   );
 }

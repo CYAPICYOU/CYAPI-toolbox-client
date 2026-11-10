@@ -220,7 +220,7 @@ export function PlatformWorkbench({
   function backToLibrary() {
     if (
       editor &&
-      (editor.prompt || editor.fileData || editor.maskData) &&
+      (editor.prompt || editor.fileData || editor.maskData || editor.markupData) &&
       !window.confirm('返回后将离开当前编辑。请确认已保存需要保留的草稿。')
     )
       return;
@@ -343,17 +343,21 @@ export function PlatformWorkbench({
         : item.fileData
           ? [{ name: item.fileName, data: item.fileData }]
           : [];
-      const references = (await Promise.all(
-        localFiles.slice(0, 16).map((file) => uploadWorkflowAsset(activeKey, file.data)),
-      )).map((upload) => upload.id);
+      const references: string[] = [];
+      for (const file of localFiles.slice(0, 16))
+        references.push((await uploadWorkflowAsset(activeKey, file.data, undefined, template.id === 'gpt-image-25-edit')).id);
       const mask = item.maskData
         ? (await uploadWorkflowAsset(activeKey, item.maskData, 'mask')).id
-        : undefined;
+        : null;
+      const markup = item.markupData
+        ? (await uploadWorkflowAsset(activeKey, item.markupData, 'markup')).id
+        : null;
       const saved = await saveWorkflowDraft(activeKey, draft.id, {
         revision: draft.revision,
         description: item.prompt.trim(),
         references,
         mask,
+        markup,
         params: item.params ?? {},
       });
       const direct = template.transport === 'bridge';
@@ -397,6 +401,7 @@ export function PlatformWorkbench({
     });
   }
   async function continueImage(output: WorkflowTask['outputs'][number]) {
+    const key = activeKey;
     const template = catalog?.items.find((item) => item.id === 'gpt-image-25-edit');
     if (!template) {
       setError('GPT Image 2.5 改图模板当前不可用，请先启用 OpenAI Images Provider。');
@@ -404,7 +409,7 @@ export function PlatformWorkbench({
     }
     if (!requireKey()) return;
     await run(async () => {
-      const objectUrl = await downloadWorkflowArtifact(activeKey, output.download);
+      const objectUrl = await downloadWorkflowArtifact(key, output.download);
       try {
         const blob = await fetch(objectUrl).then((response) => response.blob());
         const data = await new Promise<string>((resolve, reject) => {
@@ -414,6 +419,7 @@ export function PlatformWorkbench({
           reader.readAsDataURL(blob);
         });
         const name = output.title || '上一轮生成结果.png';
+        if (taskIdentity.current !== key) return;
         setEditor({
           id: crypto.randomUUID(),
           kind: template.kind,

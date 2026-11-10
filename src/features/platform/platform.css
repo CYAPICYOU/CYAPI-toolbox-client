@@ -423,6 +423,12 @@
 }
 
 /* Full-page workflow inputs and flow details */
+.pfx-paint-backdrop { position: fixed; inset: 0; z-index: 1000; background: #000a; display: grid; place-items: center; padding: 20px; }
+.pfx-paint-dialog { background: var(--bg-primary, #202124); color: inherit; border: 1px solid #8888; border-radius: 12px; padding: 20px; width: min(900px, 100%); max-height: 95vh; overflow: auto; }
+.pfx-paint-tools { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 12px 0; }
+.pfx-paint-image { position: relative; width: fit-content; max-width: 100%; margin: auto; line-height: 0; }
+.pfx-paint-image img { display: block; max-width: 100%; max-height: 60vh; width: auto; height: auto; }
+.pfx-paint-image canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
 .pfx-workflow-page {
   display: flex;
   flex-direction: column;
