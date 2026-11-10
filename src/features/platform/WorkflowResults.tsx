@@ -9,10 +9,12 @@ export function WorkflowResults({
   tasks,
   activeKey,
   visible,
+  onContinue,
 }: {
   tasks: WorkflowTask[];
   activeKey: string;
   visible: boolean;
+  onContinue?: (output: WorkflowTask['outputs'][number]) => void;
 }) {
   const {
     artifacts,
@@ -117,6 +119,15 @@ export function WorkflowResults({
                       >
                         下载
                         {output.role === 'preview' ? '预览' : output.role === 'file' ? '文件' : ''}
+                      </button>
+                    )}
+                    {url && output.kind === 'image' && onContinue && (
+                      <button
+                        type="button"
+                        className="pfx-secondary"
+                        onClick={() => onContinue(output)}
+                      >
+                        继续修改
                       </button>
                     )}
                     {group.length > 1 && (

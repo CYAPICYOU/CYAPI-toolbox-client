@@ -29,12 +29,14 @@ import { ModelPicker } from './ModelPicker';
 import { ModelReasoningSettings } from './ModelReasoningSettings';
 import { OpenCodeReasoningLevels } from './OpenCodeReasoningLevels';
 import { SettingHelp } from './ModelSettingField';
+import { openAiEndpoint, type OpenAiProtocol } from '../lib/openai-endpoints';
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const preview: OpenCodeConfiguration = {
   configPath: '%USERPROFILE%\\.config\\opencode\\opencode.json',
   revision: '',
   baseUrl: '',
+  api: 'openai-completions',
   model: '',
   models: [],
   reasoningEffort: '',
@@ -49,6 +51,7 @@ const preview: OpenCodeConfiguration = {
 export function OpenCodeSettings() {
   const [view, setView] = useState<OpenCodeConfiguration>();
   const [baseUrl, setBaseUrl] = useState(CYAPI_DEFAULT_URL);
+  const [api, setApi] = useState<OpenAiProtocol>('openai-completions');
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [model, setModel] = useState('');
@@ -67,6 +70,7 @@ export function OpenCodeSettings() {
     setView(metadata);
     const url = next.baseUrl || CYAPI_DEFAULT_URL;
     setBaseUrl(url);
+    setApi(next.api || 'openai-completions');
     modeTouched.current = false;
     setMode(
       routes.manifest.routes.some((route) => sameRoute(url, route.baseUrl)) ? 'cyapi' : 'custom',
@@ -133,6 +137,7 @@ export function OpenCodeSettings() {
         await nativeCall<OpenCodeConfiguration>('opencode-save', {
           opencode: {
             baseUrl,
+            api,
             apiKey,
             model,
             models,
@@ -266,6 +271,20 @@ export function OpenCodeSettings() {
               </div>
             )}
           </section>
+          <div className="n-config-field n-api-section">
+            <label htmlFor="opencode-api-protocol">API 协议</label>
+            <select
+              id="opencode-api-protocol"
+              value={api}
+              onChange={(event) => setApi(event.target.value as OpenAiProtocol)}
+            >
+              <option value="openai-completions">OpenAI Chat Completions</option>
+              <option value="openai-responses">OpenAI Responses</option>
+            </select>
+            <p className="n-config-note">
+              实际请求端点：<code>{openAiEndpoint(baseUrl, api)}</code>
+            </p>
+          </div>
           <div className="n-config-field n-api-section">
             <div className="n-config-label-row">
               <label htmlFor="opencode-api-key">API Key</label>

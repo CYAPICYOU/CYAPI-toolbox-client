@@ -293,13 +293,14 @@ export interface WorkflowDraft {
 }
 
 export interface WorkflowQuote {
-  mode: 'worker';
+  mode: 'worker' | 'real-provider';
   draftId: string;
   revision: number;
   amount: number;
   unit: string;
   items: { nodeId: string; title?: string; classType: string; amount: number; unit: string }[];
-  runFee: number;
+  runFee?: number;
+  bridgeQuote?: Record<string, unknown>;
 }
 
 async function workflowRequest<T>(
@@ -340,7 +341,13 @@ export const createWorkflowDraft = (key: string, templateId: string) =>
 export const saveWorkflowDraft = (
   key: string,
   id: string,
-  input: { revision: number; description: string },
+  input: {
+    revision: number;
+    description: string;
+    references?: string[];
+    mask?: string;
+    params?: Record<string, string | number | boolean>;
+  },
 ) =>
   workflowRequest<WorkflowDraft>(`/drafts/${encodeURIComponent(id)}`, {
     method: 'PUT',
@@ -352,6 +359,11 @@ export const quoteWorkflowDraft = (key: string, id: string) =>
     key,
     timeoutMs: 180_000,
   });
+export const quoteBridgeDraft = (key: string, id: string) =>
+  workflowRequest<WorkflowQuote>(`/drafts/${encodeURIComponent(id)}/quote`, {
+    key,
+    timeoutMs: 180_000,
+  });
 export const runWorkflowDraft = (key: string, id: string, revision: number, quote: WorkflowQuote) =>
   workflowRequest<WorkflowTask>(`/drafts/${encodeURIComponent(id)}/pipeline-run`, {
     method: 'POST',
@@ -359,6 +371,25 @@ export const runWorkflowDraft = (key: string, id: string, revision: number, quot
     body: { revision, quote },
     timeoutMs: 180_000,
   });
+export const runBridgeDraft = (key: string, id: string, revision: number, quote: WorkflowQuote) =>
+  workflowRequest<WorkflowTask>(`/drafts/${encodeURIComponent(id)}/run`, {
+    method: 'POST',
+    key,
+    body: { revision, quote },
+    timeoutMs: 180_000,
+  });
+
+export async function uploadWorkflowAsset(key: string, dataUrl: string, kind?: 'mask') {
+  const match = /^data:([^;,]+)(?:;base64)?,([\s\S]*)$/.exec(dataUrl);
+  if (!match || !match[2]) throw new PlatformError('素材数据无效，请重新选择文件', 400, 'invalid_upload');
+  const data = match[2].replace(/\s/g, '');
+  return workflowRequest<{ id: string }>('/uploads/base64', {
+    method: 'POST',
+    key,
+    body: { type: match[1], data, ...(kind ? { kind } : {}) },
+    timeoutMs: 180_000,
+  });
+}
 
 /** Private result URLs need the Key; return an object URL for the renderer. */
 export async function downloadWorkflowArtifact(key: string, path: string): Promise<string> {

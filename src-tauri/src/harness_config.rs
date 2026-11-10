@@ -1391,6 +1391,20 @@ mod tests {
         }
     }
     #[test]
+    fn complete_openai_endpoints_are_normalized_for_all_responses_adapters() {
+        for tool in ["cline", "kilo", "qwen", "kimi", "continue", "grok"] {
+            let (home, data) = fixture();
+            let mut req = input(&home, &data, tool);
+            req.api = "openai-responses".into();
+            req.base_url = "https://example.invalid/v1/responses/".into();
+            let saved =
+                save(&home, &data, tool, &req).unwrap_or_else(|error| panic!("{tool}: {error}"));
+            assert_eq!(saved["api"], "openai-responses", "{tool}");
+            assert_eq!(saved["baseUrl"], "https://example.invalid/v1", "{tool}");
+            fs::remove_dir_all(home.parent().unwrap()).unwrap();
+        }
+    }
+    #[test]
     fn fresh_files_restore_to_absent_and_blank_keys_are_preserved() {
         for tool in [
             "cline", "kilo", "qwen", "kimi", "continue", "roo", "aider", "gemini", "grok",

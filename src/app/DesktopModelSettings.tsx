@@ -4,6 +4,7 @@ import { nativeAvailable, nativeCall } from '../lib/api/native';
 import { CYAPI_DEFAULT_URL, sameRoute } from '../lib/api/cyapi';
 import { useCyapiRoutes } from './useCyapiRoutes';
 import { CyapiRoutes } from './CyapiRoutes';
+import { apiEndpoint } from '../lib/openai-endpoints';
 
 type Tool = 'dsh' | 'workbuddy' | 'pi' | 'minimax';
 interface View {
@@ -224,6 +225,15 @@ export function DesktopModelSettings({ tool }: { tool: Tool }) {
                 <option value="openai-responses">OpenAI Responses</option>
                 <option value="anthropic-messages">Anthropic Messages</option>
               </select>
+              <p className="n-config-note">
+                实际请求端点：
+                <code>
+                  {apiEndpoint(
+                    baseUrl,
+                    api as 'openai-completions' | 'openai-responses' | 'anthropic-messages',
+                  )}
+                </code>
+              </p>
             </div>
           )}
           <div className="n-config-field n-api-section">

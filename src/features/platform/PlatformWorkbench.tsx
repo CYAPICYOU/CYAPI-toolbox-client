@@ -14,13 +14,17 @@ import {
 import {
   cancelWorkflowTask,
   createWorkflowDraft,
+  downloadWorkflowArtifact,
   editorToken,
   getActivation,
   getWorkflowCatalog,
   openEditorWindow,
+  quoteBridgeDraft,
   quoteWorkflowDraft,
+  runBridgeDraft,
   runWorkflowDraft,
   saveWorkflowDraft,
+  uploadWorkflowAsset,
   type WorkflowTask,
 } from './api';
 import { addKey, loadKeys, maskKey, saveKeys, type StoredKeyState } from './keyStore';
@@ -196,6 +200,10 @@ export function PlatformWorkbench({
       prompt: '',
       fileName: '',
       fileData: '',
+      files: [],
+      maskName: '',
+      maskData: '',
+      params: {},
       updatedAt: Date.now(),
     });
   }
@@ -212,7 +220,7 @@ export function PlatformWorkbench({
   function backToLibrary() {
     if (
       editor &&
-      (editor.prompt || editor.fileData) &&
+      (editor.prompt || editor.fileData || editor.maskData) &&
       !window.confirm('返回后将离开当前编辑。请确认已保存需要保留的草稿。')
     )
       return;
@@ -320,10 +328,6 @@ export function PlatformWorkbench({
       return;
     }
     if (!requireKey()) return;
-    if (item.fileData) {
-      setDraftError('完整工作流暂不支持从此处上传素材，请在 ComfyUI 编辑器中添加素材并运行。');
-      return;
-    }
     if (template.source === 'personal') {
       setDraftError('个人工作流暂不支持从此处直接运行，请打开 ComfyUI 编辑器运行。');
       return;
@@ -334,20 +338,40 @@ export function PlatformWorkbench({
       // The server owns the template graph: create a draft from the published
       // template, fill the prompt, quote, then submit the full graph to ComfyUI.
       const draft = await createWorkflowDraft(activeKey, template.id);
+      const localFiles = item.files?.length
+        ? item.files
+        : item.fileData
+          ? [{ name: item.fileName, data: item.fileData }]
+          : [];
+      const references = (await Promise.all(
+        localFiles.slice(0, 16).map((file) => uploadWorkflowAsset(activeKey, file.data)),
+      )).map((upload) => upload.id);
+      const mask = item.maskData
+        ? (await uploadWorkflowAsset(activeKey, item.maskData, 'mask')).id
+        : undefined;
       const saved = await saveWorkflowDraft(activeKey, draft.id, {
         revision: draft.revision,
         description: item.prompt.trim(),
+        references,
+        mask,
+        params: item.params ?? {},
       });
-      const quote = await quoteWorkflowDraft(activeKey, draft.id);
+      const direct = template.transport === 'bridge';
+      const quote = direct
+        ? await quoteBridgeDraft(activeKey, draft.id)
+        : await quoteWorkflowDraft(activeKey, draft.id);
       if (taskIdentity.current !== activeKey) throw new Error('Key 已更换，请重新操作');
       if (
         !window.confirm(
-          `将由 Worker ComfyUI 执行完整工作流。\nAI 节点预估费用：${formatWorkflowUsd(quote.amount)}\n工作流执行费：${formatWorkflowUsd(quote.runFee)}\n节点实际费用受确认报价上限约束。是否继续？`,
+          direct
+            ? `将由 CYAPI Bridge 直接调用真实 AI。\nAI 节点预估费用：${formatWorkflowUsd(quote.amount)}\n节点实际费用受确认报价上限约束。是否继续？`
+            : `将由 Worker ComfyUI 执行完整工作流。\nAI 节点预估费用：${formatWorkflowUsd(quote.amount)}\n工作流执行费：${formatWorkflowUsd(quote.runFee ?? 0)}\n节点实际费用受确认报价上限约束。是否继续？`,
         )
       )
         return;
       try {
-        await runWorkflowDraft(activeKey, draft.id, saved.revision, quote);
+        if (direct) await runBridgeDraft(activeKey, draft.id, saved.revision, quote);
+        else await runWorkflowDraft(activeKey, draft.id, saved.revision, quote);
       } catch (cause) {
         throw new Error(
           `${errorText(cause)}。提交状态可能未知，请先检查任务列表和工作区队列，勿重复运行以免重复扣费。`,
@@ -370,6 +394,44 @@ export function PlatformWorkbench({
     await run(async () => {
       await cancelWorkflowTask(activeKey, task.id);
       await loadTasks();
+    });
+  }
+  async function continueImage(output: WorkflowTask['outputs'][number]) {
+    const template = catalog?.items.find((item) => item.id === 'gpt-image-25-edit');
+    if (!template) {
+      setError('GPT Image 2.5 改图模板当前不可用，请先启用 OpenAI Images Provider。');
+      return;
+    }
+    if (!requireKey()) return;
+    await run(async () => {
+      const objectUrl = await downloadWorkflowArtifact(activeKey, output.download);
+      try {
+        const blob = await fetch(objectUrl).then((response) => response.blob());
+        const data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        const name = output.title || '上一轮生成结果.png';
+        setEditor({
+          id: crypto.randomUUID(),
+          kind: template.kind,
+          title: template.title,
+          template,
+          prompt: '',
+          fileName: name,
+          fileData: data,
+          files: [{ name, data }],
+          params: {},
+          maskName: '',
+          maskData: '',
+          updatedAt: Date.now(),
+        });
+        setEditorTab('inputs');
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
     });
   }
 
@@ -652,6 +714,7 @@ export function PlatformWorkbench({
                 tasks={tasks}
                 activeKey={activeKey}
                 visible={visible}
+                onContinue={(output) => void continueImage(output)}
               />
             ) : null}
           </>

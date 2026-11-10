@@ -77,17 +77,48 @@ export function WorkflowPage({
   latest.current = draft;
   const file = template.form.file;
   const prompt = template.form.prompt;
+  const options = template.form.options ?? [];
+  const mask = template.form.mask;
+  const maskInput = useRef<HTMLInputElement>(null);
+  const maskRequest = useRef(0);
   const hasDocument = Boolean(template.apiGraph || template.workflow);
-  async function chooseFile(selected?: File) {
+  async function chooseFile(selected?: File, selectedFiles?: FileList) {
     if (!selected || !file) return;
     const request = ++fileRequest.current;
-    if (selected.size > 2 * 1024 * 1024) {
-      setFileError('素材不能超过 2 MB，请压缩后重试。');
+    const candidates = file.multiple ? Array.from(selectedFiles ?? [selected]).slice(0, 16) : [selected];
+    if (candidates.some((item) => item.size > 2 * 1024 * 1024)) {
+      setFileError('单个素材不能超过 2 MB，请压缩后重试。');
       return;
     }
     const media = file.accept.startsWith('audio/') ? 'audio/' : 'image/';
-    if (!selected.type.startsWith(media)) {
+    if (candidates.some((item) => !item.type.startsWith(media))) {
       setFileError(media === 'audio/' ? '请选择支持的音频文件。' : '请选择图片文件。');
+      return;
+    }
+    try {
+      const data = await Promise.all(candidates.map((item) => new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = reject;
+        reader.readAsDataURL(item);
+      })));
+      if (latest.current.id !== draft.id || request !== fileRequest.current) return;
+      onChange({
+        ...latest.current,
+        fileName: candidates.map((item) => item.name).join(', '),
+        fileData: data[0] ?? '',
+        files: data.map((value, index) => ({ name: candidates[index].name, data: value })),
+      });
+      setFileError('');
+    } catch {
+      setFileError('读取素材失败，请重新选择。');
+    }
+  }
+  async function chooseMask(selected?: File) {
+    if (!selected || !mask) return;
+    const request = ++maskRequest.current;
+    if (selected.size > 2 * 1024 * 1024 || selected.type !== 'image/png') {
+      setFileError('蒙版必须是 2 MB 以内的 PNG 文件。');
       return;
     }
     try {
@@ -97,11 +128,11 @@ export function WorkflowPage({
         reader.onerror = reject;
         reader.readAsDataURL(selected);
       });
-      if (latest.current.id !== draft.id || request !== fileRequest.current) return;
-      onChange({ ...latest.current, fileName: selected.name, fileData: data });
+      if (latest.current.id !== draft.id || request !== maskRequest.current) return;
+      onChange({ ...latest.current, maskName: selected.name, maskData: data });
       setFileError('');
     } catch {
-      setFileError('读取素材失败，请重新选择。');
+      setFileError('读取蒙版失败，请重新选择。');
     }
   }
   const graphNodes = Object.entries(template.apiGraph ?? {});
@@ -177,10 +208,11 @@ export function WorkflowPage({
                     id="workflow-material"
                     ref={fileInput}
                     type="file"
+                    multiple={file.multiple}
                     accept={file.accept}
                     hidden
                     onChange={(event) => {
-                      void chooseFile(event.target.files?.[0]);
+                      void chooseFile(event.target.files?.[0], event.target.files ?? undefined);
                       event.target.value = '';
                     }}
                   />
@@ -201,7 +233,7 @@ export function WorkflowPage({
                           aria-label="移除素材"
                           onClick={() => {
                             fileRequest.current++;
-                            onChange({ ...draft, fileName: '', fileData: '' });
+                            onChange({ ...draft, fileName: '', fileData: '', files: [] });
                             setFileError('');
                           }}
                         >
@@ -222,7 +254,7 @@ export function WorkflowPage({
                       onDrop={(event) => {
                         event.preventDefault();
                         setDragging(false);
-                        void chooseFile(event.dataTransfer.files[0]);
+                        void chooseFile(event.dataTransfer.files[0], event.dataTransfer.files);
                       }}
                     >
                       {file.accept.startsWith('audio/') ? (
@@ -243,6 +275,59 @@ export function WorkflowPage({
                   )}
                 </div>
               )}
+              {mask && (
+                <div className="pfx-field">
+                  <label htmlFor="workflow-mask">
+                    {mask.label}
+                    <span>{mask.required ? '必填' : '选填'}</span>
+                  </label>
+                  <input
+                    id="workflow-mask"
+                    ref={maskInput}
+                    type="file"
+                    accept={mask.accept}
+                    hidden
+                    onChange={(event) => {
+                      void chooseMask(event.target.files?.[0]);
+                      event.target.value = '';
+                    }}
+                  />
+                  {draft.maskData ? (
+                    <div className="pfx-file-preview">
+                      <img src={draft.maskData} alt={draft.maskName || mask.label} />
+                      <div>
+                        <span>
+                          <Check size={14} />
+                          {draft.maskName || mask.label}
+                        </span>
+                        <button
+                          className="pfx-icon-button"
+                          aria-label="移除蒙版"
+                          onClick={() => {
+                            maskRequest.current++;
+                            onChange({ ...draft, maskName: '', maskData: '' });
+                            setFileError('');
+                          }}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="pfx-upload-zone"
+                      onClick={() => maskInput.current?.click()}
+                    >
+                      <ImagePlus size={27} strokeWidth={1.4} />
+                      <strong>
+                        上传 PNG 蒙版
+                      </strong>
+                      <small>透明区域将作为可编辑区域 · 最大 2 MB</small>
+                    </button>
+                  )}
+                </div>
+              )}
               {prompt && (
                 <div className="pfx-field">
                   <label htmlFor="workflow-prompt">
@@ -257,6 +342,57 @@ export function WorkflowPage({
                     rows={8}
                   />
                   <small className="pfx-character-count">{draft.prompt.length} 字</small>
+                </div>
+              )}
+              {options.length > 0 && (
+                <div className="pfx-options">
+                  {options.map((option) => {
+                    const current = draft.params?.[option.key] ?? option.default ?? (option.kind === 'toggle' ? false : '');
+                    const update = (value: string | number | boolean) =>
+                      onChange({
+                        ...draft,
+                        params: { ...(draft.params ?? {}), [option.key]: value },
+                      });
+                    return (
+                      <div className="pfx-field" key={option.key}>
+                        <label htmlFor={`workflow-option-${option.key}`}>
+                          {option.label}
+                        </label>
+                        {option.kind === 'select' ? (
+                          <select
+                            id={`workflow-option-${option.key}`}
+                            value={String(current)}
+                            onChange={(event) => update(event.target.value)}
+                          >
+                            {(option.choices ?? []).map((choice) => (
+                              <option key={choice.value} value={choice.value}>
+                                {choice.label}
+                              </option>
+                            ))}
+                          </select>
+                        ) : option.kind === 'toggle' ? (
+                          <label className="pfx-toggle" htmlFor={`workflow-option-${option.key}`}>
+                            <input
+                              id={`workflow-option-${option.key}`}
+                              type="checkbox"
+                              checked={Boolean(current)}
+                              onChange={(event) => update(event.target.checked)}
+                            />
+                            <span>{current ? '开启' : '关闭'}</span>
+                          </label>
+                        ) : (
+                          <input
+                            id={`workflow-option-${option.key}`}
+                            type={option.kind === 'number' ? 'number' : 'text'}
+                            value={String(current)}
+                            onChange={(event) =>
+                              update(option.kind === 'number' ? Number(event.target.value) : event.target.value)
+                            }
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
               {!prompt && !file && (

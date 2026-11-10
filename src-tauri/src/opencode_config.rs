@@ -18,6 +18,8 @@ type Result<T> = std::result::Result<T, String>;
 const PROVIDER: &str = "cyapi";
 const PROVIDER_NPM: &str = "@ai-sdk/openai-compatible";
 const PROVIDER_PACKAGE: &str = "@opencode/ai/providers/openai-compatible";
+const RESPONSES_PROVIDER_NPM: &str = "@ai-sdk/openai";
+const RESPONSES_PROVIDER_PACKAGE: &str = "@opencode/ai/providers/openai/responses";
 const MODEL_ALIAS: &str = "default";
 // JSON numbers must round-trip exactly through the JavaScript editor. This is
 // an input transport bound, not a claim about any model's context capability.
@@ -54,6 +56,8 @@ impl Location {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Input {
     pub base_url: String,
+    #[serde(default = "default_api")]
+    pub api: String,
     pub api_key: String,
     pub model: String,
     #[serde(default)]
@@ -67,6 +71,10 @@ pub struct Input {
     #[serde(default)]
     pub model_reasoning_level_changes: BTreeMap<String, Option<Vec<String>>>,
     pub revision: String,
+}
+
+fn default_api() -> String {
+    "openai-completions".into()
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
@@ -261,6 +269,30 @@ impl Layout {
 
 fn provider_of(doc: &Value) -> Option<&Value> {
     doc.get(Layout::of(doc).providers())?.get(PROVIDER)
+}
+
+fn provider_api(doc: &Value) -> &'static str {
+    let package = provider_of(doc).and_then(|provider| {
+        provider
+            .get("package")
+            .or_else(|| provider.get("npm"))
+            .and_then(Value::as_str)
+    });
+    if package.is_some_and(|value| {
+        value.contains("/responses") || value == RESPONSES_PROVIDER_NPM
+    }) {
+        "openai-responses"
+    } else {
+        "openai-completions"
+    }
+}
+
+fn package_for_api(api: &str) -> Result<(&'static str, &'static str)> {
+    match api {
+        "openai-completions" => Ok((PROVIDER_PACKAGE, PROVIDER_NPM)),
+        "openai-responses" => Ok((RESPONSES_PROVIDER_PACKAGE, RESPONSES_PROVIDER_NPM)),
+        _ => Err("不支持的 API 协议".into()),
+    }
 }
 
 fn api_key(doc: &Value) -> Option<&str> {
@@ -526,6 +558,7 @@ fn snapshot_view(data: &Path, snapshot: &Snapshot, secret: bool) -> Result<Value
         "configPath": snapshot.path,
         "revision": revision(snapshot),
         "baseUrl": base_url(&doc).unwrap_or(""),
+        "api": provider_api(&doc),
         "model": model(&doc).unwrap_or(""),
         "models": selected_models(&doc),
         "reasoningEffort": reasoning_effort(&doc),
@@ -566,10 +599,15 @@ pub fn editor_view_at(location: &Location, data: &Path) -> Result<Value> {
 }
 
 fn normalize_url(raw: &str) -> String {
-    raw.trim().trim_end_matches('/').to_string()
+    raw.trim()
+        .trim_end_matches('/')
+        .trim_end_matches("/chat/completions")
+        .trim_end_matches("/responses")
+        .to_string()
 }
 
-fn validate(input: &Input) -> Result<()> {
+fn validate(input: &Input) -> Result<String> {
+    package_for_api(&input.api)?;
     crate::model_selection::models(&input.model, input.models.as_deref().unwrap_or_default())?;
     for levels in input.model_reasoning_level_changes.values().flatten() {
         if levels.len() > 64
@@ -606,14 +644,15 @@ fn validate(input: &Input) -> Result<()> {
     {
         return Err("上下文窗口必须是 1 到 9007199254740991 之间的整数".into());
     }
-    let url = reqwest::Url::parse(&normalize_url(&input.base_url)).map_err(|_| "API 地址无效")?;
+    let base_url = normalize_url(&input.base_url);
+    let url = reqwest::Url::parse(&base_url).map_err(|_| "API 地址无效")?;
     if !["http", "https"].contains(&url.scheme())
         || url.host_str().is_none()
         || !url.username().is_empty()
         || url.password().is_some()
         || url.query().is_some()
         || url.fragment().is_some()
-        || input.base_url.len() > 2048
+        || base_url.len() > 2048
         || input.base_url.chars().any(char::is_control)
     {
         return Err("请填写完整的 HTTP/HTTPS API 地址，不包含账号、参数或锚点".into());
@@ -635,7 +674,7 @@ fn validate(input: &Input) -> Result<()> {
     {
         return Err("API Key 格式无效".into());
     }
-    Ok(())
+    Ok(base_url)
 }
 
 fn set_string(object: &CstObject, key: &str, value: &str) {
@@ -689,7 +728,7 @@ pub fn save(root: &Path, data: &Path, input: &Input) -> Result<Value> {
 }
 
 pub fn save_at(location: &Location, data: &Path, input: &Input) -> Result<Value> {
-    validate(input)?;
+    let base_url = validate(input)?;
     let current = snapshot(location)?;
     if revision(&current) != input.revision {
         return Err("OpenCode 配置已变化，请重新读取后保存".into());
@@ -700,7 +739,6 @@ pub fn save_at(location: &Location, data: &Path, input: &Input) -> Result<Value>
     } else {
         input.api_key.trim().to_string()
     };
-    let base_url = normalize_url(&input.base_url);
     let model = input.model.trim();
     let selected = crate::model_selection::models(
         model,
@@ -752,6 +790,9 @@ pub fn save_at(location: &Location, data: &Path, input: &Input) -> Result<Value>
         .object_value_or_create(PROVIDER)
         .ok_or("OpenCode 配置的 cyapi provider 必须是 JSON 对象")?;
 
+    let (native_package, legacy_npm) = package_for_api(&input.api)?;
+    let previous_api = provider_api(&doc);
+
     set_string(&cyapi, "name", "CYAPI");
     let settings = cyapi
         .object_value_or_create(layout.settings())
@@ -759,15 +800,18 @@ pub fn save_at(location: &Location, data: &Path, input: &Input) -> Result<Value>
     set_string(&settings, "apiKey", &key);
     match layout {
         Layout::Native => {
-            // Runtime settings are package-specific. Never switch an existing
-            // native/responses/AI SDK runtime while editing its endpoint.
-            if cyapi.get("package").is_none() {
-                set_string(&cyapi, "package", PROVIDER_PACKAGE);
+            // Select the runtime that matches the explicitly selected wire
+            // protocol. This is what makes /chat/completions and /responses
+            // usable rather than merely storing a label in the UI.
+            if cyapi.get("package").is_none() || previous_api != input.api {
+                set_string(&cyapi, "package", native_package);
             }
             set_string(&settings, "baseURL", &base_url);
         }
         Layout::Legacy => {
-            set_string(&cyapi, "npm", PROVIDER_NPM);
+            if cyapi.get("npm").is_none() || previous_api != input.api {
+                set_string(&cyapi, "npm", legacy_npm);
+            }
             set_string(&cyapi, "api", &base_url);
             // Preserve existing legacy endpoint conventions without migration.
             update_if_present(&settings, "baseURL", &base_url);
@@ -1035,6 +1079,7 @@ mod tests {
     fn input(view: &Value) -> Input {
         Input {
             base_url: "https://example.invalid/v1/".into(),
+            api: view["api"].as_str().unwrap_or("openai-completions").into(),
             api_key: "dummy-api-key".into(),
             models: None,
             reasoning_effort: None,
@@ -1796,6 +1841,34 @@ mod tests {
             assert_eq!(saved["baseUrl"], "https://example.invalid/v1");
             fs::remove_dir_all(base).unwrap();
         }
+    }
+
+    #[test]
+    fn switching_protocol_selects_matching_runtime_and_normalizes_endpoint() {
+        let (base, root, data) = fixture();
+        let before = editor_view(&root, &data).unwrap();
+        let mut change = input(&before);
+        change.api = "openai-responses".into();
+        change.base_url = "https://example.invalid/v1/responses/".into();
+        let saved = save(&root, &data, &change).unwrap();
+        assert_eq!(saved["api"], "openai-responses");
+        assert_eq!(saved["baseUrl"], "https://example.invalid/v1");
+        assert_eq!(
+            read_doc(&root)["providers"][PROVIDER]["package"],
+            RESPONSES_PROVIDER_PACKAGE
+        );
+
+        change.revision = saved["revision"].as_str().unwrap().into();
+        change.api = "openai-completions".into();
+        change.base_url = "https://example.invalid/v1/chat/completions".into();
+        let saved = save(&root, &data, &change).unwrap();
+        assert_eq!(saved["api"], "openai-completions");
+        assert_eq!(saved["baseUrl"], "https://example.invalid/v1");
+        assert_eq!(
+            read_doc(&root)["providers"][PROVIDER]["package"],
+            PROVIDER_PACKAGE
+        );
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]

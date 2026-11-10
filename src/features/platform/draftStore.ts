@@ -8,6 +8,10 @@ export interface LocalWorkflowDraft {
   prompt: string;
   fileName: string;
   fileData: string;
+  files?: { name: string; data: string }[];
+  maskName?: string;
+  maskData?: string;
+  params?: Record<string, string | number | boolean>;
   updatedAt: number;
   template?: WorkflowTemplate;
 }
@@ -20,7 +24,8 @@ const DRAFT_STORAGE = 'cyapi.workflows.local-mock.v1';
 export function validateDraft(draft: LocalWorkflowDraft) {
   if (draft.template) {
     if (draft.template.form.prompt?.required && !draft.prompt.trim()) return '请输入文字内容。';
-    if (draft.template.form.file?.required && !draft.fileData) return '请选择素材文件。';
+    if (draft.template.form.file?.required && !draft.fileData && !draft.files?.length) return '请选择素材文件。';
+    if (draft.template.form.mask?.required && !draft.maskData) return '请选择蒙版文件。';
     return '';
   }
   if (draft.kind !== 'transcription' && !draft.prompt.trim()) return '请输入文字内容。';

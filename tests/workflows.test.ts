@@ -132,10 +132,11 @@ test('workflow execution uses the complete Worker pipeline and asks for confirma
   const page = read('src/features/platform/PlatformWorkbench.tsx');
   assert.match(api, /\/pipeline-quote/);
   assert.match(api, /\/pipeline-run/);
-  assert.match(page, /window\.confirm\(\s*`将由 Worker ComfyUI/);
+  assert.match(page, /将由 Worker ComfyUI/);
+  assert.match(page, /CYAPI Bridge 直接调用真实 AI/);
   assert.match(page, /提交状态可能未知/);
   assert.match(page, /个人工作流暂不支持/);
-  assert.match(page, /暂不支持从此处上传素材/);
+  assert.match(api, /\/uploads\/base64/);
 });
 
 test('tool selector retains the desktop model integrations', () => {

@@ -6,6 +6,7 @@ import { CYAPI_DEFAULT_URL, sameRoute } from '../../lib/api/cyapi';
 import { useCyapiRoutes } from '../../app/useCyapiRoutes';
 import { CyapiRoutes } from '../../app/CyapiRoutes';
 import { harnesses, protocolLabels, type HarnessTool, type ModelProtocol } from './catalog';
+import { apiEndpoint } from '../../lib/openai-endpoints';
 
 interface View {
   revision: string;
@@ -235,6 +236,11 @@ export function HarnessModelSettings({ tool }: { tool: HarnessTool }) {
                   </option>
                 ))}
               </select>
+              {api !== 'gemini' && (
+                <p className="n-config-note">
+                  实际请求端点：<code>{apiEndpoint(baseUrl, api)}</code>
+                </p>
+              )}
             </div>
             <div className="n-config-field n-api-section">
               <label htmlFor="harness-key">API Key</label>

@@ -14,12 +14,23 @@ export interface WorkflowTemplate {
   output: string;
   steps: string[];
   form: {
-    prompt?: { label: string; placeholder: string; required: boolean };
-    file?: { label: string; accept: string; required: boolean };
+    prompt?: { label: string; placeholder?: string; required: boolean };
+    file?: { label: string; accept: string; required: boolean; multiple?: boolean };
+    mask?: { label: string; accept: string; required: boolean };
+    options?: WorkflowFormOption[];
   };
   apiGraph?: WorkflowGraph;
   workflow?: Record<string, unknown>;
   execution: 'preview';
+  transport?: 'bridge' | 'worker';
+}
+
+export interface WorkflowFormOption {
+  key: string;
+  label: string;
+  default?: string | number | boolean;
+  kind: 'toggle' | 'select' | 'number' | 'text';
+  choices?: { value: string; label: string }[];
 }
 export interface WorkflowCatalog {
   version: number;

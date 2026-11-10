@@ -1,6 +1,6 @@
 [package]
 name = "cyapi-toolbox"
-version = "2.0.0"
+version = "2.0.1"
 description = "A local-first skill toolbox"
 authors = ["CYAPI"]
 edition = "2021"

@@ -539,7 +539,8 @@
   font-weight: 400;
 }
 .pfx-field textarea,
-.pfx-field > input {
+.pfx-field > input,
+.pfx-field > select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 9px;
@@ -550,12 +551,34 @@
   font-size: 13px;
   line-height: 1.8;
 }
+.pfx-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+  margin-top: 4px;
+}
+.pfx-options .pfx-field {
+  margin-bottom: 18px;
+}
+.pfx-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 44px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.pfx-toggle input {
+  width: 17px;
+  height: 17px;
+}
 .pfx-field textarea {
   min-height: 205px;
   resize: vertical;
 }
 .pfx-field textarea:focus,
-.pfx-field > input:focus {
+.pfx-field > input:focus,
+.pfx-field > select:focus {
   outline: 2px solid var(--workspace-focus);
   outline-offset: -1px;
 }

@@ -1,6 +1,7 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { CodexSaveConflict, codexSaveConflictMessage } from '../codex-save';
 import type { IntegrationGuide, SoftwareCompatibility } from '../../../shared/integration-guide';
+import type { OpenAiProtocol } from '../openai-endpoints';
 export const SERVER_URL = import.meta.env.VITE_CYAPI_SERVER_URL || 'https://api.cyapi.cyou';
 export type HostedRoute = 'beijing' | 'hongkong' | 'cloudflare';
 
@@ -268,6 +269,7 @@ export interface OpenCodeConfiguration {
   configPath: string;
   revision: string;
   baseUrl: string;
+  api: OpenAiProtocol;
   model: string;
   models: string[];
   reasoningEffort: string;

@@ -38,6 +38,11 @@ import {
   integrationServiceView,
   integrationServiceFailure,
 } from '../src/features/integrations/model.ts';
+import {
+  apiEndpoint,
+  normalizeOpenAiBaseUrl,
+  openAiEndpoint,
+} from '../src/lib/openai-endpoints.ts';
 import type {
   IntegrationDescriptor,
   IntegrationEntry,
@@ -71,6 +76,26 @@ test('model selection keeps a single default in the configured set without dupli
   assert.deepEqual(configuredModels([' a ', 'b', 'a', ''], 'b'), ['a', 'b']);
   assert.deepEqual(configuredModels(['a'], 'c'), ['a', 'c']);
   assert.deepEqual(configuredModels([], ''), []);
+});
+
+test('OpenAI endpoint settings accept either an API root or a complete endpoint', () => {
+  assert.equal(normalizeOpenAiBaseUrl('https://example.invalid/v1/'), 'https://example.invalid/v1');
+  assert.equal(
+    normalizeOpenAiBaseUrl('https://example.invalid/v1/chat/completions/'),
+    'https://example.invalid/v1',
+  );
+  assert.equal(
+    openAiEndpoint('https://example.invalid/v1/responses', 'openai-responses'),
+    'https://example.invalid/v1/responses',
+  );
+  assert.equal(
+    openAiEndpoint('https://example.invalid/v1/chat/completions', 'openai-completions'),
+    'https://example.invalid/v1/chat/completions',
+  );
+  assert.equal(
+    apiEndpoint('https://example.invalid/v1/messages/', 'anthropic-messages'),
+    'https://example.invalid/v1/messages',
+  );
 });
 
 test('Codex save rebases disjoint model edits without discarding externally repaired metadata', () => {
