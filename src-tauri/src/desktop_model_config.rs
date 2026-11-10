@@ -167,9 +167,92 @@ pub(crate) fn check_workbuddy() -> Result<()> {
     supported("workbuddy", &version("workbuddy")?)
 }
 
+// The configured folder name must stay a single directory name: WorkBuddy
+// joins it under the home directory and never treats it as a path.
+fn workbuddy_folder_ok(name: &str) -> bool {
+    !name.is_empty() && !name.contains(['/', '\\']) && name != "." && name != ".."
+}
+
+fn workbuddy_dir(home: &Path, config: Option<PathBuf>, folder: Option<&str>) -> Result<PathBuf> {
+    let root = match config {
+        Some(value) => {
+            let value = value
+                .strip_prefix("~")
+                .map(|rest| home.join(rest))
+                .unwrap_or(value);
+            value
+        }
+        None => match folder {
+            Some(name) if workbuddy_folder_ok(name) => home.join(name),
+            Some(_) => {
+                return Err("WORKBUDDY_DATA_FOLDER_NAME 不是有效的目录名，暂不支持写入".into())
+            }
+            None => home.join(".workbuddy"),
+        },
+    };
+    if !root.is_absolute()
+        || root
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err("WorkBuddy 配置目录不是有效的绝对路径，暂不支持写入".into());
+    }
+    no_links(&root)?;
+    Ok(root)
+}
+
+// WorkBuddy resolves its user config directory as WORKBUDDY_CONFIG_DIR, then
+// CODEBUDDY_CONFIG_DIR, then WORKBUDDY_DATA_FOLDER_NAME under the home
+// directory, then `~/.workbuddy`. The client hard-codes the first two
+// variables at startup, so reading them keeps the toolbox in sync with a
+// portable or multi-instance install. An isolated run keeps its own tree.
+pub(crate) fn workbuddy_root(home: &Path) -> Result<PathBuf> {
+    let is_user_home = std::env::var_os("CYAPI_TOOLBOX_HOME_DIR").is_none()
+        && crate::platform::is_default_home(home);
+    let config = if is_user_home {
+        std::env::var_os("WORKBUDDY_CONFIG_DIR")
+            .or_else(|| std::env::var_os("CODEBUDDY_CONFIG_DIR"))
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+    } else {
+        None
+    };
+    let folder = if is_user_home && config.is_none() {
+        Some(workbuddy_folder_name(home)?)
+    } else {
+        None
+    };
+    workbuddy_dir(home, config, folder.as_deref())
+}
+
+/// The folder name WorkBuddy uses for its user config, and for its own state
+/// inside a project such as the project-level `skills` directory.
+///
+/// WorkBuddy joins this straight onto home, so a name that would escape the
+/// home directory fails closed instead of writing somewhere unexpected.
+pub(crate) fn workbuddy_folder_name(home: &Path) -> Result<String> {
+    if std::env::var_os("CYAPI_TOOLBOX_HOME_DIR").is_some()
+        || !crate::platform::is_default_home(home)
+    {
+        return Ok(".workbuddy".into());
+    }
+    let value = match std::env::var("WORKBUDDY_DATA_FOLDER_NAME") {
+        Ok(value) => value,
+        Err(_) => return Ok(".workbuddy".into()),
+    };
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(".workbuddy".into());
+    }
+    if !workbuddy_folder_ok(value) {
+        return Err("WORKBUDDY_DATA_FOLDER_NAME 不是有效的目录名，暂不支持写入".into());
+    }
+    Ok(value.to_string())
+}
+
 fn paths(home: &Path, tool: &str) -> Result<Vec<PathBuf>> {
     match tool {
-        "workbuddy" => Ok(vec![home.join(".workbuddy/models.json")]),
+        "workbuddy" => Ok(vec![workbuddy_root(home)?.join("models.json")]),
         "dsh" => {
             let root = std::env::var_os("DSH_HOME")
                 .filter(|s| !s.is_empty())
@@ -227,7 +310,10 @@ fn snapshot(home: &Path, tool: &str) -> Result<Vec<(PathBuf, Option<Vec<u8>>)>> 
 fn revision(files: &[(PathBuf, Option<Vec<u8>>)]) -> String {
     crate::service::hash(&serde_json::to_vec(files).unwrap_or_default())
 }
-fn json_file(bytes: Option<&[u8]>) -> Result<Value> {
+// WorkBuddy reads both a bare model array and an object holding
+// "models"/"availableModels"; its own writer persists the bare form. Keep the
+// shape that was found on disk so saving does not rewrite unrelated structure.
+fn workbuddy_file(bytes: Option<&[u8]>) -> Result<(Value, bool)> {
     let value = match bytes {
         Some(b) => {
             serde_json::from_slice::<crate::pi_model_config::Strict>(b)
@@ -236,10 +322,14 @@ fn json_file(bytes: Option<&[u8]>) -> Result<Value> {
         }
         None => json!({}),
     };
-    if !value.is_object() {
-        return Err("模型配置必须是 JSON 对象".into());
+    match value {
+        Value::Array(models) => Ok((json!({ "models": models }), true)),
+        value @ Value::Object(_) => Ok((value, false)),
+        _ => Err("模型配置必须是 JSON 对象或模型数组".into()),
     }
-    Ok(value)
+}
+fn json_file(bytes: Option<&[u8]>) -> Result<Value> {
+    workbuddy_file(bytes).map(|(value, _)| value)
 }
 fn text(bytes: Option<&[u8]>) -> Result<&str> {
     std::str::from_utf8(bytes.unwrap_or_default()).map_err(|_| "配置文件不是 UTF-8".into())
@@ -496,7 +586,7 @@ fn save_checked(home: &Path, tool: &str, input: &Input) -> Result<()> {
     }
     let mut output = Vec::new();
     if tool == "workbuddy" {
-        let mut value = json_file(files[0].1.as_deref())?;
+        let (mut value, bare_array) = workbuddy_file(files[0].1.as_deref())?;
         let models = value
             .as_object_mut()
             .unwrap()
@@ -571,7 +661,13 @@ fn save_checked(home: &Path, tool: &str, input: &Input) -> Result<()> {
                 available.push(json!(id));
             }
         }
-        output.push(serde_json::to_vec_pretty(&value).map_err(|_| "无法生成模型配置")?);
+        // Preserve the original shape: WorkBuddy's own writer keeps a bare array.
+        let encoded = if bare_array {
+            value["models"].clone()
+        } else {
+            value
+        };
+        output.push(serde_json::to_vec_pretty(&encoded).map_err(|_| "无法生成模型配置")?);
     } else {
         let profile = text(files[0].1.as_deref())?;
         let raw = text(files[1].1.as_deref())?;
@@ -833,6 +929,79 @@ mod tests {
         request.api = "unknown".into();
         assert!(validate(&request).is_err());
         assert!(json_file(Some(br#"{"models":[],"models":[]}"#)).is_err());
+        assert!(json_file(Some(br#""text""#)).is_err());
         fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn workbuddy_reads_and_preserves_bare_model_array() {
+        let home = fixture();
+        let path = paths(&home, "workbuddy").unwrap().remove(0);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        // WorkBuddy's own first launch creates this empty-array form.
+        fs::write(&path, "[]").unwrap();
+        let (value, bare) = workbuddy_file(Some(b"[]")).unwrap();
+        assert!(bare);
+        assert_eq!(value["models"], json!([]));
+        assert!(!workbuddy_file(Some(br#"{"models":[]}"#)).unwrap().1);
+        save_checked(
+            &home,
+            "workbuddy",
+            &input(&home, "workbuddy", "first-model"),
+        )
+        .unwrap();
+        let saved = json_file(Some(&fs::read(&path).unwrap())).unwrap();
+        assert_eq!(saved["models"][0]["id"], "first-model");
+        let raw = fs::read(&path).unwrap();
+        let parsed = serde_json::from_slice::<Value>(&raw).unwrap();
+        assert!(parsed.is_array());
+        assert_eq!(parsed[0]["id"], "first-model");
+        fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn workbuddy_directory_follows_the_client_variables_and_rejects_bad_names() {
+        let home = fixture();
+        let config = || home.join("portable-workbuddy");
+        let resolve = |path: Option<PathBuf>, folder: Option<&str>| {
+            workbuddy_dir(&home, path, folder)
+                .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        };
+        // Default: the conventional folder under the user's home.
+        assert_eq!(resolve(None, None).unwrap(), ".workbuddy");
+        // WORKBUDDY_CONFIG_DIR / CODEBUDDY_CONFIG_DIR win over the folder name.
+        assert_eq!(
+            resolve(Some(config()), Some("ignored")).unwrap(),
+            "portable-workbuddy"
+        );
+        // The folder name is joined under the home directory.
+        assert_eq!(
+            resolve(None, Some(".workbuddy-dev")).unwrap(),
+            ".workbuddy-dev"
+        );
+        // A path-like or relative name fails closed instead of escaping home.
+        for name in ["", ".", "..", "a/b", r"a\b", "/abs"] {
+            assert!(resolve(None, Some(name)).is_err(), "accepted {name:?}");
+        }
+        // A relative config path is rejected instead of being resolved against
+        // the process working directory.
+        assert!(workbuddy_dir(&home, Some(PathBuf::from("relative/dir")), None).is_err());
+        assert!(workbuddy_dir(&home, Some(PathBuf::from("..")), None).is_err());
+        // `~` expands against the home the caller passed in.
+        assert_eq!(
+            workbuddy_dir(&home, Some(PathBuf::from("~/nested")), None).unwrap(),
+            home.join("nested")
+        );
+        fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn workbuddy_folder_names_keep_only_safe_directory_names() {
+        for name in [".workbuddy", ".workbuddy-dev", "WorkBuddy AI"] {
+            assert!(workbuddy_folder_ok(name), "rejected {name:?}");
+        }
+        for name in ["", ".", "..", "a/b", r"a\b", "/abs"] {
+            assert!(!workbuddy_folder_ok(name), "accepted {name:?}");
+        }
     }
 }

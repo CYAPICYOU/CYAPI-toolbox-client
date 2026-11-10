@@ -1068,7 +1068,12 @@ impl Service {
                             visible("opencode", false),
                         ),
                         root(directory.join(".pi/skills"), "pi", "project", visible("pi", false)),
-                        root(directory.join(".workbuddy/skills"), "workbuddy", "project", visible("workbuddy", false)),
+                        root(
+                            directory.join(crate::desktop_model_config::workbuddy_folder_name(&self.home).unwrap_or_else(|_| ".workbuddy".into())).join("skills"),
+                            "workbuddy",
+                            "project",
+                            visible("workbuddy", false),
+                        ),
                     ]);
                     if let Some(root) = roots.iter_mut().rev().find(|r| r.path == directory.join(".agents/skills")) {
                         root.visible_targets.push("pi".into());
@@ -1447,9 +1452,7 @@ impl Service {
     }
     fn extra_skill_home(&self, target: &str) -> Result<PathBuf> {
         if target == "workbuddy" {
-            let path = self.home.join(".workbuddy");
-            crate::configuration::no_links(&path)?;
-            return Ok(path);
+            return crate::desktop_model_config::workbuddy_root(&self.home);
         }
         let (variable, default) = match target {
             "dsh" => ("DSH_HOME", ".dsh"),
@@ -1555,8 +1558,7 @@ impl Service {
         target: &str,
         scope: &str,
         project: &str,
-    ) -> Result<PathBuf> {
-        if !["codex", "claude", "opencode", "dsh", "pi", "workbuddy"].contains(&target)
+    ) -> Result<PathBuf> {        if !["codex", "claude", "opencode", "dsh", "pi", "workbuddy"].contains(&target)
             || !["global", "project"].contains(&scope)
         {
             return Err("安装目标无效".into());
@@ -1596,15 +1598,19 @@ impl Service {
         let path = if scope == "global" {
             base.join("skills")
         } else {
-            base.join(match target {
-                "codex" => ".agents",
-                "opencode" => ".opencode",
-                "dsh" => ".dsh",
-                "pi" => ".pi",
-                "workbuddy" => ".workbuddy",
-                _ => ".claude",
-            })
-            .join("skills")
+            let folder = if target == "workbuddy" {
+                crate::desktop_model_config::workbuddy_folder_name(&self.home)?
+            } else {
+                match target {
+                    "codex" => ".agents",
+                    "opencode" => ".opencode",
+                    "dsh" => ".dsh",
+                    "pi" => ".pi",
+                    _ => ".claude",
+                }
+                .to_string()
+            };
+            base.join(folder).join("skills")
         };
         Ok(path.join(&skill.id))
     }

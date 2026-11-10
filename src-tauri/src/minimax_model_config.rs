@@ -10,14 +10,40 @@ type Result<T> = std::result::Result<T, String>;
 const PROVIDER: &str = "cyapi-toolbox";
 const NAME: &str = "CYAPI Toolbox";
 
+// 3.1.6 and later keep the same `custom_provider` config layout; accept later
+// releases by default rather than whitelisting every patch version.
+const MIN_VERSION: (u64, u64, u64) = (3, 1, 6);
+
 fn version() -> Result<String> {
     let v = crate::desktop_model_config::version("minimax")?;
-    if !matches!(v.as_str(), "3.1.6" | "3.1.10") {
+    supported(&v)?;
+    Ok(v)
+}
+fn supported(v: &str) -> Result<()> {
+    let Some(parsed) = version_parts(v) else {
         return Err(format!(
-            "检测到 MiniMax Code {v}，目前已适配 3.1.6 / 3.1.10"
+            "检测到 MiniMax Code {v}，无法识别版本号，暂不支持写入"
+        ));
+    };
+    if parsed < MIN_VERSION {
+        return Err(format!(
+            "检测到 MiniMax Code {v}，客户端版本过低；请更新到 3.1.6 或更高版本"
         ));
     }
-    Ok(v)
+    Ok(())
+}
+fn version_parts(value: &str) -> Option<(u64, u64, u64)> {
+    let core = value.split(['-', '+']).next()?;
+    let mut parts = core.split('.');
+    let parsed = (
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+    );
+    // Extra numeric components such as `3.1.13.1` are still fine.
+    parts
+        .all(|part| part.parse::<u64>().is_ok())
+        .then_some(parsed)
 }
 fn path(dir: &str) -> Result<PathBuf> {
     let root = Path::new(dir.trim());
@@ -239,6 +265,22 @@ fn save_at(path: &Path, input: &Input) -> Result<()> {
 mod tests {
     use super::*;
     #[test]
+    fn accepts_3_1_6_and_later_but_not_older_or_unparsable() {
+        for v in [
+            "3.1.6",
+            "3.1.13",
+            "3.2.0",
+            "4.0.0",
+            "3.1.13.1",
+            "3.1.13-beta.1",
+        ] {
+            assert!(supported(v).is_ok(), "{v}");
+        }
+        for v in ["3.1.5", "3.0.9", "2.9.0", "3.1", "3.x", "beta", ""] {
+            assert!(supported(v).is_err(), "{v}");
+        }
+    }
+    #[test]
     fn merge_preserves_other_fields_and_backups_original() {
         let dir = std::env::temp_dir().join(format!("cyapi-minimax-test-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
@@ -279,6 +321,44 @@ mod tests {
             .is_some());
         fs::remove_dir_all(dir).unwrap();
     }
+    // Round-trip a config captured from a real 3.1.13 install; it uses anchors,
+    // aliases and a managed `provider` tree that must survive untouched.
+    #[test]
+    fn appends_custom_provider_to_realistic_3_1_13_config() {
+        let dir =
+            std::env::temp_dir().join(format!("cyapi-minimax-313-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.yaml");
+        let original = "logLevel: info\nprovider:\n  minimax:\n    name: MiniMax\n    api: anthropic-messages\n    options:\n      authMode: managed-login\n    models:\n      MiniMax-M3.1-Flash:\n        name: M3.1-Flash\n        capabilities: &ref_0\n          support_files_api: true\n          max_attachments_count: 4\n      MiniMax-M3:\n        name: MiniMax-M3\n        capabilities: *ref_0\ndefaultModel: minimax/MiniMax-M3.1-Flash\n";
+        fs::write(&path, original).unwrap();
+        let request = Input {
+            base_url: "https://example.invalid/v1/responses/".into(),
+            api_key: "fictional-key".into(),
+            model: "fictional-model".into(),
+            api: "openai-responses".into(),
+            revision: revision(&path, original.as_bytes()),
+        };
+        save_at(&path, &request).unwrap();
+        let result = fs::read_to_string(&path).unwrap();
+        assert!(result.starts_with(original));
+        let doc = parse(result.as_bytes()).unwrap();
+        assert_eq!(
+            doc["provider"]["minimax"]["options"]["authMode"],
+            "managed-login"
+        );
+        assert_eq!(
+            doc["custom_provider"][PROVIDER]["options"]["baseURL"],
+            "https://example.invalid/v1"
+        );
+        assert_eq!(doc["custom_provider"][PROVIDER]["api"], "openai-responses");
+        assert_eq!(
+            doc["custom_provider"][PROVIDER]["models"]["fictional-model"]["enabled"],
+            true
+        );
+        assert_eq!(doc["defaultModel"], "minimax/MiniMax-M3.1-Flash");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn accepts_comments_and_order_but_rejects_duplicates_and_foreign_provider() {
         assert!(parse(b"x: 1 # note\n").is_ok());
