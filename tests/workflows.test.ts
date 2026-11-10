@@ -736,6 +736,25 @@ test('ComfyUI import accepts canvas, API and shared graphs and rejects unrelated
     assert.throws(() => importWorkflow(value, 'invalid.json'));
 });
 
+test('GPT Image editor graphs add an explicit base image and a connected save node', () => {
+  const base = importWorkflow(JSON.stringify({ '1': { class_type: 'CYAPI_GPTImage25Edit', inputs: { prompt: '', image_1: null } } }), 'fixture.json');
+  const template = { ...base, id: 'gpt-image-25-edit', source: 'server' as const, form: { prompt: { label: '提示', required: true } } };
+  const document = workflowDocument(template, 'edit') as { prompt: Record<string, { class_type: string; inputs: Record<string, unknown>; _meta?: { title?: string } }> };
+  assert.equal(document.prompt['1'].inputs.prompt, 'edit');
+  assert.deepEqual(document.prompt['1'].inputs.image_1, ['2', 0]);
+  assert.equal(document.prompt['2'].class_type, 'LoadImage');
+  assert.match(document.prompt['2']._meta?.title ?? '', /基准图.*上一轮/);
+  assert.equal(document.prompt['3'].class_type, 'SaveImage');
+  assert.deepEqual(document.prompt['3'].inputs.images, ['1', 0]);
+  assert.equal(template.apiGraph?.['1'].inputs.image_1, null);
+});
+
+test('workflow forms reject simultaneous mask and markup', () => {
+  const template = importWorkflow('{"nodes":[]}', 'fixture.json');
+  const draft = { id: 'x', kind: template.kind, title: 'x', prompt: '', fileName: '', fileData: '', maskData: 'mask', markupData: 'markup', updatedAt: 1, template };
+  assert.match(validateDraft(draft), /不能同时使用/);
+});
+
 test('personal workflows persist and template form metadata controls validation', () => {
   const memory = new Map<string, string>();
   Object.defineProperty(globalThis, 'localStorage', {

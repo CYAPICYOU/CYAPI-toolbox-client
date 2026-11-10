@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
+import { overlayDimensions } from './overlayDimensions';
 
 /** Paint an overlay against the first reference image; never modifies that image. */
 export function OverlayEditor({ image, kind, onSave, onCancel }: {
@@ -20,9 +21,9 @@ export function OverlayEditor({ image, kind, onSave, onCancel }: {
     const base = new Image();
     base.onload = () => {
       if (cancelled || !canvas.current) return;
-      const scale = Math.min(1, 2048 / Math.max(base.naturalWidth, base.naturalHeight));
-      canvas.current.width = Math.max(1, Math.round(base.naturalWidth * scale));
-      canvas.current.height = Math.max(1, Math.round(base.naturalHeight * scale));
+      const [width, height] = overlayDimensions(base.naturalWidth, base.naturalHeight);
+      canvas.current.width = width;
+      canvas.current.height = height;
       setReady(true);
     };
     base.onerror = () => !cancelled && setError('无法读取基准图。');

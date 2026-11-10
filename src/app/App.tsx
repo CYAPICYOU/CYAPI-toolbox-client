@@ -11,17 +11,14 @@ import {
   Copy,
   Cpu,
   Download,
-  // 工作流工作台暂未完成，发布版先屏蔽创作入口；恢复时取消注释。
-  // FilePenLine,
+  FilePenLine,
   FolderOpen,
   Globe2,
   Grid2X2,
   HardDrive,
-  // 工作流工作台暂未完成，发布版先屏蔽创作入口；恢复时取消注释。
-  // Images,
+  Images,
   Languages,
-  // 工作流工作台暂未完成，发布版先屏蔽创作入口；恢复时取消注释。
-  // ListOrdered,
+  ListOrdered,
   LoaderCircle,
   Package,
   Plug,
@@ -33,8 +30,7 @@ import {
   SquareTerminal,
   Wifi,
   WifiOff,
-  // 工作流工作台暂未完成，发布版先屏蔽创作入口；恢复时取消注释。
-  // Workflow,
+  Workflow,
   Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -60,8 +56,7 @@ import { CodexDiagnostics } from './CodexDiagnostics';
 import { ClaudeLogs } from './ClaudeLogs';
 import { OpenCodeLogs } from './OpenCodeLogs';
 import { LogWindow } from './LogWindow';
-// 工作流工作台尚未完成，发布版先屏蔽创作入口；恢复时取消注释。
-// import { EditorLaunchNotice, type EditorLaunchNoticeState } from '../features/platform/EditorLaunchNotice';
+import { EditorLaunchNotice, type EditorLaunchNoticeState } from '../features/platform/EditorLaunchNotice';
 import { openLogs } from '../lib/api/diagnostics';
 import { Integrations } from './Integrations';
 import { McpManager } from './McpManager';
@@ -115,14 +110,11 @@ import {
 const UsageStatistics = lazy(() =>
   import('./UsageStatistics').then((module) => ({ default: module.UsageStatistics })),
 );
-// 工作流工作台尚未完成，发布版先屏蔽创作入口；恢复时取消注释。
-// const Workflows = lazy(() =>
-//   import('./Workflows').then((module) => ({ default: module.Workflows })),
-// );
+const Workflows = lazy(() =>
+  import('./Workflows').then((module) => ({ default: module.Workflows })),
+);
 
-type Page = ToolPage | 'settings';
-// 工作流工作台尚未完成，发布版先屏蔽创作入口；恢复时取消注释。
-// type Page = ToolPage | 'settings' | 'workflows';
+type Page = ToolPage | 'settings' | 'workflows';
 type Workspace = 'codex' | 'claude' | 'opencode';
 const agents = [
   { id: 'codex', name: 'Codex', hint: 'OpenAI' },
@@ -158,8 +150,7 @@ const pages = {
   environment: '运行环境',
   settings: '设置',
   integrations: capability('integrations').title,
-  // 工作流工作台尚未完成，发布版先屏蔽创作入口；恢复时取消注释。
-  // workflows: '工作流',
+  workflows: '工作流',
 };
 const sourceLabels = { codex: 'Codex 自带', system: '系统环境', managed: '工具箱共享' };
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -169,8 +160,7 @@ const normalizePath = (path: string) =>
 export default function App() {
   const [logsOpen, setLogsOpen] = useState(false);
   const [logOperation, setLogOperation] = useState<string>();
-  // 工作流工作台尚未完成，发布版先屏蔽创作入口；恢复时取消注释。
-  // const [editorLaunchNotice, setEditorLaunchNotice] = useState<EditorLaunchNoticeState | null>(null);
+  const [editorLaunchNotice, setEditorLaunchNotice] = useState<EditorLaunchNoticeState | null>(null);
   const [theme, setThemeState] = useState<ThemePreference>(() => {
     const stored = loadTheme();
     applyTheme(stored);
@@ -205,21 +195,16 @@ export default function App() {
     return saved && (isHarnessTool(saved) || saved === 'dsh' || saved === 'workbuddy' || saved === 'pi' || saved === 'minimax') ? saved : null;
   });
   const [savedNavigation] = useState(loadWorkbenchNavigation);
-  // 工作流工作台尚未完成，发布版固定进入「工具接入」；恢复时改回
-  // useState<Workbench>(savedNavigation?.workbench || 'tools')。
-  const [workbench, setWorkbench] = useState<Workbench>('tools');
+  const [workbench, setWorkbench] = useState<Workbench>(savedNavigation?.workbench || 'tools');
   const [toolPage, setToolPage] = useState<ToolPage>(savedNavigation?.toolPage || 'codex');
-  // 工作流工作台尚未完成，发布版先屏蔽创作入口；恢复时取消注释。
-  // const [creationOpened, setCreationOpened] = useState(savedNavigation?.workbench === 'create');
-  // const [creationView, setCreationView] = useState<'library' | 'drafts' | 'queue' | 'results'>('library');
-  const [page, setPage] = useState<Page>(desktopTool ? 'codex' : toolPage);
+  const [creationOpened, setCreationOpened] = useState(savedNavigation?.workbench === 'create');
+  const [creationView, setCreationView] = useState<'library' | 'drafts' | 'queue' | 'results'>('library');
+  const [page, setPage] = useState<Page>(workbench === 'create' ? 'workflows' : desktopTool ? 'codex' : toolPage);
   function switchWorkbench(next: Workbench) {
     setWorkspaceOpen(false);
     setWorkbench(next);
-    // 工作流工作台尚未完成，发布版先屏蔽创作入口；恢复时还原：
-    // if (next === 'create') setCreationOpened(true);
-    // setPage(next === 'create' ? 'workflows' : desktopTool ? 'codex' : toolPage);
-    setPage(desktopTool ? 'codex' : toolPage);
+    if (next === 'create') setCreationOpened(true);
+    setPage(next === 'create' ? 'workflows' : desktopTool ? 'codex' : toolPage);
   }
   const [mcpFocus, setMcpFocus] = useState<{ query: string; tab: 'catalog' | 'installed' }>();
   const [workspace, setWorkspace] = useState<Workspace>(workspaceFromStorage);
@@ -338,11 +323,9 @@ export default function App() {
     }
   }, [workspace]);
   useEffect(() => {
-    // 工作流工作台尚未完成，发布版先屏蔽创作入口；恢复时取消注释。
     // Creation has its own neutral/green identity, never the selected Agent's colour.
-    // if (workbench === 'create') delete document.documentElement.dataset.workspace;
-    // else document.documentElement.dataset.workspace = desktopTool ?? workspace;
-    document.documentElement.dataset.workspace = desktopTool ?? workspace;
+    if (workbench === 'create') delete document.documentElement.dataset.workspace;
+    else document.documentElement.dataset.workspace = desktopTool ?? workspace;
   }, [workbench, workspace, desktopTool]);
   useEffect(() => {
     if (isToolPage(page)) setToolPage(page);
@@ -772,8 +755,6 @@ export default function App() {
             <small>TOOLBOX</small>
           </span>
         </button>
-        {/*
-          工作流工作台尚未完成，发布版只保留「工具接入」；恢复时取消注释。
         <nav className="n-workbenches" aria-label="工作台切换">
           {(
             [
@@ -795,7 +776,6 @@ export default function App() {
             </button>
           ))}
         </nav>
-        */}
         {workbench === 'tools' && (
           <div className="n-workspace" ref={workspaceMenu}>
             <span className="n-workspace-label">当前工具</span>
@@ -834,30 +814,52 @@ export default function App() {
             )}
           </div>
         )}
-        <nav className="primary-nav" aria-label="工具导航">
-          {/*
-            工作流工作台尚未完成，发布版先屏蔽创作入口；恢复时还原为：
-            aria-label={workbench === 'create' ? '创作导航' : '工具导航'}
-            {workbench === 'create' ? ( ...创作空间导航... ) : ( 工具导航 )}
-          */}
-          {toolsNav.map(({ id, icon: Icon, label }) => {
-            const active = id === 'catalog' ? skillPage : page === id;
-            return (
+        <nav className="primary-nav" aria-label={workbench === 'create' ? '创作导航' : '工具导航'}>
+          {workbench === 'create' ? (
+            <>
+              <span className="n-nav-label">创作空间</span>
               <button
-                key={id}
-                className={active ? 'active' : ''}
+                className={page === 'workflows' && creationView === 'library' ? 'active' : ''}
+                aria-current={page === 'workflows' && creationView === 'library' ? 'page' : undefined}
+                title="工作流库"
                 onClick={() => {
-                  setMcpFocus(undefined);
-                  setPage(id);
+                  setPage('workflows');
+                  setCreationView('library');
                 }}
-                aria-current={active ? 'page' : undefined}
-                title={label}
               >
-                <Icon size={18} />
-                <span>{label}</span>
+                <Workflow size={18} />
+                <span>工作流库</span>
               </button>
-            );
-          })}
+              {([
+                ['drafts', '草稿', FilePenLine],
+                ['queue', '任务队列', ListOrdered],
+                ['results', '结果', Images],
+              ] as const).map(([id, label, Icon]) => (
+                <button key={id} className={page === 'workflows' && creationView === id ? 'active' : ''} aria-current={page === 'workflows' && creationView === id ? 'page' : undefined} onClick={() => { setPage('workflows'); setCreationView(id); }}>
+                  <Icon size={18} /><span>{label}</span>
+                </button>
+              ))}
+            </>
+          ) : (
+            toolsNav.map(({ id, icon: Icon, label }) => {
+              const active = id === 'catalog' ? skillPage : page === id;
+              return (
+                <button
+                  key={id}
+                  className={active ? 'active' : ''}
+                  onClick={() => {
+                    setMcpFocus(undefined);
+                    setPage(id);
+                  }}
+                  aria-current={active ? 'page' : undefined}
+                  title={label}
+                >
+                  <Icon size={18} />
+                  <span>{label}</span>
+                </button>
+              );
+            })
+          )}
         </nav>
         <div className="n-sidebar-bottom">
           <div className="n-sidebar-tools" role="group" aria-label="辅助工具">
@@ -894,11 +896,7 @@ export default function App() {
         </div>
       </aside>
       <div className="n-shell" inert={modalOpen}>
-        {/*
-          工作流工作台尚未完成，发布版先屏蔽创作入口；恢复时还原为：
-          {page !== 'workflows' && <header className="n-page-heading">
-        */}
-        <header className="n-page-heading">
+        {page !== 'workflows' && <header className="n-page-heading">
           <h1>
             {agentPage && toolApps.ready && !toolApps.visible.length ? 'App 管理' : agentPage ? `${agent.name} · ${pages[page]}` : pages[page]}
           </h1>
@@ -927,15 +925,12 @@ export default function App() {
                 </button>
               </div>
             )}
-        </header>
-        {/* 工作流工作台尚未完成，发布版先屏蔽创作入口；恢复时取消注释。 */}
-        {/* {editorLaunchNotice && <EditorLaunchNotice {...editorLaunchNotice} />} */}
-        <main className="n-main" ref={main}>
+        </header>}
+        {editorLaunchNotice && <EditorLaunchNotice {...editorLaunchNotice} />}
+        <main className={`n-main${page === 'workflows' ? ' n-main-creation' : ''}`} ref={main}>
           <div className="n-content">
             {!nativeAvailable && <p className="n-browser-note">网页预览 · 本机操作请使用桌面版</p>}
             {page !== 'settings' && updateBanner}
-            {/*
-              工作流工作台尚未完成，发布版先屏蔽创作入口；恢复时取消注释。
             {creationOpened && (
               <div hidden={page !== 'workflows'} className="n-creation-host">
                 <Suspense fallback={<p role="status">正在加载工作流…</p>}>
@@ -948,7 +943,6 @@ export default function App() {
                 </Suspense>
               </div>
             )}
-            */}
             {skillPage && (
               <nav className="n-skill-tabs" aria-label="Skill 管理视图">
                 <button
@@ -967,7 +961,7 @@ export default function App() {
                 </button>
               </nav>
             )}
-            {!modalOpen && (
+            {!modalOpen && page !== 'workflows' && (
               <>
                 {page !== 'codex' &&
                   page !== 'mcp' &&
@@ -1606,19 +1600,18 @@ export default function App() {
         <Modal title="使用帮助" onClose={() => setHelp(false)}>
           <div className="n-help">
             <>
-              {/* 工作流工作台尚未完成，发布版先屏蔽创作入口；恢复时取消注释。 */}
-              {/* <h3>工作流</h3>
+              <h3>工作流</h3>
               <p>
                 在工作流库按分类浏览和搜索模板，也可以导入 ComfyUI 工作流或新建流程。
                 选择模板后，在完整页面填写文字、上传素材；需要调整节点时，再打开 ComfyUI。
               </p>
               <p>
                 工作流使用独立的 CYAPI API Key，不读取或改变工具接入中的 Key。
-              </p> */}
+              </p>
               <h3>工具接入</h3>
               <p>
                 选择 Codex、Claude Code 或
-                OpenCode，再管理该工具的模型接入、Skill、MCP、用量和日志。
+                OpenCode，再管理该工具的模型接入、Skill、MCP、用量和日志。与创作素材、草稿和任务独立。
               </p>
             </>
             <div className="n-help-links">
