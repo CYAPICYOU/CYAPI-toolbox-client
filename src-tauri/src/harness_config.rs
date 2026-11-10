@@ -399,7 +399,7 @@ fn root(home: &Path, env: &str, fallback: &str) -> Result<PathBuf> {
     no_links(&path)?;
     Ok(path)
 }
-fn locations(home: &Path, data: &Path, tool: &str) -> Result<Vec<(PathBuf, &'static str)>> {
+fn locations(home: &Path, _data: &Path, tool: &str) -> Result<Vec<(PathBuf, &'static str)>> {
     Ok(match tool {
         "cline" => {
             let cline = root(home, "CLINE_DIR", ".cline")?;
@@ -426,12 +426,13 @@ fn locations(home: &Path, data: &Path, tool: &str) -> Result<Vec<(PathBuf, &'sta
             vec![(file, "json")]
         }
         "qwen" => vec![(home.join(".qwen/settings.json"), "json")],
-        "kimi" => vec![(home.join(".kimi/config.toml"), "toml")],
-        "continue" => vec![(home.join(".continue/config.yaml"), "yaml")],
-        "roo" => vec![(
-            data.join("harness-config/roo/roo-code-settings.json"),
-            "json",
+        // Kimi Code (desktop + CLI) shares one data directory; the archived
+        // kimi-cli used ~/.kimi and is no longer the target of this adapter.
+        "kimi" => vec![(
+            root(home, "KIMI_CODE_HOME", ".kimi-code")?.join("config.toml"),
+            "toml",
         )],
+        "continue" => vec![(home.join(".continue/config.yaml"), "yaml")],
         "aider" => vec![(home.join(".aider.conf.yml"), "yaml")],
         "gemini" => vec![
             (home.join(".gemini/settings.json"), "json"),
@@ -494,8 +495,8 @@ fn protocol(tool: &str, api: &str) -> Result<&'static str> {
     match (tool, api) {
         ("gemini", "gemini") => Ok("gemini"),
         ("gemini", _) | (_, "gemini") => Err("该工具不支持此 API 协议".into()),
-        ("aider" | "roo", "openai-completions") => Ok("openai-completions"),
-        ("aider" | "roo", _) => Err("该适配器支持 OpenAI Chat Completions".into()),
+        ("aider", "openai-completions") => Ok("openai-completions"),
+        ("aider", _) => Err("该适配器支持 OpenAI Chat Completions".into()),
         (_, "openai-completions") => Ok("openai-completions"),
         (_, "openai-responses") => Ok("openai-responses"),
         (_, "anthropic-messages") => Ok("anthropic-messages"),
@@ -517,8 +518,11 @@ fn selection(tool: &str, docs: &[Value]) -> Result<Selection> {
     let mut out = Selection {
         api: if tool == "gemini" {
             "gemini"
-        } else {
+        } else if tool == "aider" {
+            // This adapter only supports Chat Completions.
             "openai-completions"
+        } else {
+            "openai-responses"
         }
         .into(),
         ..Default::default()
@@ -551,13 +555,6 @@ fn selection(tool: &str, docs: &[Value]) -> Result<Selection> {
             "api_key",
             "model",
         ),
-        "roo" => (
-            v.pointer("/providerProfiles/apiConfigs/CYAPI Toolbox")
-                .unwrap_or(&Value::Null),
-            "openAiBaseUrl",
-            "openAiApiKey",
-            "openAiModelId",
-        ),
         "aider" => (v, "openai-api-base", "openai-api-key", "model"),
         "continue" => (
             v.get("models")
@@ -577,8 +574,11 @@ fn selection(tool: &str, docs: &[Value]) -> Result<Selection> {
         "cline" => {
             out.api = match p["protocol"].as_str() {
                 Some("anthropic") => "anthropic-messages",
+                Some("openai-chat") => "openai-completions",
                 Some("openai-responses") => "openai-responses",
-                _ => "openai-completions",
+                // No protocol recorded yet: use the toolbox default.
+                None => "openai-responses",
+                Some(_) => "openai-completions",
             }
             .into();
         }
@@ -598,7 +598,10 @@ fn selection(tool: &str, docs: &[Value]) -> Result<Selection> {
             out.api = match provider["npm"].as_str() {
                 Some("@ai-sdk/anthropic") => "anthropic-messages",
                 Some("@ai-sdk/openai") => "openai-responses",
-                _ => "openai-completions",
+                Some("@ai-sdk/openai-compatible") => "openai-completions",
+                // No provider entry yet: use the toolbox default.
+                None => "openai-responses",
+                Some(_) => "openai-completions",
             }
             .into();
             let m = &provider["models"][&out.model];
@@ -630,10 +633,14 @@ fn selection(tool: &str, docs: &[Value]) -> Result<Selection> {
                 out.base = m["baseUrl"].as_str().unwrap_or("").into();
                 out.api = if kind.as_str() == "anthropic" {
                     "anthropic-messages"
-                } else if m["wireApi"].as_str() == Some("responses") {
-                    "openai-responses"
                 } else {
-                    "openai-completions"
+                    match m["wireApi"].as_str() {
+                        Some("responses") => "openai-responses",
+                        Some("chat-completions") => "openai-completions",
+                        // No wire API recorded yet: use the toolbox default.
+                        None => "openai-responses",
+                        Some(_) => "openai-completions",
+                    }
                 }
                 .into();
                 out.key = v["env"][m["envKey"].as_str().unwrap_or(KEY)]
@@ -643,12 +650,31 @@ fn selection(tool: &str, docs: &[Value]) -> Result<Selection> {
             }
         }
         "kimi" => {
-            out.model = str_at(v, "/models/cyapi-toolbox/model").into();
-            out.context = v["models"][PROVIDER]["max_context_size"].as_u64();
+            // Aliases are keyed "<provider>/<wire model>", matching the entries
+            // Kimi Code itself writes; older builds used the bare provider name.
+            let alias = v["models"]
+                .as_object()
+                .and_then(|m| {
+                    m.iter()
+                        .find(|(_, entry)| entry["provider"].as_str() == Some(PROVIDER))
+                        .map(|(alias, entry)| (alias.clone(), entry.clone()))
+                });
+            out.model = alias
+                .as_ref()
+                .map(|(_, entry)| entry["model"].as_str().unwrap_or("").to_string())
+                .unwrap_or_default();
+            out.context = alias
+                .as_ref()
+                .and_then(|(_, entry)| entry["max_context_size"].as_u64());
+            // Kimi Code uses `openai` (Chat Completions) and `openai_responses`;
+            // `openai_legacy` only exists in the archived kimi-cli.
             out.api = match p["type"].as_str() {
                 Some("anthropic") => "anthropic-messages",
                 Some("openai_responses") => "openai-responses",
-                _ => "openai-completions",
+                Some("openai") => "openai-completions",
+                // No provider entry yet: use the toolbox default.
+                None => "openai-responses",
+                Some(_) => "openai-completions",
             }
             .into();
         }
@@ -656,7 +682,10 @@ fn selection(tool: &str, docs: &[Value]) -> Result<Selection> {
             out.api = match p["api_backend"].as_str() {
                 Some("messages") => "anthropic-messages",
                 Some("responses") => "openai-responses",
-                _ => "openai-completions",
+                Some("chat_completions") => "openai-completions",
+                // No provider entry yet: use the toolbox default.
+                None => "openai-responses",
+                Some(_) => "openai-completions",
             }
             .into();
             out.context = p["context_window"].as_u64();
@@ -667,8 +696,14 @@ fn selection(tool: &str, docs: &[Value]) -> Result<Selection> {
                 "anthropic-messages"
             } else if p["useResponsesApi"].as_bool() == Some(true) {
                 "openai-responses"
-            } else {
+            } else if p["useResponsesApi"].as_bool() == Some(false) {
                 "openai-completions"
+            } else if p["provider"].as_str() == Some("openai") {
+                // An OpenAI model without an explicit flag predates Responses;
+                // keep reading it as the protocol it was written with.
+                "openai-completions"
+            } else {
+                "openai-responses"
             }
             .into();
         }
@@ -906,23 +941,46 @@ fn prepare(tool: &str, current: &[File], input: &Input) -> Result<Vec<File>> {
             put(v, &["model"], "name", json!(model))?;
         }
         "kimi" => {
+            // Kimi Code provider types: kimi / anthropic / openai /
+            // openai_responses / google-genai / vertexai.
             let kind = match input.api.as_str() {
                 "anthropic-messages" => "anthropic",
                 "openai-responses" => "openai_responses",
-                _ => "openai_legacy",
+                _ => "openai",
             };
             for (field, value) in [("type", kind), ("base_url", &base), ("api_key", &key)] {
                 put(v, &["providers", PROVIDER], field, json!(value))?;
             }
-            put(v, &["models", PROVIDER], "provider", json!(PROVIDER))?;
-            put(v, &["models", PROVIDER], "model", json!(model))?;
+            // The alias key is "<provider>/<wire model>", matching what Kimi
+            // Code writes itself, and it is what the model picker displays.
+            let alias = format!("{PROVIDER}/{model}");
+            // Drop stale entries this adapter wrote earlier (the bare provider
+            // name, or an alias for a model that has since been replaced) so the
+            // picker never lists duplicates.
+            let models = obj(v, &["models"])?;
+            let stale: Vec<_> = models
+                .iter()
+                .filter(|(key, entry)| {
+                    key.as_str() == PROVIDER || entry["provider"].as_str() == Some(PROVIDER)
+                })
+                .map(|(key, _)| key.clone())
+                .collect();
+            for key in stale {
+                models.remove(&key);
+            }
+            put(v, &["models", &alias], "provider", json!(PROVIDER))?;
+            put(v, &["models", &alias], "model", json!(model))?;
             put(
                 v,
-                &["models", PROVIDER],
+                &["models", &alias],
                 "max_context_size",
                 json!(input.context_window.unwrap()),
             )?;
-            put(v, &[], "default_model", json!(PROVIDER))?;
+            // Custom gateway models are not in Kimi's built-in catalog, so the
+            // tool capability has to be declared or the agent loses its tools.
+            put(v, &["models", &alias], "capabilities", json!(["tool_use"]))?;
+            put(v, &["models", &alias], "display_name", json!(NAME))?;
+            put(v, &[], "default_model", json!(alias))?;
         }
         "grok" => {
             let backend = match input.api.as_str() {
@@ -1022,25 +1080,6 @@ fn prepare(tool: &str, current: &[File], input: &Input) -> Result<Vec<File>> {
             } else {
                 entry.remove("useResponsesApi");
             }
-        }
-        "roo" => {
-            let path = ["providerProfiles", "apiConfigs", NAME];
-            for (field, value) in [
-                ("id", PROVIDER),
-                ("apiProvider", "openai"),
-                ("openAiBaseUrl", &base),
-                ("openAiApiKey", &key),
-                ("openAiModelId", model),
-            ] {
-                put(v, &path, field, json!(value))?;
-            }
-            put(v, &path, "openAiStreamingEnabled", json!(true))?;
-            put(
-                v,
-                &["providerProfiles"],
-                "currentApiConfigName",
-                json!(NAME),
-            )?;
         }
         "aider" => {
             put(
@@ -1303,7 +1342,7 @@ mod tests {
     #[test]
     fn all_adapters_roundtrip_and_restore_exact_files() {
         for tool in [
-            "cline", "kilo", "qwen", "kimi", "continue", "roo", "aider", "gemini", "grok",
+            "cline", "kilo", "qwen", "kimi", "continue", "aider", "gemini", "grok",
         ] {
             let (home, data) = fixture();
             let locations = locations(&home, &data, tool).unwrap();
@@ -1407,7 +1446,7 @@ mod tests {
     #[test]
     fn fresh_files_restore_to_absent_and_blank_keys_are_preserved() {
         for tool in [
-            "cline", "kilo", "qwen", "kimi", "continue", "roo", "aider", "gemini", "grok",
+            "cline", "kilo", "qwen", "kimi", "continue", "aider", "gemini", "grok",
         ] {
             let (home, data) = fixture();
             let mut req = input(&home, &data, tool);
@@ -1469,6 +1508,61 @@ mod tests {
         assert_eq!(v["env"][original["envKey"].as_str().unwrap()], "test-key");
         assert_eq!(v["env"][second["envKey"].as_str().unwrap()], "second-key");
         assert_eq!(selection("qwen", &[v]).unwrap().api, "anthropic-messages");
+        fs::remove_dir_all(home.parent().unwrap()).unwrap();
+    }
+    #[test]
+    fn kimi_targets_the_kimi_code_data_directory_and_writes_a_catalog_alias() {
+        let (home, data) = fixture();
+        // The archived kimi-cli directory must never be the target again.
+        fs::create_dir_all(home.join(".kimi")).unwrap();
+        fs::write(
+            home.join(".kimi/config.toml"),
+            "default_model = \"legacy\"\n",
+        )
+        .unwrap();
+        let files = snapshot(&home, &data, "kimi").unwrap();
+        assert_eq!(files[0].path, home.join(".kimi-code/config.toml"));
+        assert!(files[0].bytes.is_none());
+
+        let req = input(&home, &data, "kimi");
+        let saved = save(&home, &data, "kimi", &req).unwrap();
+        assert_eq!(saved["model"], "test-model");
+        let v = snapshot(&home, &data, "kimi").unwrap()[0].value().unwrap();
+        assert_eq!(v["providers"][PROVIDER]["type"], "openai");
+        assert_eq!(v["default_model"], "cyapi-toolbox/test-model");
+        // Kimi resolves models through "<provider>/<model>" aliases.
+        assert_eq!(v["models"][PROVIDER], Value::Null);
+        assert_eq!(v["models"]["cyapi-toolbox/test-model"]["provider"], PROVIDER);
+        assert_eq!(v["models"]["cyapi-toolbox/test-model"]["model"], "test-model");
+        // Without a declared capability the agent silently loses its tools.
+        assert_eq!(
+            v["models"]["cyapi-toolbox/test-model"]["capabilities"],
+            json!(["tool_use"])
+        );
+        // The unrelated legacy config is left exactly as it was.
+        assert_eq!(
+            fs::read_to_string(home.join(".kimi/config.toml")).unwrap(),
+            "default_model = \"legacy\"\n"
+        );
+        fs::remove_dir_all(home.parent().unwrap()).unwrap();
+    }
+    #[test]
+    fn kimi_maps_every_protocol_to_a_kimi_code_provider_type() {
+        let (home, data) = fixture();
+        for (api, expected) in [
+            ("openai-completions", "openai"),
+            ("openai-responses", "openai_responses"),
+            ("anthropic-messages", "anthropic"),
+        ] {
+            let mut req = input(&home, &data, "kimi");
+            req.api = api.into();
+            let saved = save(&home, &data, "kimi", &req).unwrap_or_else(|e| panic!("{api}: {e}"));
+            assert_eq!(saved["api"], api);
+            let v = snapshot(&home, &data, "kimi").unwrap()[0].value().unwrap();
+            assert_eq!(v["providers"][PROVIDER]["type"], expected, "{api}");
+            // Each save advances the revision, so refresh it for the next round.
+            req.revision = saved["revision"].as_str().unwrap().into();
+        }
         fs::remove_dir_all(home.parent().unwrap()).unwrap();
     }
     #[test]

@@ -56,6 +56,7 @@ import { PiMcpManager } from './PiMcpManager';
 import { CodexDiagnostics } from './CodexDiagnostics';
 import { ClaudeLogs } from './ClaudeLogs';
 import { OpenCodeLogs } from './OpenCodeLogs';
+import { QwenLogs } from './QwenLogs';
 import { LogWindow } from './LogWindow';
 import { EditorLaunchNotice, type EditorLaunchNoticeState } from '../features/platform/EditorLaunchNotice';
 import { openLogs } from '../lib/api/diagnostics';
@@ -118,13 +119,38 @@ const Workflows = lazy(() =>
 type Page = ToolPage | 'settings' | 'workflows';
 type Workspace = 'codex' | 'claude' | 'opencode';
 const agents = [
-  { id: 'codex', name: 'Codex', hint: 'OpenAI' },
-  { id: 'claude', name: 'Claude Code', hint: 'Anthropic' },
-  { id: 'opencode', name: 'OpenCode', hint: '开源' },
-  { id: 'dsh', name: 'DeepSeek Harness', hint: 'Deepseek' },
-  { id: 'workbuddy', name: 'WorkBuddy', hint: 'Tencent' },
-  { id: 'pi', name: 'Pi Coding Agent', hint: '开源' },
-  { id: 'minimax', name: 'MiniMax Code', hint: 'Mininax' },
+  {
+    id: 'codex',
+    name: 'Codex',
+    hint: 'OpenAI',
+    site: 'https://github.com/openai/codex',
+  },
+  {
+    id: 'claude',
+    name: 'Claude Code',
+    hint: 'Anthropic',
+    site: 'https://claude.com/product/claude-code',
+  },
+  { id: 'opencode', name: 'OpenCode', hint: '开源', site: 'https://opencode.ai/' },
+  {
+    id: 'dsh',
+    name: 'DeepSeek Harness',
+    hint: 'Deepseek',
+    site: 'https://github.com/deepseek-ai/deepseek-harness',
+  },
+  {
+    id: 'workbuddy',
+    name: 'WorkBuddy',
+    hint: 'Tencent',
+    site: 'https://www.workbuddy.ai/',
+  },
+  { id: 'pi', name: 'Pi Coding Agent', hint: '开源', site: 'https://pi.dev/' },
+  {
+    id: 'minimax',
+    name: 'MiniMax Code',
+    hint: 'Mininax',
+    site: 'https://code.minimax.cn/about',
+  },
   ...harnesses,
 ] as const;
 const targetLabels = {
@@ -750,6 +776,11 @@ export default function App() {
     { id: 'codex', icon: SquareTerminal, label: '模型接入' },
     ...(desktopTool === 'dsh' || desktopTool === 'pi' || desktopTool === 'workbuddy' ? [{ id: 'catalog' as const, icon: Grid2X2, label: 'Skill 管理' }] : []),
     ...(desktopTool === 'pi' ? [{ id: 'mcp' as const, icon: Server, label: 'MCP 管理' }] : []),
+    ...(desktopTool === 'qwen' ? [
+      { id: 'usage' as const, icon: BarChart3, label: '用量统计' },
+      { id: 'diagnostics' as const, icon: Activity, label: '日志' },
+      { id: 'mcp' as const, icon: Server, label: 'MCP 管理' },
+    ] : []),
   ] : [
     { id: 'codex', icon: SquareTerminal, label: '模型接入' },
     ...(workspace === 'codex'
@@ -1017,23 +1048,28 @@ export default function App() {
                 <CodexSettings />
               ))}
             {page === 'localize' && <CodexLocalize />}
-            {page === 'usage' && (
+            {page === 'usage' && (desktopTool === 'qwen' || !desktopTool) && (
               <Suspense fallback={<p role="status">正在加载用量统计…</p>}>
-                <UsageStatistics key={workspace} workspace={workspace} />
+                <UsageStatistics
+                  key={desktopTool ?? workspace}
+                  workspace={desktopTool === 'qwen' ? 'qwen' : workspace}
+                />
               </Suspense>
             )}
             {page === 'cleanup' && !desktopTool && experimental && (
               <StorageCleanup key={workspace} workspace={workspace} />
             )}
-            {page === 'diagnostics' &&
-              (workspace === 'claude' ? (
+            {page === 'diagnostics' && (desktopTool === 'qwen' || !desktopTool) &&
+              (desktopTool === 'qwen' ? (
+                <QwenLogs />
+              ) : workspace === 'claude' ? (
                 <ClaudeLogs />
               ) : workspace === 'opencode' ? (
                 <OpenCodeLogs />
               ) : (
                 <CodexDiagnostics />
               ))}
-            {page === 'mcp' && (desktopTool === 'pi' ? <PiMcpManager /> : <McpManager workspace={workspace} focus={mcpFocus} />)}
+            {page === 'mcp' && (desktopTool === 'pi' ? <PiMcpManager /> : <McpManager workspace={desktopTool === 'qwen' ? 'qwen' : workspace} focus={mcpFocus} />)}
             {page === 'integrations' && (
               <Integrations
                 workspace={workspace}

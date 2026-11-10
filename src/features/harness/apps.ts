@@ -2,6 +2,8 @@ export interface AppEntry {
   id: string;
   name: string;
   hint: string;
+  /** Official homepage or download page, shown in the App manager. */
+  site?: string;
 }
 export interface AppDetection {
   id: string;

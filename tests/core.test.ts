@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { parseAppVisibility, visibleApps } from '../src/features/harness/apps.ts';
 import { catalogCategories, filterCatalog } from '../src/lib/catalog.ts';
 import {
@@ -70,6 +71,27 @@ test('App visibility defaults to core and installed apps, with persistent user o
   assert.deepEqual(parseAppVisibility('broken', apps), {});
   assert.deepEqual(parseAppVisibility('[]', apps), {});
   assert.deepEqual(ids(Object.fromEntries(apps.map(({ id }) => [id, false]))), []);
+});
+
+test('Qwen logs take precedence over the previously selected core workspace', () => {
+  const app = readFileSync(new URL('../src/app/App.tsx', import.meta.url), 'utf8');
+  const diagnostics = app.slice(
+    app.indexOf("{page === 'diagnostics' &&"),
+    app.indexOf("{page === 'mcp' &&"),
+  );
+  assert.match(diagnostics, /\(desktopTool === 'qwen' \|\| !desktopTool\) &&/);
+  assert.match(diagnostics, /\(desktopTool === 'qwen' \?\s*\(\s*<QwenLogs\s*\/>/);
+  assert.match(diagnostics, /workspace === 'claude' \?\s*\(\s*<ClaudeLogs\s*\/>/);
+  assert.match(diagnostics, /workspace === 'opencode' \?\s*\(\s*<OpenCodeLogs\s*\/>/);
+  assert.match(diagnostics, /<CodexDiagnostics\s*\/>/);
+  for (const [file, workspace] of [
+    ['QwenLogs', 'qwen'],
+    ['ClaudeLogs', 'claude'],
+    ['OpenCodeLogs', 'opencode'],
+  ]) {
+    const source = readFileSync(new URL(`../src/app/${file}.tsx`, import.meta.url), 'utf8');
+    assert.ok(source.includes(`<AgentLogAnalysis workspace="${workspace}"`));
+  }
 });
 
 test('model selection keeps a single default in the configured set without duplicates', () => {

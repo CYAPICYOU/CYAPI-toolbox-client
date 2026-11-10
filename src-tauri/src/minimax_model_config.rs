@@ -168,7 +168,7 @@ fn view_at(path: &Path, ver: &str) -> Result<Value> {
         .or_else(|| models.first().copied())
         .unwrap_or("");
     Ok(
-        json!({"version":ver,"revision":revision(path,&bytes),"baseUrl":p.and_then(|v|v.pointer("/options/baseURL")).and_then(Value::as_str).unwrap_or(""),"model":model,"models":models,"api":p.and_then(|v|v.get("api")).and_then(Value::as_str).unwrap_or("openai-completions"),"apiKeyConfigured":p.and_then(|v|v.pointer("/options/apiKey")).and_then(Value::as_str).is_some_and(|v|!v.is_empty()),"configPath":path,"dataDir":path.parent()}),
+        json!({"version":ver,"revision":revision(path,&bytes),"baseUrl":p.and_then(|v|v.pointer("/options/baseURL")).and_then(Value::as_str).unwrap_or(""),"model":model,"models":models,"api":p.and_then(|v|v.get("api")).and_then(Value::as_str).unwrap_or("openai-responses"),"apiKeyConfigured":p.and_then(|v|v.pointer("/options/apiKey")).and_then(Value::as_str).is_some_and(|v|!v.is_empty()),"configPath":path,"dataDir":path.parent()}),
     )
 }
 pub fn save(home: &Path, dir: &str, input: &Input) -> Result<()> {

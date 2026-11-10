@@ -74,7 +74,7 @@ pub struct Input {
 }
 
 fn default_api() -> String {
-    "openai-completions".into()
+    "openai-responses".into()
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
@@ -272,12 +272,14 @@ fn provider_of(doc: &Value) -> Option<&Value> {
 }
 
 fn provider_api(doc: &Value) -> &'static str {
-    let package = provider_of(doc).and_then(|provider| {
-        provider
-            .get("package")
-            .or_else(|| provider.get("npm"))
-            .and_then(Value::as_str)
-    });
+    let Some(provider) = provider_of(doc) else {
+        // No CYAPI provider yet: the editor's default protocol is Responses.
+        return "openai-responses";
+    };
+    let package = provider
+        .get("package")
+        .or_else(|| provider.get("npm"))
+        .and_then(Value::as_str);
     if package.is_some_and(|value| {
         value.contains("/responses") || value == RESPONSES_PROVIDER_NPM
     }) {
@@ -1079,7 +1081,7 @@ mod tests {
     fn input(view: &Value) -> Input {
         Input {
             base_url: "https://example.invalid/v1/".into(),
-            api: view["api"].as_str().unwrap_or("openai-completions").into(),
+            api: view["api"].as_str().unwrap_or("openai-responses").into(),
             api_key: "dummy-api-key".into(),
             models: None,
             reasoning_effort: None,
@@ -1276,7 +1278,7 @@ mod tests {
         assert_eq!(doc["theme"], "dark");
         assert_eq!(
             doc["providers"][PROVIDER]["package"],
-            "@opencode/ai/providers/openai-compatible"
+            RESPONSES_PROVIDER_PACKAGE
         );
         assert!(doc.get("provider").is_none());
         assert!(doc["providers"][PROVIDER].get("options").is_none());

@@ -56,9 +56,19 @@ const { HarnessModelSettings } = await import('../src/features/harness/HarnessMo
 const { ManageApps } = await import('../src/features/harness/ManageApps');
 const { useToolApps } = await import('../src/features/harness/useToolApps');
 const apps = [
-  { id: 'codex', name: 'Codex', hint: 'OpenAI' },
-  { id: 'claude', name: 'Claude Code', hint: 'Anthropic' },
-  { id: 'opencode', name: 'OpenCode', hint: '开源' },
+  {
+    id: 'codex',
+    name: 'Codex',
+    hint: 'OpenAI',
+    site: 'https://github.com/openai/codex',
+  },
+  {
+    id: 'claude',
+    name: 'Claude Code',
+    hint: 'Anthropic',
+    site: 'https://claude.com/product/claude-code',
+  },
+  { id: 'opencode', name: 'OpenCode', hint: '开源', site: 'https://opencode.ai/' },
   ...harnesses,
 ];
 function Fixture() {

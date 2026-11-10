@@ -276,6 +276,123 @@ fn claude(value: &Value, fallback: &str) -> Option<Record> {
     record.nonzero().then_some(record)
 }
 
+fn qwen(value: &Value, fallback: &str) -> Option<Record> {
+    // `~/.qwen/usage/token-usage-YYYY-MM.jsonl` writes one line per API
+    // response. inputTokens already includes the cached portion, so cached
+    // tokens are reported as a subset rather than added to the input again.
+    let id = text(value, "id");
+    if id.is_empty() {
+        return None;
+    }
+    let session = if text(value, "sessionId").is_empty() {
+        fallback
+    } else {
+        text(value, "sessionId")
+    };
+    let input = count(value, "inputTokens");
+    let cached = count(value, "cachedTokens").min(input);
+    let reasoning = count(value, "thoughtsTokens");
+    let record = Record {
+        id: digest(&format!("qwen:{id}")),
+        session_id: session.into(),
+        model: model(text(value, "model")),
+        // The record carries no working directory; usage.rs fills it from
+        // the session summary when that is available.
+        project: String::new(),
+        time: timestamp(&value["timestamp"]),
+        input,
+        // Output includes reasoning so the numbers stay nested, matching
+        // the contract every other workspace parser keeps.
+        output: count(value, "outputTokens") + reasoning,
+        cached_input: cached,
+        reasoning_output: reasoning,
+        ..Default::default()
+    };
+    record.nonzero().then_some(record)
+}
+
+/// Maps `sessionId` to the project directory recorded by the session summary.
+/// The summary file is small and optional, so a missing file is not an error.
+pub(super) fn qwen_session_projects(path: &Path) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    let Ok(meta) = std::fs::metadata(path) else {
+        return map;
+    };
+    if !meta.is_file() || meta.len() > MAX_FILE_BYTES {
+        return map;
+    }
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return map;
+    };
+    for line in text.lines() {
+        let Ok(value) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        let id = text_of(&value, "sessionId");
+        let project = text_of(&value, "project");
+        if !id.is_empty() && !project.is_empty() {
+            map.insert(id.to_string(), project.chars().take(1000).collect());
+        }
+    }
+    map
+}
+
+/// Reads the `cwd` envelope of every Qwen transcript under
+/// `~/.qwen/projects/<dir>/chats/<sessionId>.jsonl`. Chat transcripts exist
+/// for every session, while the summary ledger only covers some of them.
+pub(super) fn qwen_transcript_projects(projects_dir: &Path) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    let Ok(dirs) = std::fs::read_dir(projects_dir) else {
+        return map;
+    };
+    for dir in dirs.flatten() {
+        let chats = dir.path().join("chats");
+        let Ok(files) = std::fs::read_dir(&chats) else {
+            continue;
+        };
+        for file in files.flatten() {
+            let path = file.path();
+            if path.extension().is_none_or(|e| e != "jsonl") {
+                continue;
+            }
+            let Some(id) = path.file_stem().map(|s| s.to_string_lossy().to_string()) else {
+                continue;
+            };
+            // Only the head matters, so a bounded read avoids loading a long
+            // transcript. The envelope carries `cwd` on every record.
+            let head = read_head(&path, 8 * 1024);
+            for line in head.lines() {
+                let Ok(value) = serde_json::from_str::<Value>(line) else {
+                    continue;
+                };
+                let cwd = text_of(&value, "cwd");
+                if !cwd.is_empty() {
+                    map.insert(id, cwd.chars().take(1000).collect());
+                    break;
+                }
+            }
+        }
+    }
+    map
+}
+
+fn read_head(path: &Path, limit: u64) -> String {
+    use std::io::Read as _;
+    let Ok(file) = std::fs::File::open(path) else {
+        return String::new();
+    };
+    let mut buffer = Vec::new();
+    if file.take(limit).read_to_end(&mut buffer).is_err() {
+        return String::new();
+    }
+    String::from_utf8_lossy(&buffer).into_owned()
+}
+
+
+fn text_of<'a>(value: &'a Value, key: &str) -> &'a str {
+    value.get(key).and_then(Value::as_str).unwrap_or("")
+}
+
 pub(super) fn opencode(
     value: &Value,
     fallback_id: &str,
@@ -417,6 +534,10 @@ pub(super) fn jsonl(path: &Path, format: &str) -> Result<Parsed, String> {
             Ok(value) => {
                 if format == "codex" {
                     codex.line(&value);
+                } else if format == "qwen" {
+                    if let Some(record) = qwen(&value, &parsed.session_id) {
+                        parsed.records.push(record);
+                    }
                 } else if let Some(record) = claude(&value, &parsed.session_id) {
                     parsed.records.push(record);
                 }

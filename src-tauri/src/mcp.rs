@@ -1,4 +1,4 @@
-//! Workspace-aware MCP catalog and local configuration management.
+﻿//! Workspace-aware MCP catalog and local configuration management.
 //!
 //! The server only describes installable MCP servers. Every local check and
 //! write happens here, scoped to the selected Codex / Claude Code / OpenCode
@@ -22,7 +22,7 @@ type Result<T> = std::result::Result<T, String>;
 const MAX_CATALOG: u64 = 100_000;
 const MAX_CONFIG: u64 = 1_000_000;
 const MAX_CLAUDE_CONFIG: u64 = 8_000_000;
-const WORKSPACES: [&str; 3] = ["codex", "claude", "opencode"];
+const WORKSPACES: [&str; 4] = ["codex", "claude", "opencode", "qwen"];
 
 /// Unknown fields are ignored on purpose: a newer server may describe entries
 /// this client does not understand, and that must not break the whole catalog.
@@ -107,6 +107,7 @@ pub fn config_key(descriptor: &Descriptor) -> &str {
 pub struct Context {
     pub codex_config: PathBuf,
     pub claude_config: PathBuf,
+    pub qwen_config: PathBuf,
     pub opencode_config: crate::opencode_config::Location,
     pub app_data: PathBuf,
 }
@@ -619,6 +620,10 @@ fn snapshot(context: &Context, workspace: &str) -> Result<Snapshot> {
             path: context.claude_config.clone(),
             bytes: read_file(&context.claude_config, MAX_CLAUDE_CONFIG)?,
         }),
+        "qwen" => Ok(Snapshot::Json {
+            path: context.qwen_config.clone(),
+            bytes: read_file(&context.qwen_config, MAX_CONFIG)?,
+        }),
         "opencode" => {
             let path = context.opencode_config.resolve()?;
             Ok(Snapshot::Json {
@@ -881,7 +886,7 @@ fn is_timeout_defaults(value: &Value) -> bool {
 /// The key path that holds the MCP entries of a workspace.
 fn json_group_path(workspace: &str, layout: OpenCodeLayout) -> Vec<&'static str> {
     match workspace {
-        "claude" => vec!["mcpServers"],
+        "claude" | "qwen" => vec!["mcpServers"],
         _ => match layout {
             OpenCodeLayout::Servers => vec!["mcp", "servers"],
             OpenCodeLayout::Flat => vec!["mcp"],
@@ -889,8 +894,26 @@ fn json_group_path(workspace: &str, layout: OpenCodeLayout) -> Vec<&'static str>
     }
 }
 
+/// Claude Code and Qwen Code both keep every server in a flat `mcpServers`
+/// map with no enable/disable flag. Qwen reserves `httpUrl` for streamable
+/// HTTP and treats `url` as the legacy SSE transport, so the field name is
+/// decided separately from the layout.
+fn flat_mcp_layout(workspace: &str) -> bool {
+    matches!(workspace, "claude" | "qwen")
+}
+
+/// Qwen reads streamable HTTP from `httpUrl`; every other supported agent
+/// uses `url`.
+fn http_url_key(workspace: &str) -> &'static str {
+    if workspace == "qwen" {
+        "httpUrl"
+    } else {
+        "url"
+    }
+}
+
 fn json_enabled(value: &Value, workspace: &str, layout: OpenCodeLayout) -> bool {
-    if workspace == "claude" {
+    if flat_mcp_layout(workspace) {
         return true;
     }
     match layout {
@@ -924,15 +947,26 @@ fn json_group_entries(doc: &Value, workspace: &str, layout: OpenCodeLayout) -> V
         {
             continue;
         }
-        let transport = if value.get("url").is_some() {
+        // Qwen separates streamable HTTP (`httpUrl`) from legacy SSE (`url`).
+        // Every other agent only understands `url`, and there an object or
+        // number in that field must keep the entry read-only rather than
+        // silently becoming a stdio server.
+        let url = if workspace == "qwen" {
+            value
+                .get("httpUrl")
+                .or_else(|| value.get("url"))
+                .filter(|value| value.is_string())
+        } else {
+            value.get("url")
+        };
+        let transport = if url.is_some() {
             "http"
         } else if value.get("command").is_some() {
             "stdio"
         } else {
             "unknown"
         };
-        let target = value
-            .get("url")
+        let target = url
             .and_then(Value::as_str)
             .map(str::to_string)
             .or_else(|| {
@@ -1020,7 +1054,8 @@ fn read_only_reason(entry: &LocalEntry, workspace: &str) -> Option<&'static str>
     let recognized = match entry.transport.as_str() {
         "http" => entry
             .value
-            .get("url")
+            .get(http_url_key(workspace))
+            .or_else(|| entry.value.get("url"))
             .and_then(Value::as_str)
             .is_some_and(|url| !url.trim().is_empty()),
         "stdio" => command_parts(&entry.value, workspace)
@@ -1046,7 +1081,9 @@ fn entries(snapshot: &Snapshot, workspace: &str) -> Result<Vec<LocalEntry>> {
         Snapshot::Json { .. } => Ok(json_entries(
             &parse_json_value(
                 snapshot,
-                if workspace == "claude" {
+                if workspace == "qwen" {
+                    "Qwen Code 配置"
+                } else if workspace == "claude" {
                     "Claude Code 配置"
                 } else {
                     "OpenCode 配置"
@@ -1124,8 +1161,9 @@ fn needs_local_token(descriptor: &Descriptor, workspace: &str) -> bool {
             ..
         } => {
             // Only Codex and OpenCode can resolve the credential from the
-            // environment; Claude Code needs the value written out.
-            workspace == "claude"
+            // environment; Claude Code and Qwen Code need the value written
+            // out because they do not expand `{env:...}` themselves.
+            flat_mcp_layout(workspace)
         }
         Transport::Http {
             token_source: Some(_),
@@ -1246,7 +1284,12 @@ fn core_matches(entry: &LocalEntry, descriptor: &Descriptor, workspace: &str) ->
                 current == command
                     && current_args == args.iter().map(String::as_str).collect::<Vec<_>>()
             }),
-        Transport::Http { url, .. } => entry.value.get("url").and_then(Value::as_str) == Some(url),
+        Transport::Http { url, .. } => entry
+            .value
+            .get(http_url_key(workspace))
+            .or_else(|| entry.value.get("url"))
+            .and_then(Value::as_str)
+            == Some(url.as_str()),
     }
 }
 
@@ -1275,7 +1318,7 @@ fn token_matches(
         Transport::Http {
             bearer_token_env_var: Some(name),
             ..
-        } if workspace != "claude" => {
+        } if !flat_mcp_layout(workspace) => {
             env_credential(entry, workspace).is_some_and(|current| current == *name)
         }
         Transport::Http {
@@ -1487,11 +1530,13 @@ fn write_json_entry(
     layout: OpenCodeLayout,
     token: Option<&str>,
 ) -> Result<Vec<u8>> {
-    let label = if workspace == "claude" {
-        "Claude Code 配置"
-    } else {
-        "OpenCode 配置"
-    };
+    let label = if workspace == "qwen" {
+                    "Qwen Code 配置"
+                } else if workspace == "claude" {
+                    "Claude Code 配置"
+                } else {
+                    "OpenCode 配置"
+                };
     let root = parse_cst(snapshot, label)?;
     let object = root
         .object_value_or_create()
@@ -1547,7 +1592,13 @@ fn write_json_entry(
                 remove_if_present(&entry, "environment");
             } else {
                 set_string(&entry, "type", "http");
-                set_string(&entry, "url", url);
+                let key = http_url_key(workspace);
+                set_string(&entry, key, url);
+                // Qwen separates SSE (`url`) from streamable HTTP (`httpUrl`).
+                // Writing the URL into the other field would register a server
+                // on a transport the user did not choose.
+                let other = if key == "httpUrl" { "url" } else { "httpUrl" };
+                remove_if_present(&entry, other);
                 remove_if_present(&entry, "command");
                 remove_if_present(&entry, "args");
             }
@@ -1574,7 +1625,7 @@ fn write_json_entry(
     finish_json(
         &root,
         has_bom(snapshot.bytes()),
-        if workspace == "claude" {
+        if flat_mcp_layout(workspace) {
             MAX_CLAUDE_CONFIG
         } else {
             MAX_CONFIG
@@ -1588,7 +1639,7 @@ fn set_string(object: &CstObject, key: &str, value: &str) {
 
 /// Flat entries use `enabled`; nested entries use `disabled`.
 fn set_enabled(object: &CstObject, workspace: &str, layout: OpenCodeLayout, enabled: bool) {
-    if workspace == "claude" {
+    if flat_mcp_layout(workspace) {
         return;
     }
     match layout {
@@ -1633,11 +1684,13 @@ fn remove_entry(
             Ok(serialize_toml(&doc))
         }
         Snapshot::Json { .. } => {
-            let label = if workspace == "claude" {
-                "Claude Code 配置"
-            } else {
-                "OpenCode 配置"
-            };
+            let label = if workspace == "qwen" {
+                    "Qwen Code 配置"
+                } else if workspace == "claude" {
+                    "Claude Code 配置"
+                } else {
+                    "OpenCode 配置"
+                };
             let root = parse_cst(snapshot, label)?;
             if let Some(object) = root.object_value() {
                 let mut group = object;
@@ -1660,7 +1713,7 @@ fn remove_entry(
             finish_json(
                 &root,
                 has_bom(snapshot.bytes()),
-                if workspace == "claude" {
+                if flat_mcp_layout(workspace) {
                     MAX_CLAUDE_CONFIG
                 } else {
                     MAX_CONFIG
@@ -1693,7 +1746,7 @@ fn backup(data: &Path, workspace: &str, current: &Snapshot) -> Result<()> {
     })
 }
 
-fn commit(data: &Path, current: &Snapshot, next: &Snapshot) -> Result<()> {
+fn commit(data: &Path, current: &Snapshot, next: &Snapshot, workspace: &str) -> Result<()> {
     if current.bytes() == next.bytes() {
         return Ok(());
     }
@@ -1714,11 +1767,7 @@ fn commit(data: &Path, current: &Snapshot, next: &Snapshot) -> Result<()> {
     }
     backup(
         data,
-        match next {
-            Snapshot::Toml { .. } => "codex",
-            Snapshot::Json { path, .. } if path.ends_with(".claude.json") => "claude",
-            Snapshot::Json { .. } => "opencode",
-        },
+        workspace,
         current,
     )?;
     match next.bytes() {
@@ -1835,8 +1884,8 @@ fn status_for(
         "canInstall": can_install,
         "canAdopt": can_adopt,
         "canRemove": can_manage,
-        "canEnable": workspace != "claude" && can_manage && !local_entry.is_some_and(|entry| entry.enabled),
-        "canDisable": workspace != "claude" && can_manage && local_entry.is_some_and(|entry| entry.enabled),
+        "canEnable": !flat_mcp_layout(workspace) && can_manage && !local_entry.is_some_and(|entry| entry.enabled),
+        "canDisable": !flat_mcp_layout(workspace) && can_manage && local_entry.is_some_and(|entry| entry.enabled),
         "transport": match &descriptor.transport {
             Transport::Stdio { .. } => "stdio",
             Transport::Http { .. } => "http",
@@ -2078,7 +2127,7 @@ pub fn install_descriptor(
         .find(|entry| entry.name == config_key(descriptor))
         .map(|entry| entry.hash)
         .ok_or("无法确认 MCP 配置写入结果")?;
-    commit(data, &current, &next)?;
+    commit(data, &current, &next, workspace)?;
     write_receipt(
         data,
         workspace,
@@ -2190,7 +2239,7 @@ fn remove_key_inner(
     }
     let bytes = remove_entry(&current, workspace, entry.layout, id)?;
     let next = next_snapshot(&current, bytes);
-    commit(data, &current, &next)?;
+    commit(data, &current, &next, workspace)?;
     delete_receipt(data, workspace, id)
 }
 
@@ -2214,11 +2263,13 @@ fn flip_enabled(
             Ok(serialize_toml(&doc))
         }
         Snapshot::Json { .. } => {
-            let label = if workspace == "claude" {
-                "Claude Code 配置"
-            } else {
-                "OpenCode 配置"
-            };
+            let label = if workspace == "qwen" {
+                    "Qwen Code 配置"
+                } else if workspace == "claude" {
+                    "Claude Code 配置"
+                } else {
+                    "OpenCode 配置"
+                };
             let root = parse_cst(snapshot, label)?;
             let Some(object) = root.object_value() else {
                 return Err(format!("{label}必须是 JSON 对象"));
@@ -2238,7 +2289,7 @@ fn flip_enabled(
             finish_json(
                 &root,
                 has_bom(snapshot.bytes()),
-                if workspace == "claude" {
+                if flat_mcp_layout(workspace) {
                     MAX_CLAUDE_CONFIG
                 } else {
                     MAX_CONFIG
@@ -2262,6 +2313,11 @@ pub fn toggle_enabled(
             "请在 Claude Code 的 /mcp 中为当前项目启用或停用 MCP；此处仅管理全局接入".into(),
         );
     }
+    if workspace == "qwen" {
+        return Err(
+            "请在 Qwen Code 的 /mcp 中启用或停用 MCP；Qwen 的 settings.json 没有开关字段，此处仅管理全局接入".into(),
+        );
+    }
     let current = snapshot(context, workspace)?;
     let local = entries(&current, workspace)?;
     if entry_revision(&local, current.path(), id) != revision {
@@ -2279,7 +2335,7 @@ pub fn toggle_enabled(
         .find(|entry| entry.name == id)
         .map(|entry| entry.hash)
         .ok_or("无法确认 MCP 配置写入结果")?;
-    commit(data, &current, &next)?;
+    commit(data, &current, &next, workspace)?;
     write_receipt(data, workspace, current.path(), id, &new_hash)
 }
 
@@ -2303,7 +2359,7 @@ mod tests {
         fs::create_dir_all(home.join(".config/opencode")).unwrap();
         fs::create_dir_all(home.join("AppData/Roaming/OrbitSSH")).unwrap();
         fs::create_dir_all(data.join("mcp")).unwrap();
-        cache(&data, br#"{"schema":1,"generatedAt":"2026-10-20T00:00:00Z","servers":[{"id":"codegraph","name":"CodeGraph","version":"1.6+","description":"code graph","homepage":"https://github.com/colbymchenry/codegraph","capabilities":["index"],"steps":["install"],"installCommand":"npm install -g @colbymchenry/codegraph","transport":{"type":"stdio","command":"codegraph","args":["serve","--mcp"],"startupTimeoutSeconds":30,"toolTimeoutSeconds":120},"workspaces":["codex","claude","opencode"]},{"id":"orbit-ssh","name":"Orbit SSH","version":"2.0+","description":"ssh","homepage":"https://github.com/CYAPICYOU/CYAPI-toolbox-client","capabilities":["ssh"],"steps":["start"],"transport":{"type":"http","url":"http://127.0.0.1:8765/mcp","tokenSource":"orbit-ssh"},"workspaces":["codex","claude","opencode"]}]}"#).unwrap();
+        cache(&data, br#"{"schema":1,"generatedAt":"2026-10-20T00:00:00Z","servers":[{"id":"codegraph","name":"CodeGraph","version":"1.6+","description":"code graph","homepage":"https://github.com/colbymchenry/codegraph","capabilities":["index"],"steps":["install"],"installCommand":"npm install -g @colbymchenry/codegraph","transport":{"type":"stdio","command":"codegraph","args":["serve","--mcp"],"startupTimeoutSeconds":30,"toolTimeoutSeconds":120},"workspaces":["codex","claude","opencode","qwen"]},{"id":"orbit-ssh","name":"Orbit SSH","version":"2.0+","description":"ssh","homepage":"https://github.com/CYAPICYOU/CYAPI-toolbox-client","capabilities":["ssh"],"steps":["start"],"transport":{"type":"http","url":"http://127.0.0.1:8765/mcp","tokenSource":"orbit-ssh"},"workspaces":["codex","claude","opencode","qwen"]}]}"#).unwrap();
         fs::write(
             home.join("AppData/Roaming/OrbitSSH/mcp-token"),
             "test-token-123\n",
@@ -2312,6 +2368,7 @@ mod tests {
         let context = Context {
             codex_config: home.join(".codex/config.toml"),
             claude_config: home.join(".claude.json"),
+            qwen_config: home.join(".qwen/settings.json"),
             opencode_config: crate::opencode_config::Location::Directory(
                 home.join(".config/opencode"),
             ),
@@ -2506,6 +2563,13 @@ env = { BLENDER_HOST = "127.0.0.2", BLENDER_PORT = "9000", SECRET = "not-for-pro
             r#"{"mcp":{"opencode-only":{"type":"local","command":["opencode-tool"]}}}"#,
         )
         .unwrap();
+        fs::create_dir_all(context.qwen_config.parent().unwrap()).unwrap();
+        // Qwen uses `httpUrl` for streamable HTTP and no enable flags.
+        fs::write(
+            &context.qwen_config,
+            r#"{"mcpServers":{"qwen-only":{"command":"qwen-tool","args":["--mcp"]}}}"#,
+        )
+        .unwrap();
         for workspace in WORKSPACES {
             let current = view(&data, &context, workspace).unwrap();
             assert_eq!(current["workspace"], workspace);
@@ -2533,6 +2597,7 @@ env = { BLENDER_HOST = "127.0.0.2", BLENDER_PORT = "9000", SECRET = "not-for-pro
         fs::remove_file(data.join("mcp/catalog.json")).unwrap();
         // Arbitrary keys must remain data, never paths in the receipt folder.
         let key = "../personal_MCP";
+        fs::create_dir_all(context.qwen_config.parent().unwrap()).unwrap();
         for workspace in WORKSPACES {
             let original = match workspace {
                 "codex" => format!(
@@ -2540,6 +2605,9 @@ env = { BLENDER_HOST = "127.0.0.2", BLENDER_PORT = "9000", SECRET = "not-for-pro
                 ),
                 "claude" => format!(
                     "// keep\n{{\"theme\":\"personal\",\"mcpServers\":{{\"{key}\":{{\"command\":\"custom-tool\",\"args\":[\"--serve\"],\"env\":{{\"SECRET\":\"keep-secret\"}}}},\"unrelated\":{{\"command\":\"keep\"}}}}}}\n"
+                ),
+                "qwen" => format!(
+                    "// keep\n{{\"theme\":\"personal\",\"mcpServers\":{{\"{key}\":{{\"httpUrl\":\"https://example.com/mcp\",\"headers\":{{\"Authorization\":\"Bearer keep-secret\"}}}},\"unrelated\":{{\"command\":\"keep\"}}}}}}\n"
                 ),
                 _ => format!(
                     "// keep\n{{\"theme\":\"personal\",\"mcp\":{{\"servers\":{{\"{key}\":{{\"type\":\"remote\",\"url\":\"https://example.com/mcp\",\"headers\":{{\"Authorization\":\"Bearer keep-secret\"}},\"oauth\":false}},\"unrelated\":{{\"type\":\"local\",\"command\":[\"keep\"]}}}}}}}}\n"
@@ -2557,7 +2625,7 @@ env = { BLENDER_HOST = "127.0.0.2", BLENDER_PORT = "9000", SECRET = "not-for-pro
             assert_eq!(entry["managed"], false);
             assert_eq!(entry["readOnlyReason"], Value::Null);
             assert!(!receipt_path(&data, workspace, key).exists());
-            if workspace != "claude" {
+            if !flat_mcp_layout(workspace) {
                 let before_entries =
                     entries(&snapshot(&context, workspace).unwrap(), workspace).unwrap();
                 toggle_enabled(
@@ -2676,6 +2744,61 @@ env = { BLENDER_HOST = "127.0.0.2", BLENDER_PORT = "9000", SECRET = "not-for-pro
                 .unwrap()
                 .starts_with("codex-key~"));
         }
+    }
+
+    #[test]
+    fn qwen_uses_http_url_for_streamable_http_and_never_writes_sse_url() {
+        let (base, context) = fixture();
+        let data = base.join("data");
+        fs::create_dir_all(context.qwen_config.parent().unwrap()).unwrap();
+        // An existing entry in Qwen's own shape: streamable HTTP lives in
+        // `httpUrl`, and there is no enable flag to flip.
+        fs::write(
+            &context.qwen_config,
+            r#"{"mcpServers":{"remote":{"httpUrl":"https://example.com/mcp"}}}"#,
+        )
+        .unwrap();
+        let before = view(&data, &context, "qwen").unwrap();
+        let entry = before["local"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["name"] == "remote")
+            .unwrap();
+        assert_eq!(entry["transport"], "http");
+        assert_eq!(entry["readOnlyReason"], Value::Null);
+        // Qwen cannot toggle servers, so it must never be treated as "disabled".
+        assert_eq!(entry["enabled"], true);
+
+        let mut descriptor = catalog(&data).unwrap().servers[1].clone();
+        install(
+            &data,
+            &context,
+            "qwen",
+            &descriptor.id.clone(),
+            &revision(&context, "qwen", config_key(&descriptor)),
+        )
+        .unwrap();
+        descriptor.transport = match descriptor.transport {
+            Transport::Http { url, .. } => Transport::Http {
+                url,
+                bearer_token_env_var: None,
+                token_source: None,
+            },
+            other => other,
+        };
+        let text = fs::read_to_string(&context.qwen_config).unwrap();
+        let parsed: Value = serde_json::from_str(&text).unwrap();
+        let installed = &parsed["mcpServers"][config_key(&descriptor)];
+        assert!(
+            installed.get("httpUrl").is_some(),
+            "Qwen must receive httpUrl, got {installed}"
+        );
+        // `url` means legacy SSE in Qwen, so writing it would silently
+        // downgrade the transport.
+        assert!(installed.get("url").is_none(), "got {installed}");
+        assert!(installed.get("enabled").is_none(), "Qwen has no enable flag");
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]
@@ -3235,6 +3358,7 @@ env = { BLENDER_HOST = "127.0.0.2", BLENDER_PORT = "9000", SECRET = "not-for-pro
         {
             *bearer_token_env_var = Some("REMOTE_TOKEN".into());
         }
+        fs::create_dir_all(context.qwen_config.parent().unwrap()).unwrap();
         for workspace in WORKSPACES {
             install_descriptor(
                 &data,

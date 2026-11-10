@@ -155,6 +155,13 @@ fn roots(workspace: &str) -> Result<Vec<(PathBuf, &'static str)>, String> {
                 Ok(vec![(root.join("storage/message"), "opencode")])
             }
         }
+        "qwen" => {
+            // Qwen 0.27 writes one record per API response under `usage/`.
+            // Older builds only kept per-session summaries in
+            // `usage_record.jsonl`; reading both would count the same tokens
+            // twice, so the per-response log wins whenever it exists.
+            Ok(vec![(home.join(".qwen/usage"), "qwen")])
+        }
         _ => Err("不支持的用量统计工作区".into()),
     }
 }
@@ -228,7 +235,7 @@ fn cached_file(
         }
     }
     let parsed = match format {
-        "codex" | "claude" => parsers::jsonl(path, format)?,
+        "codex" | "claude" | "qwen" => parsers::jsonl(path, format)?,
         _ => parsers::opencode_file(path)?,
     };
     cache.insert(
@@ -541,6 +548,26 @@ fn read(workspace: &str, refresh: bool) -> Result<Report, String> {
     let (records, duplicates, mut notes) = merge_files(&parsed);
     if missing_time > 0 {
         notes.push(format!("{missing_time} 条用量缺少有效时间，未计入统计"));
+    }
+    let mut records = records;
+    if workspace == "qwen" {
+        // The per-response usage log has no working directory of its own.
+        // Recover it from the session summary first, then fall back to the
+        // transcript envelope, which exists for every session.
+        let root = diagnostics::home_path().join(".qwen");
+        let mut projects = parsers::qwen_transcript_projects(&root.join("projects"));
+        for (id, project) in parsers::qwen_session_projects(&root.join("usage_record.jsonl")) {
+            projects.entry(id).or_insert(project);
+        }
+        if !projects.is_empty() {
+            for record in &mut records {
+                if record.project.is_empty() {
+                    if let Some(project) = projects.get(&record.session_id) {
+                        record.project.clone_from(project);
+                    }
+                }
+            }
+        }
     }
     let partial = !notes.is_empty()
         || sources

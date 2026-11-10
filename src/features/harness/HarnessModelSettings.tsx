@@ -5,7 +5,13 @@ import { openExternal } from '../../lib/api/update';
 import { CYAPI_DEFAULT_URL, sameRoute } from '../../lib/api/cyapi';
 import { useCyapiRoutes } from '../../app/useCyapiRoutes';
 import { CyapiRoutes } from '../../app/CyapiRoutes';
-import { harnesses, protocolLabels, type HarnessTool, type ModelProtocol } from './catalog';
+import {
+  harnesses,
+  modelProtocols,
+  protocolLabels,
+  type HarnessTool,
+  type ModelProtocol,
+} from './catalog';
 import { apiEndpoint } from '../../lib/openai-endpoints';
 
 interface View {
@@ -38,6 +44,14 @@ export function HarnessModelSettings({ tool }: { tool: HarnessTool }) {
   const [mode, setMode] = useState<'cyapi' | 'custom'>(tool === 'gemini' ? 'custom' : 'cyapi');
   const { view: routes, loading, refresh } = useCyapiRoutes();
   const limits = ['kilo', 'kimi', 'grok'].includes(tool);
+  // Harness adapters still show every wire protocol; unsupported ones are
+  // disabled and labelled so the restriction is visible instead of hidden.
+  const shownProtocols: readonly ModelProtocol[] =
+    tool === 'gemini' ? ['gemini'] : modelProtocols.filter((p) => p !== 'gemini');
+  const protocolNote =
+    tool === 'aider'
+      ? 'Aider 通过 OpenAI 兼容接口使用 Chat Completions，协议固定为该项，仅作展示、不可切换。'
+      : undefined;
 
   function apply(next: View) {
     setView(next);
@@ -84,6 +98,9 @@ export function HarnessModelSettings({ tool }: { tool: HarnessTool }) {
     event.preventDefault();
     if (!view) return;
     await act(async () => {
+      // The read/save view only reports whether a key exists; keep the value the
+      // user just typed so saving does not look like it dropped the credential.
+      const typedKey = apiKey;
       apply(
         await nativeCall<View>('harness-model-save', {
           workspace: tool,
@@ -98,12 +115,8 @@ export function HarnessModelSettings({ tool }: { tool: HarnessTool }) {
           },
         }),
       );
-      setNotice({
-        text:
-          tool === 'roo'
-            ? '导入文件已保存。请在 Roo Code 中导入下方文件。'
-            : '配置已保存并备份。请在目标工具中新建会话确认模型生效。',
-      });
+      setApiKey(typedKey);
+      setNotice({ text: '配置已保存并备份。请在目标工具中新建会话确认模型生效。' });
     });
   }
 
@@ -230,17 +243,22 @@ export function HarnessModelSettings({ tool }: { tool: HarnessTool }) {
                 value={api}
                 onChange={(e) => setApi(e.target.value as ModelProtocol)}
               >
-                {spec.protocols.map((p) => (
-                  <option key={p} value={p}>
-                    {protocolLabels[p]}
-                  </option>
-                ))}
+                {shownProtocols.map((p) => {
+                  const unsupported = !(spec.protocols as readonly string[]).includes(p);
+                  return (
+                    <option key={p} value={p} disabled={unsupported}>
+                      {protocolLabels[p]}
+                      {unsupported ? '（该工具不支持）' : ''}
+                    </option>
+                  );
+                })}
               </select>
               {api !== 'gemini' && (
                 <p className="n-config-note">
                   实际请求端点：<code>{apiEndpoint(baseUrl, api)}</code>
                 </p>
               )}
+              {protocolNote && <p className="n-config-note">{protocolNote}</p>}
             </div>
             <div className="n-config-field n-api-section">
               <label htmlFor="harness-key">API Key</label>
@@ -362,13 +380,13 @@ export function HarnessModelSettings({ tool }: { tool: HarnessTool }) {
               disabled={busy || !view || !nativeAvailable}
             >
               <Save size={14} />
-              {tool === 'roo' ? '保存导入文件' : '保存配置'}
+              保存配置
             </button>
           </div>
         </form>
       )}
       {view && (
-        <details className="n-source-details" open={tool === 'roo'}>
+        <details className="n-source-details">
           <summary>配置文件位置</summary>
           {view.files.map((file) => (
             <p key={file.path}>

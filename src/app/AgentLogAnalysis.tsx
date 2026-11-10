@@ -20,6 +20,7 @@ import {
 } from './LogAnalysisShared';
 import type { LogTab } from './LogAnalysisShared';
 import { localAgentLogClient } from '../lib/api/agentLogs';
+import { mcpWorkspaceNames } from '../lib/mcp-workspaces';
 import type {
   AgentLogClient,
   AgentLogDetail,
@@ -168,7 +169,7 @@ export function AgentLogAnalysis({
   workspace: LogWorkspace;
   client?: AgentLogClient;
 }) {
-  const name = workspace === 'claude' ? 'Claude Code' : 'OpenCode';
+  const name = mcpWorkspaceNames[workspace];
   const [snapshot, setSnapshot] = useState<AgentLogSnapshot>();
   const [windowSeconds, setWindowSeconds] = useState(86400);
   const [tab, setTab] = useState<LogTab>('overview');
@@ -503,7 +504,9 @@ export function AgentLogAnalysis({
                   <p className="ca-read-scope">
                     {workspace === 'claude'
                       ? 'Claude 输入含未缓存输入、缓存读取及缓存创建；模型响应记录与 API 尝试分别统计。'
-                      : 'OpenCode 消息级用量与压缩用量相加，工具步骤中的重复用量已排除。运行日志 HTTP 单独列出。'}
+                      : workspace === 'qwen'
+                        ? 'Qwen 输入 token 已含缓存命中量；输出含推理 token。用量取自 usage 日志，会话记录只补充标题与项目。'
+                        : 'OpenCode 消息级用量与压缩用量相加，工具步骤中的重复用量已排除。运行日志 HTTP 单独列出。'}
                   </p>
                 </details>
               </div>
@@ -825,7 +828,9 @@ export function AgentLogAnalysis({
               <p className="ca-read-scope">
                 {workspace === 'claude'
                   ? '读取 projects 下的会话 JSONL、会话索引和 subagents，以及 debug 文本。相同消息 ID 合并，工具按调用 ID 关联。'
-                  : '优先读取 opencode.db：新版 session_v2 / session_message 或旧版 session / message / part；数据库不可用时回退到 storage JSON。log 目录提供独立运行证据。'}
+                  : workspace === 'qwen'
+                    ? '读取 usage 下的用量 JSONL，projects 下的会话 JSONL（仅取标题、cwd 与用户轮次），以及 debug/daemon 的运行日志。'
+                    : '优先读取 opencode.db：新版 session_v2 / session_message 或旧版 session / message / part；数据库不可用时回退到 storage JSON。log 目录提供独立运行证据。'}
               </p>
               {snapshot.sources.map((s) => (
                 <details

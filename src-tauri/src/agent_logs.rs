@@ -1,6 +1,7 @@
 //! Application-specific, local-only Claude Code and OpenCode log analysis.
 mod claude;
 mod opencode;
+mod qwen;
 mod runtime;
 #[cfg(test)]
 mod tests;
@@ -439,6 +440,8 @@ fn roots(workspace: &str) -> Result<PathBuf, String> {
     let path = match workspace {
         "claude" => override_dir("CLAUDE_CONFIG_DIR")
             .unwrap_or_else(|| diagnostics::home_path().join(".claude")),
+        "qwen" => override_dir("QWEN_HOME")
+            .unwrap_or_else(|| diagnostics::home_path().join(".qwen")),
         "opencode" => override_dir("XDG_DATA_HOME")
             .unwrap_or_else(|| diagnostics::home_path().join(".local/share"))
             .join("opencode"),
@@ -874,16 +877,16 @@ fn report(snapshot: &Snapshot, session: Option<&str>) -> Result<Value, String> {
     Ok(result)
 }
 fn dispatch(request: Request) -> Result<Value, String> {
-    if !matches!(request.workspace.as_str(), "claude" | "opencode") {
+    if !matches!(request.workspace.as_str(), "claude" | "opencode" | "qwen") {
         return Err("不支持的日志工作区".into());
     }
     let mut result = if request.action == "analyze" {
         let root = roots(&request.workspace)?;
         let mut builder = Builder::new(&request.workspace, &root, request.window.unwrap_or(86400));
-        if request.workspace == "claude" {
-            claude::analyze(&root, &mut builder);
-        } else {
-            opencode::analyze(&root, &mut builder);
+        match request.workspace.as_str() {
+            "claude" => claude::analyze(&root, &mut builder),
+            "qwen" => qwen::analyze(&root, &mut builder),
+            _ => opencode::analyze(&root, &mut builder),
         }
         let snapshot = Arc::new(builder.finish());
         let value = serde_json::to_value(&*snapshot).map_err(|e| e.to_string())?;

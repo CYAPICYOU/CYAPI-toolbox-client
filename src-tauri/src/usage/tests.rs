@@ -341,7 +341,7 @@ fn compressed_codex_rollouts_match_plain_jsonl_and_are_discovered() {
 #[test]
 #[ignore = "read-only smoke check against local agent history"]
 fn local_usage_smoke() {
-    for workspace in ["codex", "claude", "opencode"] {
+    for workspace in ["codex", "claude", "opencode", "qwen"] {
         let start = std::time::Instant::now();
         let report = read(workspace, false).unwrap();
         eprintln!(
@@ -406,4 +406,80 @@ impl FileAppend {
             .write_all(bytes)
             .unwrap();
     }
+}
+
+fn qwen_usage(id: &str, session: &str, input: u64, cached: u64, output: u64, thoughts: u64) -> Value {
+    json!({
+        "schemaVersion": 1,
+        "id": id,
+        "timestamp": "2026-11-10T12:14:28.854Z",
+        "localDate": "2026-11-10",
+        "localMonth": "2026-11",
+        "sessionId": session,
+        "model": "deepseek-v4.1-flash-eco",
+        "authType": "openai",
+        "source": "main",
+        "inputTokens": input,
+        "outputTokens": output,
+        "cachedTokens": cached,
+        "thoughtsTokens": thoughts,
+        "totalTokens": input + output + thoughts,
+        "apiDurationMs": 7496
+    })
+}
+
+#[test]
+fn qwen_cached_tokens_are_a_subset_of_input_tokens() {
+    let f = Fixture::new();
+    // inputTokens already contains the cached portion in Qwen's own schema,
+    // so a cached request must not be counted as input + cached.
+    let path = f.jsonl("token-usage-2026-11.jsonl", &[qwen_usage("a", "s1", 1000, 800, 50, 10)]);
+    let parsed = parsers::jsonl(&path, "qwen").unwrap();
+    assert_eq!(parsed.records.len(), 1);
+    assert_eq!(parsed.records[0].input, 1000);
+    assert_eq!(parsed.records[0].cached_input, 800);
+    assert_eq!(parsed.records[0].output, 60);
+    assert_eq!(parsed.records[0].reasoning_output, 10);
+}
+
+#[test]
+fn qwen_records_use_the_response_id_so_replays_do_not_double_count() {
+    let f = Fixture::new();
+    let row = qwen_usage("resp-1", "s1", 100, 0, 5, 0);
+    let path = f.jsonl("token-usage-2026-11.jsonl", &[row.clone(), row]);
+    let parsed = parsers::jsonl(&path, "qwen").unwrap();
+    assert_eq!(parsed.records.len(), 2);
+    // merge_files deduplicates by this id.
+    assert_eq!(parsed.records[0].id, parsed.records[1].id);
+}
+
+#[test]
+fn qwen_project_is_read_from_the_session_summary() {
+    let f = Fixture::new();
+    let summary = f.jsonl(
+        "usage_record.jsonl",
+        &[json!({
+            "version": 1,
+            "sessionId": "s1",
+            "timestamp": 1794314388706i64,
+            "startTime": 1794312853108i64,
+            "project": "C:\\\\Users\\\\xmyci\\\\Documents\\\\Qwen",
+            "durationMs": 1000,
+            "models": {},
+            "tools": {"totalCalls":0,"totalSuccess":0,"totalFail":0,"byName":{}},
+            "files": {"linesAdded":0,"linesRemoved":0}
+        })],
+    );
+    let projects = parsers::qwen_session_projects(&summary);
+    assert_eq!(
+        projects.get("s1").map(String::as_str),
+        Some("C:\\\\Users\\\\xmyci\\\\Documents\\\\Qwen")
+    );
+}
+
+#[test]
+fn qwen_missing_summary_file_yields_no_projects_instead_of_failing() {
+    let f = Fixture::new();
+    let projects = parsers::qwen_session_projects(&f.0.join("absent.jsonl"));
+    assert!(projects.is_empty());
 }

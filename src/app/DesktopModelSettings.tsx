@@ -19,13 +19,33 @@ interface View {
   dataDir?: string;
 }
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
+type DesktopProtocol = 'openai-responses' | 'openai-completions' | 'anthropic-messages';
+const desktopProtocols: DesktopProtocol[] = [
+  'openai-responses',
+  'openai-completions',
+  'anthropic-messages',
+];
+const desktopProtocolLabels: Record<DesktopProtocol, string> = {
+  'openai-responses': 'OpenAI Responses',
+  'openai-completions': 'OpenAI Chat Completions',
+  'anthropic-messages': 'Anthropic Messages',
+};
+// WorkBuddy only implements Chat Completions; the other tools accept all three.
+const desktopToolProtocols: Record<Tool, DesktopProtocol[]> = {
+  dsh: desktopProtocols,
+  pi: desktopProtocols,
+  minimax: desktopProtocols,
+  workbuddy: ['openai-completions'],
+};
+const workbuddyProtocolNote =
+  'WorkBuddy 目前只支持 OpenAI Chat Completions 接口，协议固定为该项，仅作展示、不可切换。';
 
 export function DesktopModelSettings({ tool }: { tool: Tool }) {
   const [view, setView] = useState<View>();
   const [baseUrl, setBaseUrl] = useState(CYAPI_DEFAULT_URL);
   const [key, setKey] = useState('');
   const [model, setModel] = useState('');
-  const [api, setApi] = useState('openai-completions');
+  const [api, setApi] = useState<DesktopProtocol>(desktopToolProtocols[tool][0]);
   const [models, setModels] = useState<string[]>([]);
   const [mode, setMode] = useState<'cyapi' | 'custom'>('cyapi');
   const [busy, setBusy] = useState(false);
@@ -42,7 +62,11 @@ export function DesktopModelSettings({ tool }: { tool: Tool }) {
         : 'custom',
     );
     setModel(next.model);
-    setApi(next.api || 'openai-completions');
+    setApi(
+      desktopToolProtocols[tool].includes(next.api as DesktopProtocol)
+        ? (next.api as DesktopProtocol)
+        : desktopToolProtocols[tool][0],
+    );
     setModels(next.models ?? []);
     setKey('');
     if (tool === 'minimax' && next.dataDir) setDataDir(next.dataDir);
@@ -74,6 +98,7 @@ export function DesktopModelSettings({ tool }: { tool: Tool }) {
     setBusy(true);
     setNotice(undefined);
     try {
+      const typedKey = key;
       apply(
         await nativeCall<View>('desktop-model-save', {
           workspace: tool,
@@ -81,6 +106,8 @@ export function DesktopModelSettings({ tool }: { tool: Tool }) {
           desktopModel: { baseUrl, apiKey: key, model, api, revision: view.revision },
         }),
       );
+      // The read view never returns the credential, so keep what was just typed.
+      setKey(typedKey);
       if (tool === 'minimax') setModel(model.trim());
       setNotice({
         text:
@@ -213,29 +240,34 @@ export function DesktopModelSettings({ tool }: { tool: Tool }) {
               </div>
             )}
           </section>
-          {tool !== 'workbuddy' && (
-            <div className="n-config-field n-api-section">
-              <label htmlFor="desktop-api-protocol">API 协议</label>
-              <select
-                id="desktop-api-protocol"
-                value={api}
-                onChange={(e) => setApi(e.target.value)}
-              >
-                <option value="openai-completions">OpenAI Chat Completions</option>
-                <option value="openai-responses">OpenAI Responses</option>
-                <option value="anthropic-messages">Anthropic Messages</option>
-              </select>
-              <p className="n-config-note">
-                实际请求端点：
-                <code>
-                  {apiEndpoint(
-                    baseUrl,
-                    api as 'openai-completions' | 'openai-responses' | 'anthropic-messages',
-                  )}
-                </code>
-              </p>
-            </div>
-          )}
+          <div className="n-config-field n-api-section">
+            <label htmlFor="desktop-api-protocol">API 协议</label>
+            <select
+              id="desktop-api-protocol"
+              value={api}
+              onChange={(e) => setApi(e.target.value as DesktopProtocol)}
+            >
+              {desktopProtocols.map((protocol) => {
+                const unsupported = !desktopToolProtocols[tool].includes(protocol);
+                return (
+                  <option key={protocol} value={protocol} disabled={unsupported}>
+                    {desktopProtocolLabels[protocol]}
+                    {unsupported ? '（该工具不支持）' : ''}
+                  </option>
+                );
+              })}
+            </select>
+            <p className="n-config-note">
+              实际请求端点：
+              <code>
+                {apiEndpoint(
+                  baseUrl,
+                  api as 'openai-completions' | 'openai-responses' | 'anthropic-messages',
+                )}
+              </code>
+            </p>
+            {tool === 'workbuddy' && <p className="n-config-note">{workbuddyProtocolNote}</p>}
+          </div>
           <div className="n-config-field n-api-section">
             <label htmlFor="desktop-api-key">API Key</label>
             <input

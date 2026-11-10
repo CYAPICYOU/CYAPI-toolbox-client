@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { nativeAvailable } from './native';
 import type { RequestIp } from './requestNetwork';
 
-export type LogWorkspace = 'claude' | 'opencode';
+export type LogWorkspace = 'claude' | 'opencode' | 'qwen';
 export interface LogTokens {
   input: number;
   output: number;

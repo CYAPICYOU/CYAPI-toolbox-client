@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+﻿import { useEffect, useRef, useState } from 'react';
 import {
   ArrowRight,
   CheckCircle2,
@@ -24,18 +24,21 @@ import type {
   McpLocalEntry,
   McpView,
 } from '../lib/api/native';
+import {
+  isFlatMcpWorkspace,
+  mcpUrlFieldLabel,
+  mcpWorkspaces,
+  mcpWorkspaceNames,
+} from '../lib/mcp-workspaces';
 
 type Workspace = McpView['workspace'];
 type McpTab = 'catalog' | 'installed';
-const workspaceNames: Record<Workspace, string> = {
-  codex: 'Codex',
-  claude: 'Claude Code',
-  opencode: 'OpenCode',
-};
+const workspaceNames = mcpWorkspaceNames;
 const workspaceNotes: Record<Workspace, string> = {
   codex: '管理 Codex 的 MCP 接入；停用保留配置，移除接入不会卸载服务。',
   claude: '管理 Claude Code 的全局 MCP 接入；项目内启用或停用请在 /mcp 中操作。',
   opencode: '管理 OpenCode 的 MCP 接入；停用保留配置，移除接入不会卸载服务。',
+  qwen: '管理 Qwen Code 的全局 MCP 接入；远程服务写入 httpUrl（HTTP）而非 url（SSE）。',
 };
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -50,6 +53,7 @@ type LocalForm = {
   codex: boolean;
   claude: boolean;
   opencode: boolean;
+  qwen: boolean;
 };
 const emptyLocalForm = (workspace: Workspace): LocalForm => ({
   id: '',
@@ -62,6 +66,7 @@ const emptyLocalForm = (workspace: Workspace): LocalForm => ({
   codex: workspace === 'codex',
   claude: workspace === 'claude',
   opencode: workspace === 'opencode',
+  qwen: workspace === 'qwen',
 });
 
 function transportLabel(transport: string) {
@@ -104,7 +109,7 @@ function InstalledActions({
           {status?.state === 'stale' ? '更新凭证' : '更新配置'}
         </button>
       )}
-      {workspace !== 'claude' && (
+      {!isFlatMcpWorkspace(workspace) && (
         <button
           className="n-button"
           disabled={disabled}
@@ -644,7 +649,7 @@ function WorkspaceMcpManager({
                     <span>地址</span>
                     <input
                       value={localForm.url}
-                      placeholder="https://example.com/mcp"
+                      placeholder={mcpUrlFieldLabel(workspace) === 'URL' ? 'https://example.com/mcp' : 'https://example.com/mcp（写入 httpUrl）'}
                       required
                       onChange={(e) => setLocalForm({ ...localForm, url: e.target.value })}
                     />
@@ -652,7 +657,7 @@ function WorkspaceMcpManager({
                 )}
                 <div className="n-mcp-local-workspaces">
                   <span>适用软件</span>
-                  {(['codex', 'claude', 'opencode'] as const).map((name) => (
+                  {mcpWorkspaces.map((name) => (
                     <label key={name}>
                       <input
                         type="checkbox"
@@ -669,7 +674,7 @@ function WorkspaceMcpManager({
                   disabled={
                     disabled ||
                     !localForm.id.trim() ||
-                    ![localForm.codex, localForm.claude, localForm.opencode].some(Boolean)
+                    !mcpWorkspaces.some((name) => localForm[name])
                   }
                 >
                   {busy === 'mcp-local-save' ? (
@@ -725,16 +730,19 @@ function WorkspaceMcpManager({
                     <h2>
                       {server?.name ?? entry.name}
                       <span className="n-pill">{agentName}</span>
-                      {workspace !== 'claude' && (
+                      {!isFlatMcpWorkspace(workspace) && (
                         <span className={`n-pill ${entry.enabled ? 'n-ready' : 'n-warning'}`}>
                           {entry.enabled ? '已启用' : '已停用'}
                         </span>
+                      )}
+                      {isFlatMcpWorkspace(workspace) && (
+                        <span className="n-pill n-ready">全局接入</span>
                       )}
                     </h2>
                     <code>{entry.target || '配置未提供启动地址'}</code>
                     <p className="n-record-meta">
                       {entry.name} · {transportLabel(entry.transport)}
-                      {workspace === 'claude' && ' · 全局接入'}
+                      {isFlatMcpWorkspace(workspace) && ' · 全局接入'}
                     </p>
                     {status?.conflict && !entry.readOnlyReason && (
                       <p className="n-mcp-warning">

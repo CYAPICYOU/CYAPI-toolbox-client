@@ -2334,6 +2334,26 @@ code {
   color: var(--muted);
   font-size: 11px;
 }
+.n-manage-app-site {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
+  max-width: 100%;
+  color: var(--muted);
+  font-size: 11px;
+  text-decoration: none;
+}
+.n-manage-app-site span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.n-manage-app-site:hover {
+  color: var(--green);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 .n-manage-app-visibility {
   display: flex;
   align-items: center;

@@ -36,7 +36,7 @@ const preview: OpenCodeConfiguration = {
   configPath: '%USERPROFILE%\\.config\\opencode\\opencode.json',
   revision: '',
   baseUrl: '',
-  api: 'openai-completions',
+  api: 'openai-responses',
   model: '',
   models: [],
   reasoningEffort: '',
@@ -51,7 +51,7 @@ const preview: OpenCodeConfiguration = {
 export function OpenCodeSettings() {
   const [view, setView] = useState<OpenCodeConfiguration>();
   const [baseUrl, setBaseUrl] = useState(CYAPI_DEFAULT_URL);
-  const [api, setApi] = useState<OpenAiProtocol>('openai-completions');
+  const [api, setApi] = useState<OpenAiProtocol>('openai-responses');
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [model, setModel] = useState('');
@@ -70,7 +70,7 @@ export function OpenCodeSettings() {
     setView(metadata);
     const url = next.baseUrl || CYAPI_DEFAULT_URL;
     setBaseUrl(url);
-    setApi(next.api || 'openai-completions');
+    setApi(next.api || 'openai-responses');
     modeTouched.current = false;
     setMode(
       routes.manifest.routes.some((route) => sameRoute(url, route.baseUrl)) ? 'cyapi' : 'custom',
@@ -278,8 +278,8 @@ export function OpenCodeSettings() {
               value={api}
               onChange={(event) => setApi(event.target.value as OpenAiProtocol)}
             >
-              <option value="openai-completions">OpenAI Chat Completions</option>
               <option value="openai-responses">OpenAI Responses</option>
+              <option value="openai-completions">OpenAI Chat Completions</option>
             </select>
             <p className="n-config-note">
               实际请求端点：<code>{openAiEndpoint(baseUrl, api)}</code>

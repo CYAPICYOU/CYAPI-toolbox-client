@@ -15,7 +15,6 @@ export const LOGO_COLOURS = {
   qwen: '#082dff',
   kimi: '#1783ff',
   continue: '#303038', // dominant non-white pixels in the official extension icon
-  roo: '#383838',
   aider: '#00f8a0', // dominant bright foreground in the official website icon
   cursor: '#383838',
   gemini: '#3186ff', // base fill underneath the multicolour gradient

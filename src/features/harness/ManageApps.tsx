@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Search, Settings2 } from 'lucide-react';
+import { ExternalLink, Search, Settings2 } from 'lucide-react';
 import { Modal } from '../../components/Primitives';
 import { nativeAvailable } from '../../lib/api/native';
+import { openExternal } from '../../lib/api/update';
 import { appIsVisible, DEFAULT_APPS, type AppEntry } from './apps';
 import type { useToolApps } from './useToolApps';
 import { AppLogo } from './AppLogo';
@@ -19,7 +20,7 @@ export function ManageApps({
 }) {
   const [query, setQuery] = useState('');
   const filtered = apps.filter((app) =>
-    `${app.name} ${app.hint}`.toLowerCase().includes(query.trim().toLowerCase()),
+    `${app.name} ${app.hint} ${app.site ?? ''}`.toLowerCase().includes(query.trim().toLowerCase()),
   );
   return (
     <Modal title="管理 App" onClose={onClose} className="n-manage-apps">
@@ -44,6 +45,7 @@ export function ManageApps({
         {filtered.map((app) => {
           const detected = state.detection.apps.find(({ id }) => id === app.id);
           const shown = appIsVisible(app.id, state.preferences, state.detection.apps);
+          const site = app.site;
           return (
             <div key={app.id} className="n-manage-app-row">
               <AppLogo id={app.id} size="large" />
@@ -60,6 +62,23 @@ export function ManageApps({
                           ? '未检测到安装'
                           : app.hint}
                 </small>
+                {site && (
+                  <a
+                    className="n-manage-app-site"
+                    href={site}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={site}
+                    onClick={(event) => {
+                      if (!nativeAvailable) return;
+                      event.preventDefault();
+                      void openExternal(site);
+                    }}
+                  >
+                    <ExternalLink size={11} />
+                    <span>{site.replace(/^https?:\/\//, '').replace(/\/$/, '')}</span>
+                  </a>
+                )}
               </div>
               <button
                 className="n-button"

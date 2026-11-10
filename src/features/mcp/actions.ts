@@ -5,6 +5,7 @@ const workspaceNames: Record<Workspace, string> = {
   codex: 'Codex',
   claude: 'Claude Code',
   opencode: 'OpenCode',
+  qwen: 'Qwen Code',
 };
 
 /** A direct action is also consent to edit an existing local configuration. */

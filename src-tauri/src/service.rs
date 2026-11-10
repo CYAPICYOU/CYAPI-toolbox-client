@@ -996,6 +996,12 @@ impl Service {
                 "global",
                 visible("opencode", false),
             ),
+            root(
+                self.home.join(".qwen/skills"),
+                "qwen",
+                "global",
+                visible("qwen", false),
+            ),
         ];
         for target in ["dsh", "pi", "workbuddy"] {
             if let Ok(home) = self.extra_skill_home(target) {
@@ -1004,6 +1010,10 @@ impl Service {
         }
         if let Some(root) = roots.iter_mut().find(|r| r.path == self.home.join(".agents/skills")) {
             root.visible_targets.push("pi".into());
+            // Qwen reads both `~/.qwen/skills` and `~/.agents/skills`
+            // (SKILL_PROVIDER_CONFIG_DIRS = ['.qwen', '.agents']), so a Skill
+            // installed for Codex is already visible to Qwen.
+            root.visible_targets.push("qwen".into());
         }
         if self.config_env("DSH_AGENTS_HOME").is_none() {
             if let Some(root) = roots.iter_mut().find(|r| r.path == self.home.join(".agents/skills")) {
@@ -1066,6 +1076,12 @@ impl Service {
                             "opencode",
                             "project",
                             visible("opencode", false),
+                        ),
+                        root(
+                            directory.join(".qwen/skills"),
+                            "qwen",
+                            "project",
+                            visible("qwen", false),
                         ),
                         root(directory.join(".pi/skills"), "pi", "project", visible("pi", false)),
                         root(
@@ -1506,6 +1522,7 @@ impl Service {
         crate::mcp::Context {
             codex_config: self.codex_home().join("config.toml"),
             claude_config: self.claude_mcp_config(),
+            qwen_config: self.home.join(".qwen/settings.json"),
             opencode_config: self.opencode_location(),
             app_data: self.app_data_dir(),
         }
@@ -1558,7 +1575,7 @@ impl Service {
         target: &str,
         scope: &str,
         project: &str,
-    ) -> Result<PathBuf> {        if !["codex", "claude", "opencode", "dsh", "pi", "workbuddy"].contains(&target)
+    ) -> Result<PathBuf> {        if !["codex", "claude", "opencode", "qwen", "dsh", "pi", "workbuddy"].contains(&target)
             || !["global", "project"].contains(&scope)
         {
             return Err("安装目标无效".into());
@@ -1573,6 +1590,7 @@ impl Service {
             match target {
                 "codex" => self.codex_home(),
                 "opencode" => self.opencode_home(),
+                "qwen" => self.home.join(".qwen"),
                 "dsh" | "pi" | "workbuddy" => self.extra_skill_home(target)?,
                 _ => self.claude_home(),
             }
@@ -1606,6 +1624,7 @@ impl Service {
                     "opencode" => ".opencode",
                     "dsh" => ".dsh",
                     "pi" => ".pi",
+                    "qwen" => ".qwen",
                     _ => ".claude",
                 }
                 .to_string()
@@ -2671,6 +2690,32 @@ exit 1
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn qwen_reads_its_own_skill_directory_and_inherits_agents_skills() {
+        let root = env::temp_dir().join(format!("cyapi-qwen-skills-{}", uuid::Uuid::new_v4()));
+        let service = Service::new(root.join("data"), root.join("home")).unwrap();
+        let roots = service.skill_roots(None);
+
+        // Qwen's own user-level directory must be discoverable and writable.
+        let qwen = roots
+            .iter()
+            .find(|root| root.path == service.home.join(".qwen/skills"))
+            .expect("Qwen skill root");
+        assert_eq!(qwen.target, "qwen");
+        assert_eq!(qwen.scope, "global");
+        assert!(qwen.visible_targets.iter().any(|item| item == "qwen"));
+
+        // Qwen also loads ~/.agents/skills, so an installed Codex Skill is
+        // already visible to Qwen without reinstalling it.
+        let agents = roots
+            .iter()
+            .find(|root| root.path == service.home.join(".agents/skills"))
+            .expect("shared agents skill root");
+        assert!(agents.visible_targets.iter().any(|item| item == "qwen"));
+
+        let _ = fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn damaged_skill_cache_does_not_disable_local_configuration_or_installed_records() {

@@ -144,13 +144,15 @@ test('tool selector retains the desktop model integrations', () => {
   const app = read('src/app/App.tsx');
   for (const name of ['DeepSeek Harness', 'WorkBuddy', 'Pi Coding Agent', 'MiniMax Code'])
     assert.ok(app.includes(name));
-  for (const hint of [
-    "id: 'dsh', name: 'DeepSeek Harness', hint: 'Deepseek'",
-    "id: 'workbuddy', name: 'WorkBuddy', hint: 'Tencent'",
-    "id: 'pi', name: 'Pi Coding Agent', hint: '开源'",
-    "id: 'minimax', name: 'MiniMax Code', hint: 'Mininax'",
-  ])
+  for (const hint of ["hint: 'Deepseek'", "hint: 'Tencent'", "hint: '开源'", "hint: 'Mininax'"])
     assert.ok(app.includes(hint));
+  for (const site of [
+    'https://github.com/deepseek-ai/deepseek-harness',
+    'https://www.workbuddy.ai/',
+    'https://pi.dev/',
+    'https://code.minimax.cn/about',
+  ])
+    assert.ok(app.includes(site), `missing official address ${site}`);
   assert.match(app, /<DesktopModelSettings key=\{desktopTool\} tool=\{desktopTool\}/);
   const service = read('src-tauri/src/service.rs');
   assert.match(service, /desktop-model-read/);
@@ -739,7 +741,7 @@ test('ComfyUI import accepts canvas, API and shared graphs and rejects unrelated
 
 test('GPT Image editor graphs add an explicit base image and a connected save node', () => {
   const base = importWorkflow(JSON.stringify({ '1': { class_type: 'CYAPI_GPTImage25Edit', inputs: { prompt: '', image_1: null } } }), 'fixture.json');
-  const template = { ...base, id: 'gpt-image-25-edit', source: 'server' as const, form: { prompt: { label: '提示', required: true } } };
+  const template = { ...base, id: 'gpt-image-25-edit', kind: 'image' as const, outputs: ['IMAGE'], source: 'server' as const, form: { prompt: { label: '提示', required: true } } };
   const document = workflowDocument(template, 'edit') as { prompt: Record<string, { class_type: string; inputs: Record<string, unknown>; _meta?: { title?: string } }> };
   assert.equal(document.prompt['1'].inputs.prompt, 'edit');
   assert.deepEqual(document.prompt['1'].inputs.image_1, ['2', 0]);
@@ -752,6 +754,64 @@ test('GPT Image editor graphs add an explicit base image and a connected save no
   assert.equal(document.prompt['6'].class_type, 'SaveImage');
   assert.deepEqual(document.prompt['6'].inputs.images, ['1', 0]);
   assert.equal(template.apiGraph?.['1'].inputs.image_1, null);
+});
+
+test('every image or video template ends its canvas with the same save node', () => {
+  const graph = (classType: string) => ({ '1': { class_type: classType, inputs: { prompt: '' } } });
+  const cases = [
+    [{ id: 'wan27-image', kind: 'video' as const, outputs: ['IMAGE'] }, 'SaveImage'],
+    [{ id: 'cogview-3-flash', kind: 'video' as const, outputs: ['IMAGE'] }, 'SaveImage'],
+    [{ id: 'gpt-image-25-generate', kind: 'video' as const, outputs: ['IMAGE'] }, 'SaveImage'],
+  ];
+  for (const [template, expected] of cases) {
+    const document = workflowDocument(
+      {
+        ...importWorkflow(JSON.stringify(graph('CYAPI_Example')), 'fixture.json'),
+        source: 'server' as const,
+        form: { prompt: { label: '提示', required: true } },
+        ...template,
+      },
+      'prompt',
+    ) as { prompt: Record<string, { class_type: string; inputs: Record<string, unknown>; _meta?: { title?: string } }> };
+    const save = Object.values(document.prompt).find((node) => node.class_type === expected);
+    assert.ok(save, `${template.id}: expected ${expected}`);
+    assert.deepEqual(save.inputs.images, ['1', 0]);
+    assert.equal(save._meta?.title, '保存并预览生成结果');
+    assert.equal(save.inputs.filename_prefix, 'CYAPI');
+  }
+
+  // A video generator declares a VIDEO socket; the canvas closes with the
+  // stable CYAPI node instead of upstream SaveVideo, whose widgets changed
+  // between ComfyUI releases.
+  const video = workflowDocument(
+    {
+      ...importWorkflow(JSON.stringify(graph('CYAPI_Video')), 'fixture.json'),
+      id: 'cogvideox-flash',
+      kind: 'video' as const,
+      outputs: ['VIDEO'],
+      source: 'server' as const,
+      form: { prompt: { label: '提示', required: true } },
+    },
+    'prompt',
+  ) as { prompt: Record<string, { class_type: string; inputs: Record<string, unknown>; _meta?: { title?: string } }> };
+  const save = Object.values(video.prompt).find((node) => node.class_type === 'CYAPI_SaveVideo');
+  assert.ok(save, 'video template must end with CYAPI_SaveVideo');
+  assert.deepEqual(save.inputs.video, ['1', 0]);
+  assert.equal(save._meta?.title, '保存并预览生成结果');
+});
+
+test('text and audio templates keep their artifacts untouched', () => {
+  for (const kind of ['transcription', 'speech', 'text'] as const) {
+    const template = {
+      ...importWorkflow(JSON.stringify({ '1': { class_type: 'CYAPI_Text', inputs: { prompt: '' } } }), 'fixture.json'),
+      id: 'text-template',
+      kind,
+      source: 'server' as const,
+      form: { prompt: { label: '提示', required: true } },
+    };
+    const document = workflowDocument(template, 'prompt') as { prompt: Record<string, { class_type: string }> };
+    assert.equal(Object.keys(document.prompt).length, 1);
+  }
 });
 
 test('workflow forms reject simultaneous mask and markup', () => {

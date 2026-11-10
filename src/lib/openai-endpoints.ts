@@ -1,9 +1,9 @@
-export type OpenAiProtocol = 'openai-completions' | 'openai-responses';
+export type OpenAiProtocol = 'openai-responses' | 'openai-completions';
 export type ApiProtocol = OpenAiProtocol | 'anthropic-messages';
 
 const endpointSuffix: Record<ApiProtocol, string> = {
-  'openai-completions': '/chat/completions',
   'openai-responses': '/responses',
+  'openai-completions': '/chat/completions',
   'anthropic-messages': '/messages',
 };
 

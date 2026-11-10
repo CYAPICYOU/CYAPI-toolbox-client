@@ -28,10 +28,10 @@ impl Fixture {
     }
     fn analyze(&self, workspace: &str) -> Snapshot {
         let mut b = self.builder(workspace);
-        if workspace == "claude" {
-            claude::analyze(&self.0, &mut b);
-        } else {
-            opencode::analyze(&self.0, &mut b);
+        match workspace {
+            "claude" => claude::analyze(&self.0, &mut b),
+            "qwen" => qwen::analyze(&self.0, &mut b),
+            _ => opencode::analyze(&self.0, &mut b),
         }
         b.finish()
     }
@@ -671,5 +671,81 @@ fn browser_fixtures() {
             serde_json::to_vec_pretty(&value).unwrap(),
         )
         .unwrap();
+    }
+}
+
+#[test]
+fn qwen_usage_log_is_the_only_token_source_and_the_transcript_only_adds_sessions() {
+    let f = Fixture::new();
+    // One API response, with the cached portion already inside `inputTokens`.
+    f.lines("usage/token-usage-2026-11.jsonl", &[json!({
+        "schemaVersion": 1,
+        "id": "resp-1",
+        "timestamp": "2023-11-14T22:13:20.000Z",
+        "localDate": "2023-11-14",
+        "localMonth": "2023-11",
+        "sessionId": "sess-qwen",
+        "model": "qwen-test",
+        "authType": "openai",
+        "source": "main",
+        "inputTokens": 1000,
+        "outputTokens": 40,
+        "cachedTokens": 600,
+        "thoughtsTokens": 10,
+        "totalTokens": 1050,
+        "apiDurationMs": 1200
+    })]);
+    // The transcript repeats the same numbers in `ui_telemetry`; replaying it
+    // must not add a second copy of those tokens.
+    f.lines("projects/c--demo/chats/sess-qwen.jsonl", &[
+        json!({"uuid":"a","type":"user","cwd":"C:\\demo","timestamp":"2023-11-14T22:13:10.000Z","message":{"role":"user","parts":[{"text":SECRET}]}}),
+        json!({"uuid":"b","type":"assistant","cwd":"C:\\demo","timestamp":"2023-11-14T22:13:20.000Z","model":"qwen-test",
+               "message":{"role":"model","parts":[{"text":SECRET}]},
+               "usageMetadata":{"promptTokenCount":1000,"candidatesTokenCount":40,"thoughtsTokenCount":10,"cachedContentTokenCount":600,"totalTokenCount":1050}}),
+        json!({"uuid":"c","type":"system","cwd":"C:\\demo","timestamp":"2023-11-14T22:13:21.000Z","subtype":"custom_title","systemPayload":{"customTitle":"Demo session"}})
+    ]);
+    f.write("debug/daemon/daemon.log", "2023-11-14T22:13:22.000Z [ERROR] [DAEMON] route=GET /missing status=500 request failed\n");
+    let snapshot = f.analyze("qwen");
+    private_free(&snapshot);
+    // Exactly one response event: the usage log owns tokens, the transcript
+    // only contributes the session envelope.
+    assert_eq!(snapshot.totals.responses, 1);
+    assert_eq!(snapshot.totals.tokens.input, 1000);
+    // Output includes the reasoning subset, so it is 40 + 10, not 40 + 10 again.
+    assert_eq!(snapshot.totals.tokens.output, 50);
+    assert_eq!(snapshot.totals.tokens.cache_read, 600);
+    assert_eq!(snapshot.totals.tokens.reasoning, 10);
+    let session = snapshot.sessions.iter().find(|s| s.id == "sess-qwen").unwrap();
+    assert_eq!(session.title, "Demo session");
+    assert_eq!(session.project, "C:\\demo");
+    assert_eq!(session.stats.user_turns, 1);
+    // The runtime log contributes its own diagnostics event.
+    assert!(snapshot.events.iter().any(|e| e.level == "ERROR"));
+    assert!(!snapshot.partial, "{:?}", snapshot.notes);
+}
+
+#[test]
+fn local_qwen_log_smoke() {
+    // Read-only smoke check against the developer's own Qwen directory.
+    let home = diagnostics::home_path().join(".qwen");
+    if !home.exists() {
+        return;
+    }
+    let mut b = Builder::new("qwen", &home, 0);
+    qwen::analyze(&home, &mut b);
+    let snapshot = b.finish();
+    eprintln!(
+        "qwen logs: events={} responses={} sessions={} sources={} partial={}",
+        snapshot.events.len(),
+        snapshot.totals.responses,
+        snapshot.sessions.len(),
+        snapshot.sources.len(),
+        snapshot.partial
+    );
+    for source in &snapshot.sources {
+        eprintln!(
+            "  source {} records={} status={} note={}",
+            source.role, source.records, source.status, source.note
+        );
     }
 }

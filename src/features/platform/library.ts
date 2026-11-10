@@ -21,6 +21,8 @@ export interface WorkflowTemplate {
     options?: WorkflowFormOption[];
   };
   apiGraph?: WorkflowGraph;
+  /** ComfyUI output sockets declared by the real AI node (IMAGE, VIDEO, ...). */
+  outputs?: string[];
   workflow?: Record<string, unknown>;
   execution: 'preview';
   transport?: 'bridge' | 'worker';
@@ -121,6 +123,31 @@ export function importWorkflow(source: string, filename: string): WorkflowTempla
   };
 }
 
+/** Output socket of the real AI node, from the published catalog entry. */
+function outputIndex(template: WorkflowTemplate, type: 'IMAGE' | 'VIDEO') {
+  if (Array.isArray(template.outputs)) return template.outputs.includes(type) ? template.outputs.indexOf(type) : null;
+  // Older catalogs publish no socket list. An image generator is unambiguous;
+  // a legacy video node returned a file path string, which cannot feed a VIDEO
+  // socket, so video is only expanded when the catalog declares the socket.
+  if (type === 'IMAGE' && ['image', 'image-reference'].includes(template.kind)) return 0;
+  return null;
+}
+
+/** The save node that closes the canvas: images use SaveImage, video CYAPI_SaveVideo. */
+function saveNode(output: 'IMAGE' | 'VIDEO', source: string, index: number) {
+  return output === 'VIDEO'
+    ? {
+        class_type: 'CYAPI_SaveVideo',
+        inputs: { video: [source, index], filename_prefix: 'CYAPI' },
+        _meta: { title: '保存并预览生成结果' },
+      }
+    : {
+        class_type: 'SaveImage',
+        inputs: { images: [source, index], filename_prefix: 'CYAPI' },
+        _meta: { title: '保存并预览生成结果' },
+      };
+}
+
 /** Fill only declared text widgets, never linked node inputs. */
 export function workflowDocument(template: WorkflowTemplate, prompt = '') {
   // Imported canvases carry positions, groups and widget settings that cannot
@@ -135,8 +162,8 @@ export function workflowDocument(template: WorkflowTemplate, prompt = '') {
     }
   // Server templates contain the Bridge node only. Expand the editor graph
   // without changing the published graph used by the direct Bridge runner.
-  if (template.source === 'server' && ['gpt-image-25-generate', 'gpt-image-25-edit'].includes(template.id)) {
-    const entry = Object.entries(graph).find(([, node]) => node.class_type.startsWith('CYAPI_GPTImage25'));
+  if (template.source === 'server') {
+    const entry = Object.entries(graph).find(([, node]) => node.class_type.startsWith('CYAPI_'));
     if (entry) {
       const [id, node] = entry;
       let next = Math.max(0, ...Object.keys(graph).map(key => Number(key) || 0)) + 1;
@@ -151,7 +178,13 @@ export function workflowDocument(template: WorkflowTemplate, prompt = '') {
         const combine = String(next++);
         graph[combine] = { class_type: 'CYAPI_MarkupFromImage', inputs: { image: [overlay, 0], mask: [overlay, 1] }, _meta: { title: '合并标注透明通道（连到 markup）' } };
       }
-      graph[String(next)] = { class_type: 'SaveImage', inputs: { images: [id, 0], filename_prefix: 'CYAPI' }, _meta: { title: '保存并预览生成结果' } };
+      // Every image or video generator ends with the same save-and-preview node.
+      // Images use the standard SaveImage; video uses CYAPI_SaveVideo so the
+      // canvas stays valid across ComfyUI releases.
+      const image = outputIndex(template, 'IMAGE');
+      const video = outputIndex(template, 'VIDEO');
+      if (image !== null || video !== null)
+        graph[String(next)] = saveNode(image !== null ? 'IMAGE' : 'VIDEO', id, image ?? (video as number));
     }
   }
   return { prompt: graph };

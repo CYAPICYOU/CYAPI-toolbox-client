@@ -234,7 +234,7 @@ fn view_at(paths: &[PathBuf], version: &str) -> Result<Value> {
         ""
     };
     Ok(
-        json!({"version":version,"revision":revision(&files),"baseUrl":p.and_then(|p| p.get("baseUrl")).and_then(Value::as_str).unwrap_or(""),"model":model,"api":p.and_then(|p|p.get("api")).and_then(Value::as_str).unwrap_or("openai-completions"),"models":p.and_then(|p|p.get("models")).and_then(Value::as_array).map(|m|m.iter().filter_map(|m|m.get("id").and_then(Value::as_str)).collect::<Vec<_>>()).unwrap_or_default(),"apiKeyConfigured":p.and_then(|p| p.get("apiKey")).and_then(Value::as_str).is_some_and(|v| !v.is_empty()),"configPath":paths[0]}),
+        json!({"version":version,"revision":revision(&files),"baseUrl":p.and_then(|p| p.get("baseUrl")).and_then(Value::as_str).unwrap_or(""),"model":model,"api":p.and_then(|p|p.get("api")).and_then(Value::as_str).unwrap_or("openai-responses"),"models":p.and_then(|p|p.get("models")).and_then(Value::as_array).map(|m|m.iter().filter_map(|m|m.get("id").and_then(Value::as_str)).collect::<Vec<_>>()).unwrap_or_default(),"apiKeyConfigured":p.and_then(|p| p.get("apiKey")).and_then(Value::as_str).is_some_and(|v| !v.is_empty()),"configPath":paths[0]}),
     )
 }
 pub fn save(home: &Path, input: &Input) -> Result<()> {

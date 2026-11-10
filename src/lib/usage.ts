@@ -1,4 +1,4 @@
-export type UsageWorkspace = 'codex' | 'claude' | 'opencode';
+export type UsageWorkspace = 'codex' | 'claude' | 'opencode' | 'qwen';
 export interface UsageRecord {
   id: string;
   sessionId: string;

@@ -793,6 +793,7 @@ mod tests {
         crate::mcp::Context {
             codex_config: root.join("config.toml"),
             claude_config: root.join("claude.json"),
+            qwen_config: root.join("qwen-settings.json"),
             opencode_config: crate::opencode_config::Location::Directory(root.join("opencode")),
             app_data: root.join("AppData"),
         }

@@ -2,7 +2,7 @@
 
 面向 **Codex、Claude Code 和 OpenCode** 的本地 AI 桌面工具箱，将常用配置与能力管理集中到一个界面。支持 Windows 10 / 11 x64 和 macOS 11+（Apple 芯片 / Intel），提供浅色、深色及跟随系统外观。
 
-可管理 API 与模型、安装 Skill、配置 MCP、准备 Node / Python 运行环境，并查看本机日志与用量统计。除 Codex、Claude Code、OpenCode 外，模型接入也覆盖 Cline、Kilo Code、Qwen Code、Kimi Code CLI、Continue、Roo Code、Aider、Cursor、Gemini CLI、Grok Build，以及 DeepSeek Harness、WorkBuddy、Pi Coding Agent、MiniMax Code；各工作区分别管理，配置写入前备份；软件接入提供教程、版本核对与首次使用引导。
+可管理 API 与模型、安装 Skill、配置 MCP、准备 Node / Python 运行环境，并查看本机日志与用量统计。除 Codex、Claude Code、OpenCode 外，模型接入也覆盖 Cline、Kilo Code、Qwen Code、Kimi Code、Continue、Aider、Cursor、Gemini CLI、Grok Build，以及 DeepSeek Harness、WorkBuddy、Pi Coding Agent、MiniMax Code；各工作区分别管理，配置写入前备份；软件接入提供教程、版本核对与首次使用引导。
 
 **下载：** [官方网站](https://tool.cyapi.cyou/#download) · [GitHub Releases](https://github.com/CYAPICYOU/CYAPI-toolbox-client/releases)。
 

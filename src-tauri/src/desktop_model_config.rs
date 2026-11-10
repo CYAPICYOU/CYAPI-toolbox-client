@@ -23,7 +23,7 @@ pub struct Input {
 }
 
 pub(crate) fn default_api() -> String {
-    "openai-completions".into()
+    "openai-responses".into()
 }
 
 pub(crate) fn validate(input: &Input) -> Result<String> {
@@ -499,6 +499,8 @@ pub fn view(home: &Path, tool: &str) -> Result<Value> {
     let mut known_models = Vec::new();
     if tool == "workbuddy" {
         let value = json_file(files[0].1.as_deref())?;
+        // WorkBuddy only speaks Chat Completions; the protocol select is hidden for it.
+        api = "openai-completions".into();
         if let Some(models) = value.get("models") {
             let models = models.as_array().ok_or("WorkBuddy 模型列表格式无效")?;
             known_models = models
@@ -530,7 +532,7 @@ pub fn view(home: &Path, tool: &str) -> Result<Value> {
                     .collect();
                 api = p["api"]
                     .as_str()
-                    .unwrap_or("openai-completions")
+                    .unwrap_or("openai-responses")
                     .to_string();
                 base_url = p["baseURL"].as_str().unwrap_or("").to_string();
                 model = p
@@ -779,7 +781,13 @@ mod tests {
             api_key: "fictional-test-key".into(),
             model: model.into(),
             revision: revision(&snapshot(home, tool).unwrap()),
-            api: default_api(),
+            // WorkBuddy only accepts Chat Completions; everything else defaults
+            // to the Responses protocol.
+            api: if tool == "workbuddy" {
+                "openai-completions".into()
+            } else {
+                default_api()
+            },
         }
     }
     #[test]

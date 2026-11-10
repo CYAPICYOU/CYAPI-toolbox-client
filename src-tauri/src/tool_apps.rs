@@ -19,7 +19,6 @@ const TOOLS: &[(&str, &[&str])] = &[
     ("qwen", &["qwen"]),
     ("kimi", &["kimi"]),
     ("continue", &["cn"]),
-    ("roo", &[]),
     ("aider", &["aider"]),
     ("cursor", &["cursor"]),
     ("gemini", &["gemini"]),
@@ -28,7 +27,6 @@ const TOOLS: &[(&str, &[&str])] = &[
 const EXTENSIONS: &[(&str, &str)] = &[
     ("cline", "saoudrizwan.claude-dev"),
     ("kilo", "kilocode.kilo-code"),
-    ("roo", "rooveterinaryinc.roo-cline"),
     ("continue", "continue.continue"),
     ("codex", "openai.chatgpt"),
     ("claude", "anthropic.claude-code"),
@@ -113,15 +111,18 @@ fn discover_files(bins: &[PathBuf], extension_dirs: &[PathBuf]) -> HashMap<Strin
 
 fn desktop_declarations() -> Vec<Value> {
     [
-        ("codex", "Codex", "Codex.app", "Programs/Codex/Codex.exe"),
-        ("opencode", "OpenCode", "OpenCode.app", "OpenCode/OpenCode.exe"),
-        ("dsh", "DeepSeek Harness", "DeepSeek Harness.app", "Programs/DeepSeek Harness/DeepSeek Harness.exe"),
-        ("workbuddy", "WorkBuddy", "WorkBuddy.app", "Programs/WorkBuddy/WorkBuddy.exe"),
-        ("minimax", "MiniMax Code", "MiniMax Code.app", "Programs/MiniMax Code/MiniMax Code.exe"),
-        ("cline", "Cline", "Cline.app", "Programs/Cline/Cline.exe"),
-        ("cursor", "Cursor", "Cursor.app", "Programs/cursor/Cursor.exe"),
-    ].into_iter().map(|(id, name, bundle, executable)| json!({
-        "id":id,"detection":{"windowsNames":[name],"windowsExecutables":[{"root":"localAppData","path":executable}],"macosBundles":[bundle]}
+        ("codex", "Codex", "Codex.app", "localAppData", "Programs/Codex/Codex.exe"),
+        ("opencode", "OpenCode", "OpenCode.app", "localAppData", "OpenCode/OpenCode.exe"),
+        ("dsh", "DeepSeek Harness", "DeepSeek Harness.app", "localAppData", "Programs/DeepSeek Harness/DeepSeek Harness.exe"),
+        ("workbuddy", "WorkBuddy", "WorkBuddy.app", "localAppData", "Programs/WorkBuddy/WorkBuddy.exe"),
+        ("minimax", "MiniMax Code", "MiniMax Code.app", "localAppData", "Programs/MiniMax Code/MiniMax Code.exe"),
+        ("cline", "Cline", "Cline.app", "localAppData", "Programs/Cline/Cline.exe"),
+        // The Kimi Code desktop installer targets Program Files, not the
+        // per-user Programs directory.
+        ("kimi", "Kimi Code", "Kimi Code.app", "programFiles", "Kimi Code/Kimi Code.exe"),
+        ("cursor", "Cursor", "Cursor.app", "localAppData", "Programs/cursor/Cursor.exe"),
+    ].into_iter().map(|(id, name, bundle, root, executable)| json!({
+        "id":id,"detection":{"windowsNames":[name],"windowsExecutables":[{"root":root,"path":executable}],"macosBundles":[bundle]}
     })).collect()
 }
 
@@ -141,7 +142,7 @@ pub fn detect(home: &Path) -> Value {
             ".npm-global/bin",
             ".local/share/pnpm",
             ".cline/bin",
-            ".kimi/bin",
+            ".kimi-code/bin",
             ".grok/bin",
             "bin",
         ]
@@ -227,11 +228,7 @@ mod tests {
         for (folder, publisher, name) in [
             ("continue.continue-1.0", "Continue", "continue"),
             ("saoudrizwan.claude-dev-1.0", "wrong", "claude-dev"),
-            (
-                "rooveterinaryinc.roo-cline-1.0",
-                "RooVeterinaryInc",
-                "roo-cline",
-            ),
+            ("kilocode.kilo-code-1.0", "kilocode", "kilo-code"),
         ] {
             let dir = extensions.join(folder);
             fs::create_dir_all(&dir).unwrap();
@@ -243,7 +240,7 @@ mod tests {
         }
         fs::write(
             extensions.join(".obsolete"),
-            r#"{"rooveterinaryinc.roo-cline-1.0":true}"#,
+            r#"{"kilocode.kilo-code-1.0":true}"#,
         )
         .unwrap();
         let found = discover_files(&[bin], &[extensions]);
@@ -251,7 +248,7 @@ mod tests {
         assert!(found.contains_key("continue"));
         assert!(!found.contains_key("grok"));
         assert!(!found.contains_key("cline"));
-        assert!(!found.contains_key("roo"));
+        assert!(!found.contains_key("kilo"));
         fs::remove_dir_all(home).unwrap();
     }
 }

@@ -1,7 +1,8 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { mcpConfirmation } from '../src/features/mcp/actions.ts';
+import { flatMcpWorkspaces, httpUrlWorkspaces } from '../src/lib/mcp-workspaces.ts';
 import type { McpLocalEntry } from '../src/lib/api/native.ts';
 
 const external: McpLocalEntry = {
@@ -56,4 +57,24 @@ test('MCP UI hides management internals and keeps read-only entries actionless',
   assert.match(source, /if \(entry\.readOnlyReason\)/);
   assert.match(source, /移除接入/);
   assert.match(source, /if \(confirmation && !window\.confirm\(confirmation\)\) return;/);
+});
+
+test('flat MCP workspaces stay in sync with the Rust layout', () => {
+  // The UI hides the enable/disable toggle for these agents because their
+  // configuration has no flag. If the Rust side grows another such agent,
+  // this test fails so both lists are updated together.
+  const rust = readFileSync(new URL('../src-tauri/src/mcp.rs', import.meta.url), 'utf8');
+  const flat = /fn flat_mcp_layout\(workspace: &str\) -> bool \{\s*matches!\(workspace, ([^)]+)\)/.exec(
+    rust,
+  );
+  assert.ok(flat, 'flat_mcp_layout not found in mcp.rs');
+  const rustWorkspaces = [...flat![1].matchAll(/"([a-z]+)"/g)].map((m) => m[1]).sort();
+  assert.deepEqual([...flatMcpWorkspaces].sort(), rustWorkspaces);
+
+  // Qwen alone uses httpUrl for streamable HTTP.
+  const key = /fn http_url_key\(workspace: &str\) -> &'static str \{\s*if workspace == "([a-z]+)"/.exec(
+    rust,
+  );
+  assert.ok(key, 'http_url_key not found in mcp.rs');
+  assert.deepEqual([...httpUrlWorkspaces], [key![1]]);
 });

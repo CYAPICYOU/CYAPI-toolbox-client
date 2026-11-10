@@ -1,4 +1,4 @@
-import { invoke, isTauri } from '@tauri-apps/api/core';
+﻿import { invoke, isTauri } from '@tauri-apps/api/core';
 import { CodexSaveConflict, codexSaveConflictMessage } from '../codex-save';
 import type { IntegrationGuide, SoftwareCompatibility } from '../../../shared/integration-guide';
 import type { OpenAiProtocol } from '../openai-endpoints';
@@ -321,7 +321,7 @@ export interface IntegrationDescriptor {
   relatedMcpId?: string;
   guide?: IntegrationGuide;
   compatibility?: SoftwareCompatibility;
-  workspaces?: ('codex' | 'claude' | 'opencode')[];
+  workspaces?: ('codex' | 'claude' | 'opencode' | 'qwen')[];
   replacesMcp?: string;
   component?: IntegrationComponent;
   /** The component builds of every platform the service publishes. */
@@ -394,7 +394,7 @@ export interface IntegrationServiceStatus {
   checkedAt: number;
 }
 export interface IntegrationServicesView {
-  workspace: 'codex' | 'claude' | 'opencode';
+  workspace: 'codex' | 'claude' | 'opencode' | 'qwen';
   entries: { id: string; mcpRevision?: string | null; service: IntegrationServiceStatus }[];
 }
 export interface IntegrationView {
@@ -404,7 +404,7 @@ export interface IntegrationView {
   revision: string;
   /** The platform identifier of the machine the client runs on. */
   platform?: string;
-  workspace?: 'codex' | 'claude' | 'opencode';
+  workspace?: 'codex' | 'claude' | 'opencode' | 'qwen';
   entries: IntegrationEntry[];
 }
 export interface McpTransportStdio {
@@ -435,7 +435,7 @@ export interface McpDescriptor {
   /** The install command of every platform the service publishes. */
   installCommands?: Record<string, string>;
   transport: McpTransport;
-  workspaces: ('codex' | 'claude' | 'opencode')[];
+  workspaces: ('codex' | 'claude' | 'opencode' | 'qwen')[];
   minClientVersion?: string;
 }
 export interface McpCatalog {
@@ -484,7 +484,7 @@ export interface McpLocalEntry {
 }
 export interface McpView {
   catalog: McpCatalog;
-  workspace: 'codex' | 'claude' | 'opencode';
+  workspace: 'codex' | 'claude' | 'opencode' | 'qwen';
   configPath: string;
   revision: string;
   source: 'cached' | 'local' | 'browser';

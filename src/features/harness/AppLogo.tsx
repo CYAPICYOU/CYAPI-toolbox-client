@@ -9,7 +9,6 @@ import cline from '../../assets/app-logos/lobe/cline.svg';
 import kilo from '../../assets/app-logos/lobe/kilocode.svg';
 import qwen from '../../assets/app-logos/lobe/qwen-color.svg';
 import kimi from '../../assets/app-logos/lobe/kimi-color.svg';
-import roo from '../../assets/app-logos/lobe/roocode.svg';
 import cursor from '../../assets/app-logos/lobe/cursor.svg';
 import gemini from '../../assets/app-logos/lobe/gemini-color.svg';
 import grok from '../../assets/app-logos/lobe/grok.svg';
@@ -33,7 +32,6 @@ const logos: Record<string, { src: string; mono?: boolean }> = {
   qwen: { src: qwen },
   kimi: { src: kimi, mono: true },
   continue: { src: continueLogo },
-  roo: { src: roo, mono: true },
   aider: { src: aider },
   cursor: { src: cursor, mono: true },
   gemini: { src: gemini },
