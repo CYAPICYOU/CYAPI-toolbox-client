@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Sun,
   Trash2,
+  FlaskConical,
   WifiOff,
   Zap,
 } from 'lucide-react';
@@ -24,6 +25,7 @@ import './app-settings.css';
 import { clearToolboxCache } from '../lib/api/cleanup';
 import { cleanupBytes } from '../lib/cleanup';
 import { nativeAvailable } from '../lib/api/native';
+import { Modal } from '../components/Primitives';
 
 const themes = [
   { value: 'system', label: '跟随系统', description: '随系统自动切换', Icon: Monitor },
@@ -39,6 +41,7 @@ export function AppSettings({
   onCopy,
   onOpenSite,
   updates,
+  experimental,
 }: {
   appVersion: string;
   theme: ThemePreference;
@@ -46,6 +49,13 @@ export function AppSettings({
   dataPath?: string;
   onCopy: (text: string) => void;
   onOpenSite: (url: string) => void;
+  experimental: {
+    enabled: boolean;
+    ready: boolean;
+    busy: boolean;
+    error: string;
+    onChange: (enabled: boolean, confirmed: boolean) => Promise<boolean>;
+  };
   updates: {
     status?: UpdateStatus;
     checking: boolean;
@@ -60,6 +70,8 @@ export function AppSettings({
   const [clearing, setClearing] = useState(false);
   const [cacheResult, setCacheResult] = useState('');
   const [cacheError, setCacheError] = useState('');
+  const [experimentalWarning, setExperimentalWarning] = useState(false);
+  const [riskAccepted, setRiskAccepted] = useState(false);
   const clearCache = async () => {
     setClearing(true);
     setCacheResult('');
@@ -232,12 +244,102 @@ export function AppSettings({
           </button>
           <p className="n-settings-caption">
             仅清理超过 24 小时的工具箱安装包缓存，保留备份、运行环境和安装记录。
-            各工具旧会话请前往各自的「空间清理」。
+            各工具的分类空间清理需先启用下方实验性功能。
           </p>
           {cacheResult && <p role="status">{cacheResult}</p>}
-          {cacheError && <p role="alert" className="n-error-text">{cacheError}</p>}
+          {cacheError && (
+            <p role="alert" className="n-error-text">
+              {cacheError}
+            </p>
+          )}
         </section>
       </div>
+
+      <section className="n-settings-card" aria-labelledby="settings-experimental">
+        <div className="n-settings-card-heading">
+          <div className="n-settings-section-title">
+            <span className="n-settings-icon" aria-hidden="true">
+              <FlaskConical size={18} />
+            </span>
+            <h2 id="settings-experimental">实验性功能</h2>
+          </div>
+          <button
+            className={`n-button${experimental.enabled ? '' : ' n-primary'}`}
+            disabled={!experimental.ready || experimental.busy}
+            onClick={() => {
+              if (experimental.enabled) void experimental.onChange(false, false);
+              else {
+                setRiskAccepted(false);
+                setExperimentalWarning(true);
+              }
+            }}
+          >
+            {experimental.busy
+              ? '正在保存…'
+              : experimental.enabled
+                ? '关闭实验性功能'
+                : '启用实验性功能'}
+          </button>
+        </div>
+        <p className="n-settings-description">
+          默认关闭。启用后在 Codex、Claude Code、OpenCode
+          下显示「空间清理」，查看日志、会话、缓存和临时文件占用，并按时间范围清理。
+        </p>
+        <p className="n-settings-caption">
+          这些功能仍处于开发阶段，可能存在兼容性问题或数据误删风险，请谨慎使用并提前备份重要数据。
+        </p>
+        {experimental.error && (
+          <p className="n-error-text" role="alert">
+            {experimental.error}
+          </p>
+        )}
+      </section>
+
+      {experimentalWarning && (
+        <Modal
+          title="启用实验性功能前请确认"
+          busy={experimental.busy}
+          onClose={() => setExperimentalWarning(false)}
+        >
+          <div className="n-settings-experimental-warning">
+            <p>
+              <strong>实验性功能仍处于开发阶段，尚不稳定，请小心使用。</strong>
+            </p>
+            <p>
+              空间清理可能受工具版本、文件占用及存储格式变化影响，存在功能异常或数据误删风险。删除无法从回收站恢复，请先备份重要会话和数据。
+            </p>
+            <label>
+              <input
+                type="checkbox"
+                checked={riskAccepted}
+                disabled={experimental.busy}
+                onChange={(e) => setRiskAccepted(e.target.checked)}
+              />{' '}
+              我已了解风险，会谨慎使用
+            </label>
+          </div>
+          <div className="n-dialog-footer">
+            <button
+              className="n-button"
+              disabled={experimental.busy}
+              onClick={() => setExperimentalWarning(false)}
+            >
+              取消
+            </button>
+            <button
+              className="n-button n-primary"
+              disabled={!riskAccepted || experimental.busy}
+              onClick={() => {
+                void experimental.onChange(true, true).then((saved) => {
+                  if (saved) setExperimentalWarning(false);
+                });
+              }}
+            >
+              {experimental.busy ? '正在启用…' : '了解风险并启用'}
+            </button>
+          </div>
+        </Modal>
+      )}
 
       <section className="n-settings-card n-settings-about" aria-labelledby="settings-about">
         <div className="n-settings-product">

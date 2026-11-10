@@ -31,6 +31,7 @@ fn item(id: &str, parent: &str, time: u64) -> Item {
         sessions: 1,
         parent: parent.into(),
         fork: String::new(),
+        references: Vec::new(),
         files: Vec::new(),
     }
 }
@@ -339,11 +340,17 @@ fn toolbox_cache_only_removes_old_content_addressed_installers() {
 
 #[test]
 fn unknown_and_unconfirmed_plans_never_reach_native_deletion() {
-    assert!(run("codex", "missing", &["fixture".into()], true).is_err());
-    assert!(run("claude", "missing", &["fixture".into()], false).is_err());
-    assert!(run("opencode", "missing", &[], true).is_err());
-    assert!(scan("unsupported", 30).is_err());
-    assert!(scan("claude", 0).is_err());
+    let range = TimeRange::default();
+    assert!(run("codex", "missing", &["fixture".into()], &range, true).is_err());
+    assert!(run("claude", "missing", &["fixture".into()], &range, false).is_err());
+    assert!(run("opencode", "missing", &[], &range, true).is_err());
+    assert!(scan("unsupported").is_err());
+    assert!(TimeRange {
+        since: Some(100),
+        until: Some(100)
+    }
+    .validate()
+    .is_err());
 }
 
 #[cfg(unix)]
@@ -385,6 +392,11 @@ fn directory_junctions_are_never_followed_or_deleted() {
     assert!(status.success());
     assert!(files::claude(&root.0).is_err());
     assert_eq!(fs::read(&victim).unwrap(), b"keep");
+    let analysis =
+        analysis::build_scopes("claude", &root.0, vec![scope(&root, "data")], Ok(())).unwrap();
+    assert!(analysis.scan.partial);
+    assert_eq!(analysis.scan.total_bytes, 7);
+    assert!(analysis.actions.is_empty());
     fs::remove_dir(link).unwrap();
 }
 
@@ -454,24 +466,371 @@ fn plan_tokens_are_scoped_and_foreign_selection_is_rejected_before_io() {
         token: token.clone(),
         workspace: "claude".into(),
         root: path.to_string_lossy().into(),
-        items: vec![item("allowed", "", 1)],
-        protected_sessions: 0,
+        items: Vec::new(),
+        roots: Vec::new(),
+        categories: Vec::new(),
+        total_bytes: 0,
+        partial: false,
         notes: Vec::new(),
     };
     PLANS.lock().unwrap().push(Plan {
         scan,
+        scopes: analysis::scopes("claude", &path).unwrap(),
         root: path,
-        days: 30,
+        actions: HashMap::new(),
         created: logging::now(),
         all: Vec::new(),
     });
-    assert!(run("codex", &token, &["allowed".into()], true)
-        .unwrap_err()
-        .contains("扫描计划不存在"));
-    assert!(run("claude", &token, &["foreign".into()], true)
-        .unwrap_err()
-        .contains("扫描计划以外"));
-    assert!(run("claude", &token, &["allowed".into()], true)
-        .unwrap_err()
-        .contains("扫描计划不存在"));
+    assert!(run(
+        "codex",
+        &token,
+        &["allowed".into()],
+        &TimeRange::default(),
+        true
+    )
+    .unwrap_err()
+    .contains("扫描计划不存在"));
+    assert!(run(
+        "claude",
+        &token,
+        &["foreign".into()],
+        &TimeRange::default(),
+        true
+    )
+    .unwrap_err()
+    .contains("扫描计划以外"));
+    assert!(run(
+        "claude",
+        &token,
+        &["allowed".into()],
+        &TimeRange::default(),
+        true
+    )
+    .unwrap_err()
+    .contains("扫描计划不存在"));
+}
+
+fn scope(root: &Temp, role: &str) -> analysis::Scope {
+    analysis::Scope {
+        root: root.0.clone(),
+        label: "Fixture".into(),
+        role: role.into(),
+    }
+}
+
+#[test]
+fn experimental_settings_default_off_require_confirmation_and_persist_disable() {
+    let data = Temp::new();
+    assert!(!settings::read(&data.0).unwrap().enabled);
+    assert!(settings::require_enabled_at(&data.0).is_err());
+    assert!(settings::write(&data.0, true, false).is_err());
+    assert!(!data.0.join("experimental-settings.json").exists());
+    assert!(settings::write(&data.0, true, true).unwrap().enabled);
+    assert!(settings::read(&data.0).unwrap().enabled);
+    assert!(settings::require_enabled_at(&data.0).is_ok());
+    assert!(!settings::write(&data.0, false, false).unwrap().enabled);
+    assert!(settings::require_enabled_at(&data.0).is_err());
+    data.put("experimental-settings.json", b"{broken}");
+    assert!(settings::require_enabled_at(&data.0).is_err());
+    assert_eq!(fs::read_dir(&data.0).unwrap().count(), 1);
+}
+
+#[test]
+fn disk_analysis_without_cli_shows_all_time_sessions_and_safe_file_categories() {
+    let root = Temp::new();
+    root.put(
+        "sessions/2026/rollout-fixture.jsonl",
+        b"{\"type\":\"session_meta\",\"payload\":{\"id\":\"fixture\"}}\n",
+    );
+    root.put("log/codex-tui.log", b"log");
+    root.put("cache/fixture.bin", b"cache");
+    root.put("tmp/fixture.tmp", b"temporary");
+    root.put("auth.json", b"fictional-credential");
+    root.put("log/settings.json", b"protected-config");
+    root.put("log/unrelated.txt", b"unrecognized");
+    root.put("tmp/private.key", b"fictional-key");
+    let analysis = analysis::build_scopes(
+        "codex",
+        &root.0,
+        vec![scope(&root, "data")],
+        Err("fixture CLI unavailable".into()),
+    )
+    .unwrap();
+    assert!(!analysis.scan.partial);
+    assert_eq!(analysis.scan.categories.len(), 5);
+    assert!(analysis.scan.total_bytes > 0);
+    let session = analysis
+        .scan
+        .items
+        .iter()
+        .find(|e| e.kind == "session")
+        .unwrap();
+    assert!(!session.deletable);
+    assert!(session.reason.contains("CLI unavailable"));
+    assert!(TimeRange::default().allows(session));
+    for category in ["logs", "cache", "temporary"] {
+        assert!(analysis
+            .scan
+            .items
+            .iter()
+            .any(|e| e.category == category && e.deletable));
+    }
+    for action in analysis.actions.values() {
+        if let analysis::Action::File { stamp, .. } = action {
+            assert!(
+                !["auth.json", "settings.json", "unrelated.txt", "private.key"]
+                    .iter()
+                    .any(|name| stamp.path.ends_with(name))
+            );
+        }
+    }
+    let disk: u64 = analysis.scan.categories.iter().map(|c| c.bytes).sum();
+    assert_eq!(disk, analysis.scan.total_bytes);
+    assert_eq!(
+        analysis.scan.items.iter().map(|e| e.bytes).sum::<u64>(),
+        disk
+    );
+}
+
+#[test]
+fn custom_log_directory_only_allows_identified_logs_and_protects_unknown_data() {
+    let main = Temp::new();
+    let logs = Temp::new();
+    for name in ["codex.log", "codex.log.1", "codex.log.gz"] {
+        logs.put(name, b"log");
+    }
+    for name in [
+        "config.toml",
+        "auth.json",
+        "notes.txt",
+        "code.rs",
+        "memory/context.log",
+        "plugins/tool.log",
+    ] {
+        logs.put(name, b"keep");
+    }
+    let analysis = analysis::build_scopes(
+        "codex",
+        &main.0,
+        vec![scope(&main, "data"), scope(&logs, "logs")],
+        Ok(()),
+    )
+    .unwrap();
+    assert_eq!(analysis.actions.len(), 3);
+    assert_eq!(analysis.scan.total_bytes, 33);
+    assert!(analysis
+        .scan
+        .items
+        .iter()
+        .filter(|e| e.deletable)
+        .all(|e| e.category == "logs"));
+}
+
+#[test]
+fn overlapping_scopes_are_deduplicated_before_counting_files() {
+    let root = Temp::new();
+    root.put("log/fixture.log", b"fixture");
+    let duplicate = analysis::Scope {
+        root: root.0.join("log"),
+        label: "Duplicate".into(),
+        role: "logs".into(),
+    };
+    let analysis = analysis::build_scopes(
+        "codex",
+        &root.0,
+        vec![scope(&root, "data"), duplicate, scope(&root, "data")],
+        Ok(()),
+    )
+    .unwrap();
+    assert_eq!(analysis.scan.total_bytes, 7);
+    assert_eq!(analysis.scan.roots.len(), 1);
+    assert_eq!(analysis.scan.items.len(), 1);
+}
+
+#[test]
+fn session_database_is_counted_once_without_adding_logical_message_estimates() {
+    let root = Temp::new();
+    let path = database_fixture(&root, true);
+    let size = fs::metadata(path).unwrap().len();
+    let analysis =
+        analysis::build_scopes("opencode", &root.0, vec![scope(&root, "data")], Ok(())).unwrap();
+    assert_eq!(analysis.scan.total_bytes, size);
+    assert_eq!(
+        analysis
+            .scan
+            .categories
+            .iter()
+            .find(|c| c.id == "sessions")
+            .unwrap()
+            .bytes,
+        size
+    );
+    let entry = analysis
+        .scan
+        .items
+        .iter()
+        .find(|e| e.kind == "session")
+        .unwrap();
+    assert!(entry.deletable);
+    assert_eq!(entry.sessions, 2);
+    assert!(entry.estimated);
+    assert!(analysis
+        .scan
+        .items
+        .iter()
+        .any(|e| e.kind == "protected" && !e.deletable));
+}
+
+#[test]
+fn time_range_uses_inclusive_start_exclusive_end_and_entire_session_tree() {
+    let entries = analysis::session_entries(
+        &[item("root", "", 100), item("child", "root", 300)],
+        &Ok(()),
+    )
+    .unwrap();
+    let entry = &entries[0].0;
+    assert!(TimeRange::default().allows(entry));
+    assert!(TimeRange {
+        since: Some(100),
+        until: Some(301)
+    }
+    .allows(entry));
+    assert!(!TimeRange {
+        since: Some(101),
+        until: None
+    }
+    .allows(entry));
+    assert!(!TimeRange {
+        since: None,
+        until: Some(300)
+    }
+    .allows(entry));
+    assert!(TimeRange {
+        since: Some(u64::MAX),
+        until: None
+    }
+    .validate()
+    .is_err());
+}
+
+#[test]
+fn native_tree_check_rejects_unscanned_children_recent_trees_and_incoming_forks() {
+    let plan = vec![item("root", "", 100)];
+    let range = TimeRange {
+        since: None,
+        until: Some(200),
+    };
+    assert_eq!(
+        verify_session_tree(&plan, &plan, "root", &range)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(verify_session_tree(
+        &[plan[0].clone(), item("child", "root", 150)],
+        &plan,
+        "root",
+        &range
+    )
+    .is_err());
+    assert!(verify_session_tree(&[item("root", "", 200)], &plan, "root", &range).is_err());
+    let mut fork = item("fork", "", 100);
+    fork.fork = "root".into();
+    assert!(verify_session_tree(&[plan[0].clone(), fork], &plan, "root", &range).is_err());
+}
+
+#[test]
+fn codex_metadata_preserves_spawn_fork_and_history_references_including_compressed_rollouts() {
+    let root = Temp::new();
+    for (id, meta) in [
+        ("root", json!({"id":"root"})),
+        ("base", json!({"id":"base"})),
+        (
+            "child",
+            json!({"id":"child","source":{"subagent":{"thread_spawn":{"parent_thread_id":"root"}}}}),
+        ),
+        (
+            "fork",
+            json!({"id":"fork","forked_from_id":"root","history_base":{"thread_id":"base"}}),
+        ),
+    ] {
+        let mut bytes = serde_json::to_vec(&json!({"type":"session_meta","payload":meta})).unwrap();
+        bytes.push(b'\n');
+        if id == "child" {
+            root.put(
+                "archived_sessions/child.jsonl.zst",
+                &zstd::stream::encode_all(bytes.as_slice(), 1).unwrap(),
+            );
+        } else {
+            root.put(&format!("sessions/{id}.jsonl"), &bytes);
+        }
+    }
+    let all = codex::list(&root.0).unwrap();
+    assert_eq!(all.len(), 4);
+    assert_eq!(all.iter().find(|i| i.id == "child").unwrap().parent, "root");
+    assert_eq!(
+        candidates(&all, u64::MAX)
+            .unwrap()
+            .iter()
+            .map(|i| i.id.as_str())
+            .collect::<Vec<_>>(),
+        ["fork"]
+    );
+}
+
+#[test]
+fn invalid_session_metadata_does_not_hide_disk_usage_or_independent_cleanup() {
+    let root = Temp::new();
+    root.put("sessions/broken.jsonl", b"broken");
+    root.put("log/fixture.log", b"safe-log");
+    let result =
+        analysis::build_scopes("codex", &root.0, vec![scope(&root, "data")], Ok(())).unwrap();
+    assert_eq!(result.scan.total_bytes, 14);
+    assert_eq!(result.actions.len(), 1);
+    assert!(result
+        .scan
+        .notes
+        .iter()
+        .any(|n| n.contains("元数据不可解析")));
+}
+
+#[test]
+fn file_snapshot_rejects_changed_or_replaced_selected_file() {
+    let root = Temp::new();
+    let path = root.put("log/fixture.log", b"before");
+    let before = files::stamps(&root.0, std::slice::from_ref(&path)).unwrap();
+    fs::write(&path, b"after-longer").unwrap();
+    assert_ne!(
+        before,
+        files::stamps(&root.0, std::slice::from_ref(&path)).unwrap()
+    );
+    assert!(path.exists());
+}
+
+#[test]
+#[ignore = "read-only inspection of installed tool directories; never deletes data"]
+fn installed_tools_disk_analysis_read_only() {
+    for workspace in ["codex", "claude", "opencode"] {
+        let root = root(workspace).unwrap();
+        let result = analysis::build(workspace, &root).unwrap();
+        println!(
+            "{workspace}: bytes={}, entries={}, sessions={}, selectable={}, partial={}, cli={}",
+            result.scan.total_bytes,
+            result.scan.items.len(),
+            result
+                .scan
+                .items
+                .iter()
+                .filter(|e| e.kind == "session")
+                .map(|e| e.sessions)
+                .sum::<usize>(),
+            result.scan.items.iter().filter(|e| e.deletable).count(),
+            result.scan.partial,
+            native::session_capability(workspace).is_ok()
+        );
+        assert_eq!(
+            result.scan.total_bytes,
+            result.scan.categories.iter().map(|c| c.bytes).sum::<u64>()
+        );
+    }
 }

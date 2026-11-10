@@ -638,6 +638,8 @@ pub fn run() {
             agent_logs::agent_logs,
             cleanup::cleanup_scan,
             cleanup::cleanup_run,
+            cleanup::experimental_settings,
+            cleanup::set_experimental_settings,
             cleanup::cleanup_toolbox_cache
         ]);
     builder

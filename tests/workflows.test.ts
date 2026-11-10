@@ -23,6 +23,7 @@ import {
   saveDraftState,
 } from '../src/features/platform/draftStore.ts';
 import { pollResource } from '../src/features/platform/polling.ts';
+import { overlayDimensions } from '../src/features/platform/overlayDimensions.ts';
 import {
   importWorkflow,
   loadPersonalWorkflows,
@@ -744,8 +745,12 @@ test('GPT Image editor graphs add an explicit base image and a connected save no
   assert.deepEqual(document.prompt['1'].inputs.image_1, ['2', 0]);
   assert.equal(document.prompt['2'].class_type, 'LoadImage');
   assert.match(document.prompt['2']._meta?.title ?? '', /基准图.*上一轮/);
-  assert.equal(document.prompt['3'].class_type, 'SaveImage');
-  assert.deepEqual(document.prompt['3'].inputs.images, ['1', 0]);
+  assert.equal(document.prompt['3'].class_type, 'LoadImage');
+  assert.equal(document.prompt['4'].class_type, 'LoadImage');
+  assert.equal(document.prompt['5'].class_type, 'CYAPI_MarkupFromImage');
+  assert.deepEqual(document.prompt['5'].inputs, { image: ['4', 0], mask: ['4', 1] });
+  assert.equal(document.prompt['6'].class_type, 'SaveImage');
+  assert.deepEqual(document.prompt['6'].inputs.images, ['1', 0]);
   assert.equal(template.apiGraph?.['1'].inputs.image_1, null);
 });
 
@@ -753,6 +758,13 @@ test('workflow forms reject simultaneous mask and markup', () => {
   const template = importWorkflow('{"nodes":[]}', 'fixture.json');
   const draft = { id: 'x', kind: template.kind, title: 'x', prompt: '', fileName: '', fileData: '', maskData: 'mask', markupData: 'markup', updatedAt: 1, template };
   assert.match(validateDraft(draft), /不能同时使用/);
+});
+
+test('painted overlay dimensions match the image engine thumbnail rounding', () => {
+  assert.deepEqual(overlayDimensions(4096, 3001), [2048, 1501]);
+  assert.deepEqual(overlayDimensions(3001, 4096), [1500, 2048]);
+  assert.deepEqual(overlayDimensions(4000, 1025), [2048, 525]);
+  assert.deepEqual(overlayDimensions(100, 100), [100, 100]);
 });
 
 test('personal workflows persist and template form metadata controls validation', () => {

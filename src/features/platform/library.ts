@@ -144,6 +144,12 @@ export function workflowDocument(template: WorkflowTemplate, prompt = '') {
         const load = String(next++);
         graph[load] = { class_type: 'LoadImage', inputs: { image: '' }, _meta: { title: '基准图 / 上一轮结果（请选择图片）' } };
         node.inputs.image_1 = [load, 0];
+        const mask = String(next++);
+        graph[mask] = { class_type: 'LoadImage', inputs: { image: '' }, _meta: { title: '可选蒙版 PNG：将 MASK 连到 mask' } };
+        const overlay = String(next++);
+        graph[overlay] = { class_type: 'LoadImage', inputs: { image: '' }, _meta: { title: '可选透明标注 PNG：选择图片后连接标注输出' } };
+        const combine = String(next++);
+        graph[combine] = { class_type: 'CYAPI_MarkupFromImage', inputs: { image: [overlay, 0], mask: [overlay, 1] }, _meta: { title: '合并标注透明通道（连到 markup）' } };
       }
       graph[String(next)] = { class_type: 'SaveImage', inputs: { images: [id, 0], filename_prefix: 'CYAPI' }, _meta: { title: '保存并预览生成结果' } };
     }

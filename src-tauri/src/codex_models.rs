@@ -345,6 +345,51 @@ fn cli_candidates(cached: Option<&Path>) -> Vec<PathBuf> {
     candidates
 }
 
+pub(crate) fn local_cli_candidates() -> Vec<PathBuf> {
+    let cached = read_cli_cache(&crate::logging::data_path());
+    let mut paths = cli_candidates(cached.as_deref());
+    let home = crate::diagnostics::home_path();
+    for extensions in [
+        home.join(".vscode/extensions"),
+        home.join(".vscode-insiders/extensions"),
+        home.join(".cursor/extensions"),
+    ] {
+        if crate::configuration::no_links(&extensions).is_err() {
+            continue;
+        }
+        if let Ok(entries) = fs::read_dir(extensions) {
+            let mut entries: Vec<_> = entries
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    e.file_name()
+                        .to_string_lossy()
+                        .starts_with("openai.chatgpt-")
+                })
+                .take(100)
+                .collect();
+            entries.sort_by_key(|e| std::cmp::Reverse(e.file_name()));
+            for entry in entries {
+                for platform in [
+                    "windows-x86_64",
+                    "windows-aarch64",
+                    "darwin-aarch64",
+                    "darwin-x86_64",
+                    "linux-x86_64",
+                    "linux-aarch64",
+                ] {
+                    for name in codex_names() {
+                        let path = entry.path().join("bin").join(platform).join(name);
+                        if path.is_file() {
+                            paths.push(path);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    paths
+}
+
 fn codex_command(executable: &Path) -> Command {
     #[cfg(windows)]
     {

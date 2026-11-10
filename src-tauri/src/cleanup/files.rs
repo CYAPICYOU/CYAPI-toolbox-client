@@ -8,11 +8,17 @@ use std::{
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Stamp {
-    path: PathBuf,
-    bytes: u64,
-    modified: u128,
+    pub(super) path: PathBuf,
+    pub(super) bytes: u64,
+    pub(super) modified: u128,
     hash: String,
-    directory: bool,
+    pub(super) directory: bool,
+}
+
+impl Stamp {
+    pub(super) fn time(&self) -> u64 {
+        (self.modified / 1_000_000) as u64
+    }
 }
 
 fn walk(root: &Path, path: &Path, out: &mut Vec<Stamp>, depth: usize) -> Result<()> {
@@ -55,7 +61,7 @@ fn walk(root: &Path, path: &Path, out: &mut Vec<Stamp>, depth: usize) -> Result<
     Ok(())
 }
 
-fn stamps(root: &Path, paths: &[PathBuf]) -> Result<Vec<Stamp>> {
+pub(super) fn stamps(root: &Path, paths: &[PathBuf]) -> Result<Vec<Stamp>> {
     let mut out = Vec::new();
     for path in paths {
         walk(root, path, &mut out, 0)?;
@@ -177,6 +183,7 @@ pub(super) fn claude(root: &Path) -> Result<Vec<Item>> {
                 sessions: 1,
                 parent: String::new(),
                 fork: String::new(),
+                references: Vec::new(),
                 files,
             });
             if out.len() > LIMIT {
@@ -187,7 +194,7 @@ pub(super) fn claude(root: &Path) -> Result<Vec<Item>> {
     Ok(out)
 }
 
-fn remove(stamp: &Stamp) -> Result<()> {
+pub(super) fn remove(stamp: &Stamp) -> Result<()> {
     checked(&stamp.path)?;
     if stamp.directory {
         fs::remove_dir(&stamp.path).map_err(|_| "无法删除会话目录（可能已被占用或发生变化）".into())

@@ -17,7 +17,8 @@ import type { WorkflowTemplate } from './library';
 import { WorkflowIcon } from './WorkflowLibrary';
 import { getWorkflowPriceCatalog } from './api';
 import { formatWorkflowUsd, workflowReferencePrice } from './workflowPrice';
-import { OverlayEditor } from './OverlayEditor';
+import { ImageAnnotationEditor } from '../../components/ImageAnnotationEditor';
+import { overlayDimensions } from './overlayDimensions';
 
 export function WorkflowPage({
   draft,
@@ -91,7 +92,7 @@ export function WorkflowPage({
     if (!selected || !file) return;
     const request = ++fileRequest.current;
     const candidates = file.multiple ? Array.from(selectedFiles ?? [selected]) : [selected];
-    const existing = file.multiple ? (latest.current.files ?? []) : [];
+    const existing = file.multiple ? (latest.current.files?.length ? latest.current.files : latest.current.fileData ? [{ name: latest.current.fileName, data: latest.current.fileData }] : []) : [];
     if (existing.length + candidates.length > (file.maxFiles ?? 16)) { setFileError(`最多选择 ${file.maxFiles ?? 16} 张图片。`); return; }
     if (candidates.some((item) => item.size > 2 * 1024 * 1024)) {
       setFileError('单个素材不能超过 2 MB，请压缩后重试。');
@@ -209,6 +210,7 @@ export function WorkflowPage({
               <div className="pfx-panel-heading">
                 <h2>准备创作内容</h2>
                 <p>填写文字或添加素材，无需操作节点。</p>
+                {template.id === 'gpt-image-25-edit' && <p>继续修改：在结果页选择“继续修改”，或把上一轮结果作为第一张基准图上传。绘制蒙版和标注层二选一。</p>}
               </div>
               {file && (
                 <div className="pfx-field">
@@ -424,6 +426,7 @@ export function WorkflowPage({
               <div className="pfx-panel-heading">
                 <h2>工作流如何运行</h2>
                 <p>查看处理步骤，需要调整节点时再进入 ComfyUI。</p>
+                {template.id === 'gpt-image-25-edit' && <p>在 ComfyUI 中请选择基准图；可选蒙版的 MASK 输出接到 mask，或将透明标注图的合并输出接到 markup，二者不要同时连接。保存图片节点已连接。</p>}
               </div>
               <ol className="pfx-flow-steps">
                 {template.steps.map((step, index) => (
@@ -523,15 +526,14 @@ export function WorkflowPage({
               <div>
                 <strong>运行会提交真实任务</strong>
                 <p>
-                  完整工作流由 Worker ComfyUI 执行，CYAPI 节点在执行时调用
-                  Bridge；提交前会确认报价，关闭客户端不会取消服务端任务。
+                  {template.transport === 'bridge' ? '该表单通过 Bridge 直接运行；' : '完整工作流由 Worker ComfyUI 执行；'}提交前会确认报价，关闭客户端不会取消服务端任务。
                 </p>
               </div>
             </section>
           )}
         </aside>
       </div>
-      {paint && draft.fileData && <OverlayEditor key={`${draft.id}-${paint}`} image={draft.fileData} kind={paint} onCancel={() => setPaint(null)} onSave={data => {
+      {paint && draft.fileData && <ImageAnnotationEditor key={`${draft.id}-${paint}`} image={draft.fileData} kind={paint} outputSize={overlayDimensions} maxBytes={2 * 1024 * 1024} onCancel={() => setPaint(null)} onSave={data => {
         if (latest.current.id === draft.id && !(paint === 'mask' ? latest.current.markupData : latest.current.maskData)) {
           onChange({ ...latest.current, ...(paint === 'mask' ? { maskName: '绘制的蒙版.png', maskData: data } : { markupName: '绘制的标注层.png', markupData: data }) });
           setFileError('');

@@ -19,6 +19,14 @@ fn hidden(command: &mut Command) {
 }
 
 fn executable(tool: &str) -> Result<PathBuf> {
+    if tool == "codex" {
+        if let Some(path) = crate::codex_models::local_cli_candidates()
+            .into_iter()
+            .find(|p| p.is_absolute() && p.is_file())
+        {
+            return Ok(path);
+        }
+    }
     let path = std::env::var_os("PATH").ok_or("PATH 不可用")?;
     for directory in std::env::split_paths(&path) {
         #[cfg(windows)]
@@ -32,7 +40,16 @@ fn executable(tool: &str) -> Result<PathBuf> {
             }
         }
     }
-    Err(format!("未找到 {tool} CLI，请安装并加入 PATH 后重新扫描"))
+    Err(format!(
+        "未找到可用的 {tool} 原生删除程序；仍可分析占用及清理日志、缓存和临时文件"
+    ))
+}
+
+pub(super) fn session_capability(workspace: &str) -> std::result::Result<(), String> {
+    if workspace == "claude" {
+        return Ok(());
+    }
+    executable(workspace).map(|_| ())
 }
 
 fn command(tool: &str, args: &[&str], root: &Path) -> Result<Command> {
@@ -61,7 +78,7 @@ fn command(tool: &str, args: &[&str], root: &Path) -> Result<Command> {
 
 fn launcher(path: PathBuf, args: &[&str]) -> Result<Command> {
     #[cfg(windows)]
-    let cmd = if path.extension().is_some_and(|s| s == "cmd") {
+    let cmd = if path.extension().is_some_and(|s| s == "cmd" || s == "bat") {
         use std::os::windows::process::CommandExt;
         let text = path.to_str().ok_or("CLI 路径不是有效文本")?;
         // Shell shims are needed for npm installations. No user-provided shell arguments.
@@ -292,7 +309,7 @@ fn codex_threads(rpc: &mut Rpc, root: &Path) -> Result<Vec<Item>> {
         let mut seen = HashSet::new();
         loop {
             let result = rpc.call("thread/list", json!({"limit":100,"cursor":cursor,"archived":archived,
-                "sourceKinds":["cli","vscode","exec","appServer","subAgent","subAgentReview","subAgentCompact","subAgentThreadSpawn","subAgentOther","unknown"],"modelProviders":[]}))?;
+                "sourceKinds":["cli","vscode","exec","appServer","subAgent","subAgentReview","subAgentCompact","subAgentThreadSpawn","subAgentOther","unknown"],"modelProviders":[],"useStateDbOnly":true}))?;
             let data = result["data"].as_array().ok_or("Codex 会话列表格式无效")?;
             for v in data {
                 // Older versions without this field cannot prove a complete spawn tree.
@@ -331,6 +348,7 @@ fn codex_threads(rpc: &mut Rpc, root: &Path) -> Result<Vec<Item>> {
                     sessions: 1,
                     parent: v["parentThreadId"].as_str().unwrap_or("").into(),
                     fork: v["forkedFromId"].as_str().unwrap_or("").into(),
+                    references: Vec::new(),
                     files: Vec::new(),
                 });
                 if out.len() > LIMIT {
@@ -349,22 +367,34 @@ fn codex_threads(rpc: &mut Rpc, root: &Path) -> Result<Vec<Item>> {
     Ok(out)
 }
 
-pub(super) fn codex_list(root: &Path) -> Result<Vec<Item>> {
-    if !root.exists() {
-        return Ok(Vec::new());
-    }
-    let mut rpc = Rpc::start(root)?;
-    codex_threads(&mut rpc, root)
-}
-
-pub(super) fn codex_delete(root: &Path, id: &str) -> Result<()> {
+pub(super) fn codex_delete(
+    root: &Path,
+    id: &str,
+    expected: &[Item],
+    range: &TimeRange,
+) -> Result<()> {
     if !valid_id(id) {
         return Err("Codex 会话标识无效".into());
     }
     let mut rpc = Rpc::start(root)?;
+    codex_delete_using(&mut rpc, root, id, expected, range)
+}
+
+fn codex_delete_using(
+    rpc: &mut Rpc,
+    root: &Path,
+    id: &str,
+    expected: &[Item],
+    range: &TimeRange,
+) -> Result<()> {
+    let before = codex_threads(rpc, root)?;
+    let subtree = verify_session_tree(&before, expected, id, range)?;
     rpc.call("thread/delete", json!({"threadId":id}))?;
-    if codex_threads(&mut rpc, root)?.iter().any(|i| i.id == id) {
-        return Err("Codex 未确认会话已删除，请重新扫描".into());
+    if codex_threads(rpc, root)?
+        .iter()
+        .any(|i| subtree.contains(&i.id))
+    {
+        return Err("Codex 未确认完整会话树已删除，请重新扫描".into());
     }
     // Keep ownership explicit so the stdio server always terminates on return.
     let _ = rpc.process.0.id();
@@ -446,6 +476,7 @@ pub(super) fn opencode_list(root: &Path) -> Result<Vec<Item>> {
                 id: r.get(0)?,
                 parent: r.get(1)?,
                 fork: r.get(2)?,
+                references: Vec::new(),
                 title: r.get::<_, String>(3)?.chars().take(120).collect(),
                 updated_at: r.get::<_, i64>(4)?.max(0) as u64,
                 bytes: r.get::<_, i64>(5)?.max(0) as u64,
@@ -501,13 +532,22 @@ fn opencode_args(execute: &mut impl FnMut(&[&str]) -> Result<String>) -> Result<
     }
 }
 
-pub(super) fn opencode_delete(root: &Path, id: &str) -> Result<()> {
-    opencode_delete_using(root, id, |args| output(command("opencode", args, root)?))
+pub(super) fn opencode_delete(
+    root: &Path,
+    id: &str,
+    expected: &[Item],
+    range: &TimeRange,
+) -> Result<()> {
+    opencode_delete_using(root, id, expected, range, |args| {
+        output(command("opencode", args, root)?)
+    })
 }
 
 fn opencode_delete_using(
     root: &Path,
     id: &str,
+    expected: &[Item],
+    range: &TimeRange,
     mut execute: impl FnMut(&[&str]) -> Result<String>,
 ) -> Result<()> {
     if !valid_id(id) {
@@ -524,28 +564,14 @@ fn opencode_delete_using(
         .ok_or("OpenCode CLI 未返回本地数据目录")?;
     checked(Path::new(data))?;
     let actual = fs::canonicalize(data).map_err(|_| "OpenCode CLI 数据目录不一致或不可访问")?;
-    let expected = fs::canonicalize(root).map_err(|_| "扫描数据目录不可访问")?;
-    if actual != expected || !path.is_file() {
+    let expected_root = fs::canonicalize(root).map_err(|_| "扫描数据目录不可访问")?;
+    if actual != expected_root || !path.is_file() {
         return Err("OpenCode CLI 与扫描数据目录不一致，已阻止删除".into());
     }
     let mut args = vec!["session", "delete", id];
     args.extend(mode);
     let before = opencode_list(root)?;
-    if !before.iter().any(|i| i.id == id) {
-        return Err("待删除会话已变化，请重新扫描".into());
-    }
-    let mut subtree = HashSet::from([id.to_string()]);
-    loop {
-        let count = subtree.len();
-        for item in &before {
-            if subtree.contains(&item.parent) {
-                subtree.insert(item.id.clone());
-            }
-        }
-        if count == subtree.len() {
-            break;
-        }
-    }
+    let subtree = verify_session_tree(&before, expected, id, range)?;
     execute(&args)?;
     if opencode_list(root)?.iter().any(|i| subtree.contains(&i.id)) {
         return Err("原生 CLI 未确认会话树已删除，请重新扫描".into());
@@ -570,8 +596,11 @@ pub(super) fn compact(root: &Path) -> Result<u64> {
     compact_path(&path)
 }
 
-fn compact_path(path: &Path) -> Result<u64> {
+pub(super) fn compact_path(path: &Path) -> Result<u64> {
     checked(path)?;
+    for suffix in ["-wal", "-shm", "-journal"] {
+        checked(&PathBuf::from(format!("{}{suffix}", path.display())))?;
+    }
     let before = db_bytes(path);
     let db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)
         .map_err(|_| "无法打开数据库进行空间回收")?;
@@ -676,6 +705,92 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    fn codex_native_delete_checks_actual_subtree_before_sending_delete() {
+        let root = std::env::temp_dir().join(format!("cyapi-codex-tree-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(root.join("sessions")).unwrap();
+        let mut threads = Vec::new();
+        for (id, parent) in [("fixture-root", ""), ("fixture-child", "fixture-root")] {
+            let path = root.join("sessions").join(format!("{id}.jsonl"));
+            fs::write(
+                &path,
+                format!(
+                    "{}\n",
+                    json!({"type":"session_meta","payload":{"id":id,"parent_thread_id":parent}})
+                ),
+            )
+            .unwrap();
+            threads.push(json!({"id":id,"path":path,"parentThreadId":if parent.is_empty() { Value::Null } else { json!(parent) },"updatedAt":1}));
+        }
+        let marker = root.join("mock-delete-called");
+        let start = || {
+            let mut cmd = Command::new("powershell.exe");
+            hidden(&mut cmd);
+            cmd.args(["-NoProfile", "-NonInteractive", "-Command", r#"
+                $ErrorActionPreference='Stop'; $deleted=$false
+                while ($null -ne ($line=[Console]::ReadLine())) {
+                    $v=$line | ConvertFrom-Json
+                    switch ($v.method) {
+                        'initialize' { [Console]::WriteLine('{"id":'+$v.id+',"result":{}}') }
+                        'initialized' { }
+                        'thread/list' {
+                            if (!$v.params.useStateDbOnly) { exit 5 }
+                            $data=if ($deleted -or $v.params.archived) { '[]' } else { $env:CYAPI_TEST_THREADS }
+                            [Console]::WriteLine('{"id":'+$v.id+',"result":{"data":'+$data+',"nextCursor":null}}')
+                        }
+                        'thread/delete' {
+                            [IO.File]::WriteAllText($env:CYAPI_TEST_MARKER,'fixture'); $deleted=$true
+                            [Console]::WriteLine('{"id":'+$v.id+',"result":{}}')
+                        }
+                        default { exit 4 }
+                    }
+                }
+            "#]).env("CYAPI_TEST_THREADS", json!(threads).to_string()).env("CYAPI_TEST_MARKER", &marker)
+                .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+            Rpc::with_command(&mut cmd).unwrap()
+        };
+        let expected = codex::list(&root).unwrap();
+        let root_only: Vec<_> = expected
+            .iter()
+            .filter(|i| i.id == "fixture-root")
+            .cloned()
+            .collect();
+        assert!(codex_delete_using(
+            &mut start(),
+            &root,
+            "fixture-root",
+            &root_only,
+            &TimeRange::default()
+        )
+        .is_err());
+        assert!(!marker.exists());
+        assert!(codex_delete_using(
+            &mut start(),
+            &root,
+            "fixture-root",
+            &expected,
+            &TimeRange {
+                since: None,
+                until: Some(2)
+            }
+        )
+        .is_err());
+        assert!(!marker.exists());
+        codex_delete_using(
+            &mut start(),
+            &root,
+            "fixture-root",
+            &expected,
+            &TimeRange::default(),
+        )
+        .unwrap();
+        assert!(marker.exists());
+        // The fake app-server only acknowledges protocol operations; local fixtures remain.
+        assert_eq!(codex::list(&root).unwrap().len(), 2);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn npm_shim_with_spaces_uses_cmd_quoting_and_rejects_shell_injection() {
         let root = std::env::temp_dir()
             .join(format!("cyapi-cleanup-shim-{}", uuid::Uuid::new_v4()))
@@ -730,30 +845,43 @@ mod tests {
             CREATE TABLE session_message(id TEXT,session_id TEXT,data TEXT,time_updated INTEGER);
             INSERT INTO session_v2 VALUES('root',NULL,'Fixture',1),('child','root','Fixture child',1),('grandchild','child','Fixture grandchild',1);").unwrap();
         let mut deletes = 0;
-        let result = opencode_delete_using(&root, "root", |args| match args {
-            ["session", "delete", "--help"] => Ok("sessionID --standalone".into()),
-            ["debug", "paths"] => Ok(json!({"data":root}).to_string()),
-            ["session", "delete", "root", "--standalone"] => {
-                deletes += 1;
-                // A broken CLI deleting only the first two levels must not report success.
-                db.execute("DELETE FROM session_v2 WHERE id IN ('root','child')", [])
-                    .unwrap();
-                Ok(String::new())
-            }
-            _ => panic!("unexpected native operation"),
-        });
+        let expected = opencode_list(&root).unwrap();
+        let result = opencode_delete_using(
+            &root,
+            "root",
+            &expected,
+            &TimeRange::default(),
+            |args| match args {
+                ["session", "delete", "--help"] => Ok("sessionID --standalone".into()),
+                ["debug", "paths"] => Ok(json!({"data":root}).to_string()),
+                ["session", "delete", "root", "--standalone"] => {
+                    deletes += 1;
+                    // A broken CLI deleting only the first two levels must not report success.
+                    db.execute("DELETE FROM session_v2 WHERE id IN ('root','child')", [])
+                        .unwrap();
+                    Ok(String::new())
+                }
+                _ => panic!("unexpected native operation"),
+            },
+        );
         assert!(result.unwrap_err().contains("未确认"));
         assert_eq!(deletes, 1);
         db.execute_batch("INSERT INTO session_v2 VALUES('root',NULL,'Fixture',1),('child','root','Fixture child',1);").unwrap();
-        opencode_delete_using(&root, "root", |args| match args {
-            ["session", "delete", "--help"] => Ok("sessionID --standalone".into()),
-            ["debug", "paths"] => Ok(json!({"data":root}).to_string()),
-            ["session", "delete", "root", "--standalone"] => {
-                db.execute("DELETE FROM session_v2", []).unwrap();
-                Ok(String::new())
-            }
-            _ => panic!("unexpected native operation"),
-        })
+        opencode_delete_using(
+            &root,
+            "root",
+            &expected,
+            &TimeRange::default(),
+            |args| match args {
+                ["session", "delete", "--help"] => Ok("sessionID --standalone".into()),
+                ["debug", "paths"] => Ok(json!({"data":root}).to_string()),
+                ["session", "delete", "root", "--standalone"] => {
+                    db.execute("DELETE FROM session_v2", []).unwrap();
+                    Ok(String::new())
+                }
+                _ => panic!("unexpected native operation"),
+            },
+        )
         .unwrap();
         drop(db);
         fs::remove_dir_all(&root).unwrap();
@@ -764,11 +892,18 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("cyapi-cleanup-mismatch-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&root).unwrap();
-        let result = opencode_delete_using(&root, "fixture", |args| match args {
-            ["session", "delete", "--help"] => Ok("sessionID --standalone".into()),
-            ["debug", "paths"] => Ok(json!({"data":root.join("other")}).to_string()),
-            _ => panic!("must never call native delete for a mismatched data root"),
-        });
+        let result =
+            opencode_delete_using(
+                &root,
+                "fixture",
+                &[],
+                &TimeRange::default(),
+                |args| match args {
+                    ["session", "delete", "--help"] => Ok("sessionID --standalone".into()),
+                    ["debug", "paths"] => Ok(json!({"data":root.join("other")}).to_string()),
+                    _ => panic!("must never call native delete for a mismatched data root"),
+                },
+            );
         assert!(result.unwrap_err().contains("不一致"));
         fs::remove_dir_all(&root).unwrap();
     }

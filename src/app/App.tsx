@@ -40,6 +40,7 @@ import { Modal } from '../components/Primitives';
 import { ConfigurationDialog } from './ConfigurationDialog';
 import { AppSettings } from './AppSettings';
 import { StorageCleanup } from './StorageCleanup';
+import { readExperimentalSettings, saveExperimentalSettings } from '../lib/api/experimental';
 import { CodexSettings } from './CodexSettings';
 import { CodexLocalize } from './CodexLocalize';
 import { ClaudeSettings } from './ClaudeSettings';
@@ -158,6 +159,31 @@ const normalizePath = (path: string) =>
   path.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
 
 export default function App() {
+  const [experimental, setExperimental] = useState(false);
+  const [experimentalReady, setExperimentalReady] = useState(false);
+  const [experimentalError, setExperimentalError] = useState('');
+  const [experimentalBusy, setExperimentalBusy] = useState(false);
+  useEffect(() => {
+    let disposed = false;
+    void readExperimentalSettings().then((settings) => {
+      if (!disposed) setExperimental(settings.enabled);
+    }).catch((error: unknown) => {
+      if (!disposed) setExperimentalError(String(error));
+    }).finally(() => { if (!disposed) setExperimentalReady(true); });
+    return () => { disposed = true; };
+  }, []);
+  const changeExperimental = async (enabled: boolean, confirmed: boolean) => {
+    setExperimentalBusy(true);
+    setExperimentalError('');
+    try {
+      const settings = await saveExperimentalSettings(enabled, confirmed);
+      setExperimental(settings.enabled);
+      return true;
+    } catch (error) {
+      setExperimentalError(String(error));
+      return false;
+    } finally { setExperimentalBusy(false); }
+  };
   const [logsOpen, setLogsOpen] = useState(false);
   const [logOperation, setLogOperation] = useState<string>();
   const [editorLaunchNotice, setEditorLaunchNotice] = useState<EditorLaunchNoticeState | null>(null);
@@ -200,6 +226,12 @@ export default function App() {
   const [creationOpened, setCreationOpened] = useState(savedNavigation?.workbench === 'create');
   const [creationView, setCreationView] = useState<'library' | 'drafts' | 'queue' | 'results'>('library');
   const [page, setPage] = useState<Page>(workbench === 'create' ? 'workflows' : desktopTool ? 'codex' : toolPage);
+  useEffect(() => {
+    if (experimentalReady && !experimental && page === 'cleanup') {
+      setPage('codex');
+      setToolPage('codex');
+    }
+  }, [experimental, experimentalReady, page]);
   function switchWorkbench(next: Workbench) {
     setWorkspaceOpen(false);
     setWorkbench(next);
@@ -729,7 +761,7 @@ export default function App() {
     { id: 'environment', icon: Cpu, label: '运行环境' },
     { id: 'usage', icon: BarChart3, label: '用量统计' },
     { id: 'diagnostics', icon: Activity, label: '日志' },
-    { id: 'cleanup', icon: HardDrive, label: '空间清理' },
+    ...(experimental ? [{ id: 'cleanup' as const, icon: HardDrive, label: '空间清理 · 实验性' }] : []),
   ];
   const agentPage =
     page === 'codex' ||
@@ -990,7 +1022,7 @@ export default function App() {
                 <UsageStatistics key={workspace} workspace={workspace} />
               </Suspense>
             )}
-            {page === 'cleanup' && !desktopTool && (
+            {page === 'cleanup' && !desktopTool && experimental && (
               <StorageCleanup key={workspace} workspace={workspace} />
             )}
             {page === 'diagnostics' &&
@@ -1272,6 +1304,7 @@ export default function App() {
                 dataPath={status?.dataPath}
                 onCopy={(text) => void copy(text)}
                 onOpenSite={(url) => void openSite(url)}
+                experimental={{ enabled: experimental, ready: experimentalReady, busy: experimentalBusy, error: experimentalError, onChange: changeExperimental }}
                 updates={{
                   status: update,
                   checking: updateChecking,

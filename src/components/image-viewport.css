@@ -1,0 +1,6 @@
+.image-viewport-tools { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 12px 0; }
+.image-viewport-tools button { cursor: pointer; }
+.image-viewport-tools button:disabled { cursor: not-allowed; opacity: .5; }
+.image-viewport-scroll { width: 100%; height: min(55vh, 620px); overflow: auto; background-color: #eee; background-image: linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%); background-size: 16px 16px; background-position: 0 0, 0 8px, 8px -8px, -8px 0; }
+.image-viewport-image { position: relative; line-height: 0; }
+.image-viewport-image > img { display: block; width: 100%; height: auto; }

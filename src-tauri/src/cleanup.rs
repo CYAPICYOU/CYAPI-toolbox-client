@@ -1,10 +1,14 @@
+mod analysis;
+mod codex;
 mod files;
+mod logdb;
 mod native;
+mod settings;
 #[cfg(test)]
 mod tests;
 
 use crate::{configuration::no_links, diagnostics, logging};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     fs,
@@ -31,6 +35,8 @@ pub struct Item {
     #[serde(skip)]
     fork: String,
     #[serde(skip)]
+    references: Vec<String>,
+    #[serde(skip)]
     files: Vec<files::Stamp>,
 }
 
@@ -40,23 +46,94 @@ pub struct Scan {
     token: String,
     workspace: String,
     root: String,
-    items: Vec<Item>,
-    protected_sessions: usize,
+    roots: Vec<RootView>,
+    items: Vec<Entry>,
+    categories: Vec<Category>,
+    total_bytes: u64,
+    partial: bool,
     notes: Vec<String>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RootView {
+    path: String,
+    label: String,
+    exists: bool,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Category {
+    id: String,
+    title: String,
+    bytes: u64,
+    files: usize,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Entry {
+    id: String,
+    title: String,
+    category: String,
+    kind: String,
+    path: String,
+    bytes: u64,
+    files: usize,
+    sessions: usize,
+    records: usize,
+    min_updated_at: u64,
+    updated_at: u64,
+    deletable: bool,
+    reason: String,
+    estimated: bool,
+}
+
+#[derive(Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TimeRange {
+    since: Option<u64>,
+    until: Option<u64>,
+}
+
+impl TimeRange {
+    fn validate(&self) -> Result<()> {
+        if self.since.unwrap_or(0) >= self.until.unwrap_or(i64::MAX as u64)
+            || self.since.is_some_and(|t| t > i64::MAX as u64)
+            || self.until.is_some_and(|t| t > i64::MAX as u64)
+        {
+            return Err("时间范围无效：开始时间必须早于结束时间".into());
+        }
+        Ok(())
+    }
+    fn allows(&self, entry: &Entry) -> bool {
+        if entry.kind == "logDatabase" {
+            return entry.records > 0
+                && entry.updated_at >= self.since.unwrap_or(0)
+                && entry.min_updated_at < self.until.unwrap_or(u64::MAX);
+        }
+        entry.min_updated_at > 0
+            && entry.min_updated_at >= self.since.unwrap_or(0)
+            && entry.updated_at < self.until.unwrap_or(u64::MAX)
+    }
 }
 
 struct Plan {
     scan: Scan,
     root: PathBuf,
-    days: u64,
     created: u64,
     all: Vec<Item>,
+    actions: HashMap<String, analysis::Action>,
+    scopes: Vec<analysis::Scope>,
 }
 
 #[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Outcome {
     deleted_sessions: usize,
+    deleted_files: usize,
+    deleted_records: usize,
     reclaimed_bytes: u64,
     errors: Vec<String>,
     notes: Vec<String>,
@@ -109,7 +186,7 @@ fn valid_id(id: &str) -> bool {
 fn inventory(workspace: &str, root: &Path) -> Result<Vec<Item>> {
     match workspace {
         "claude" => files::claude(root),
-        "codex" => native::codex_list(root),
+        "codex" => codex::list(root),
         "opencode" => native::opencode_list(root),
         _ => Err("不支持的清理工具".into()),
     }
@@ -146,7 +223,9 @@ fn candidates(all: &[Item], cutoff: u64) -> Result<Vec<Item>> {
     }
     let referenced: HashSet<_> = all
         .iter()
-        .map(|i| i.fork.as_str())
+        .flat_map(|i| {
+            std::iter::once(i.fork.as_str()).chain(i.references.iter().map(String::as_str))
+        })
         .filter(|s| !s.is_empty())
         .collect();
     let mut result = Vec::new();
@@ -169,48 +248,34 @@ fn candidates(all: &[Item], cutoff: u64) -> Result<Vec<Item>> {
     Ok(result)
 }
 
-fn scan(workspace: &str, days: u64) -> Result<Scan> {
-    if ![7, 30, 90, 180].contains(&days) {
-        return Err("保留期仅支持 7、30、90 或 180 天".into());
-    }
+fn scan(workspace: &str) -> Result<Scan> {
     let root = root(workspace)?;
-    let all = inventory(workspace, &root)?;
+    let analysis = analysis::build(workspace, &root)?;
     let now = logging::now();
-    let items = candidates(&all, now.saturating_sub(days * DAY))?;
-    let count: usize = items.iter().map(|i| i.sessions).sum();
-    let scan = Scan {
-        token: uuid::Uuid::new_v4().to_string(),
-        workspace: workspace.into(),
-        root: root.to_string_lossy().into_owned(),
-        items,
-        protected_sessions: all.len().saturating_sub(count),
-        notes: vec![
-            "仅列出整个会话树均早于保留期的会话；有关联 fork 的源会话会保留。".into(),
-            "永久删除，不进入回收站。清理前请自行导出需要保留的会话，并关闭对应工具及其后台服务。"
-                .into(),
-            if workspace == "claude" {
-                "包含会话正文、同名附件目录、文件历史与图片缓存；不清理 memory、配置、凭据、插件。"
-                    .into()
-            } else {
-                "需要支持原生会话删除的 CLI：Codex thread/delete；OpenCode 独立模式（V2 --standalone，兼容旧版 --pure）。不直接删除数据库、WAL 或 SHM；大小为会话数据估算，不等于磁盘释放量。".into()
-            },
-        ],
-    };
+    let scan = analysis.scan;
     let mut plans = PLANS.lock().map_err(|_| "清理计划暂不可用")?;
     plans.retain(|p| now.saturating_sub(p.created) < 10 * 60_000 && p.scan.workspace != workspace);
     plans.push(Plan {
         scan: scan.clone(),
         root,
-        days,
         created: now,
-        all,
+        all: analysis.all,
+        actions: analysis.actions,
+        scopes: analysis.scopes,
     });
     Ok(scan)
 }
 
-fn run(workspace: &str, token: &str, selected: &[String], confirmed: bool) -> Result<Outcome> {
-    if !confirmed || selected.is_empty() || selected.len() > LIMIT {
-        return Err("请先选择会话并确认永久删除".into());
+fn run(
+    workspace: &str,
+    token: &str,
+    selected: &[String],
+    range: &TimeRange,
+    confirmed: bool,
+) -> Result<Outcome> {
+    range.validate()?;
+    if !confirmed || selected.is_empty() || selected.len() > 100_000 {
+        return Err("请先选择清理项目并确认永久删除".into());
     }
     let plan = {
         let mut plans = PLANS.lock().map_err(|_| "清理计划暂不可用")?;
@@ -220,50 +285,94 @@ fn run(workspace: &str, token: &str, selected: &[String], confirmed: bool) -> Re
             .ok_or("扫描计划不存在，请重新扫描")?;
         plans.remove(index)
     };
-    if logging::now().saturating_sub(plan.created) >= 10 * 60_000 || root(workspace)? != plan.root {
+    if logging::now().saturating_sub(plan.created) >= 10 * 60_000
+        || root(workspace)? != plan.root
+        || analysis::scopes(workspace, &plan.root)? != plan.scopes
+    {
         return Err("扫描计划已过期或数据目录已改变，请重新扫描".into());
     }
     let ids: HashSet<_> = selected.iter().map(String::as_str).collect();
-    if ids.len() != selected.len()
-        || ids
-            .iter()
-            .any(|id| !plan.scan.items.iter().any(|i| i.id == *id))
-    {
-        return Err("选择包含扫描计划以外的会话".into());
+    if ids.len() != selected.len() || ids.iter().any(|id| !plan.actions.contains_key(*id)) {
+        return Err("选择包含扫描计划以外或不可清理的项目".into());
     }
-    native::ensure_stopped(workspace)?;
-    let current = inventory(workspace, &plan.root)?;
-    let eligible = candidates(&current, plan.created.saturating_sub(plan.days * DAY))?;
-    // Whole inventory comparison also catches a newly spawned child or fork.
-    if !same_inventory(&current, &plan.all)
-        || ids.iter().any(|id| !eligible.iter().any(|i| i.id == *id))
-    {
-        return Err("会话或关联数据在扫描后已变化，请重新扫描；未执行删除".into());
-    }
-    let mut outcome = Outcome::default();
-    for item in plan
+    let mut entries: Vec<_> = plan
         .scan
         .items
         .iter()
         .filter(|i| ids.contains(i.id.as_str()))
-    {
-        if let Err(e) = native::ensure_stopped(workspace) {
-            outcome.errors.push(e);
-            break;
+        .collect();
+    if entries.len() != ids.len() || entries.iter().any(|e| !e.deletable || !range.allows(e)) {
+        return Err("所选项目不在时间范围内或受到保护，未执行删除".into());
+    }
+    native::ensure_stopped(workspace)?;
+    let has_sessions = entries.iter().any(|e| e.kind == "session");
+    if has_sessions {
+        let current = inventory(workspace, &plan.root)?;
+        if !same_inventory(&current, &plan.all) {
+            return Err("会话或关联数据在扫描后已变化，请重新扫描；未执行删除".into());
         }
-        let result = match workspace {
-            "claude" => files::delete_claude(&plan.root, item),
-            "codex" => native::codex_delete(&plan.root, &item.id).map(|_| item.bytes),
-            "opencode" => native::opencode_delete(&plan.root, &item.id).map(|_| 0),
-            _ => unreachable!(),
-        };
-        match result {
-            Ok(bytes) => {
-                outcome.deleted_sessions += item.sessions;
-                outcome.reclaimed_bytes += bytes;
+    }
+    // Validate every selected file before the first deletion, without requiring unrelated
+    // active logs or unrelated database records to remain unchanged.
+    for entry in &entries {
+        match &plan.actions[&entry.id] {
+            analysis::Action::File { root, stamp } => {
+                if files::stamps(root, std::slice::from_ref(&stamp.path))? != [stamp.clone()] {
+                    return Err("所选文件在扫描后已变化，请重新扫描；未执行删除".into());
+                }
             }
+            analysis::Action::Logs(db) => logdb::verify(db)?,
+            analysis::Action::Session(_) => {}
+        }
+    }
+    // Native app-servers may write fresh runtime logs. Clear the old selected logs first.
+    entries.sort_by_key(|e| (e.kind == "session", e.id.clone()));
+    let mut outcome = Outcome::default();
+    for (index, entry) in entries.iter().enumerate() {
+        if index % 100 == 0 || entry.kind != "file" {
+            if let Err(e) = native::ensure_stopped(workspace) {
+                outcome.errors.push(e);
+                break;
+            }
+        }
+        let result: Result<u64> = (|| match &plan.actions[&entry.id] {
+            analysis::Action::File { root, stamp } => {
+                if files::stamps(root, std::slice::from_ref(&stamp.path))? != [stamp.clone()] {
+                    return Err("所选文件发生变化，已停止".into());
+                }
+                files::remove(stamp)?;
+                outcome.deleted_files += 1;
+                Ok(stamp.bytes)
+            }
+            analysis::Action::Logs(db) => {
+                let deleted = logdb::delete(db, range)?;
+                outcome.deleted_records += deleted.records;
+                if let Some(warning) = deleted.warning {
+                    outcome.notes.push(warning);
+                }
+                Ok(deleted.bytes)
+            }
+            analysis::Action::Session(item) => {
+                let bytes = match workspace {
+                    "claude" => files::delete_claude(&plan.root, item)?,
+                    "codex" => {
+                        native::codex_delete(&plan.root, &item.id, &plan.all, range)?;
+                        item.bytes
+                    }
+                    "opencode" => {
+                        native::opencode_delete(&plan.root, &item.id, &plan.all, range)?;
+                        0
+                    }
+                    _ => unreachable!(),
+                };
+                outcome.deleted_sessions += item.sessions;
+                Ok(bytes)
+            }
+        })();
+        match result {
+            Ok(bytes) => outcome.reclaimed_bytes += bytes,
             Err(e) => {
-                outcome.errors.push(format!("会话 {}：{e}", item.id));
+                outcome.errors.push(format!("项目 {}：{e}", entry.title));
                 break;
             }
         }
@@ -291,11 +400,57 @@ fn same_inventory(a: &[Item], b: &[Item]) -> bool {
             .all(|i| map.get(&i.id).is_some_and(|old| *old == i))
 }
 
+// Native recursive deletion must match the selected, locally scanned tree, not
+// merely contain its root. This also catches DB-only/new descendants and forks.
+fn verify_session_tree(
+    current: &[Item],
+    expected: &[Item],
+    id: &str,
+    range: &TimeRange,
+) -> Result<HashSet<String>> {
+    let entries = analysis::session_entries(current, &Ok(()))?;
+    let entry = entries
+        .iter()
+        .find(|(e, _)| e.id == format!("session:{id}"))
+        .map(|(e, _)| e)
+        .filter(|e| e.deletable && range.allows(e))
+        .ok_or("原生会话树受到保护或不在所选时间范围内，未执行删除")?;
+    fn subtree(all: &[Item], id: &str) -> HashSet<String> {
+        let mut ids = HashSet::from([id.to_string()]);
+        loop {
+            let count = ids.len();
+            for item in all {
+                if ids.contains(&item.parent) {
+                    ids.insert(item.id.clone());
+                }
+            }
+            if count == ids.len() {
+                return ids;
+            }
+        }
+    }
+    let actual = subtree(current, id);
+    let planned = subtree(expected, id);
+    if actual != planned
+        || actual.len() != entry.sessions
+        || !expected.iter().any(|i| i.id == id)
+        || current.iter().filter(|i| actual.contains(&i.id)).any(|i| {
+            !expected
+                .iter()
+                .any(|old| old.id == i.id && old.parent == i.parent)
+        })
+    {
+        return Err("原生会话树与扫描计划不一致（可能有未扫描到的子会话），未执行删除".into());
+    }
+    Ok(actual)
+}
+
 #[tauri::command]
-pub async fn cleanup_scan(workspace: String, days: u64) -> Result<Scan> {
+pub async fn cleanup_scan(workspace: String) -> Result<Scan> {
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = OPERATION.try_lock().map_err(|_| "已有清理任务在执行")?;
-        scan(&workspace, days)
+        settings::require_enabled()?;
+        scan(&workspace)
     })
     .await
     .map_err(|_| "清理扫描任务中断".to_string())?
@@ -306,11 +461,13 @@ pub async fn cleanup_run(
     workspace: String,
     token: String,
     selected: Vec<String>,
+    range: TimeRange,
     confirmed: bool,
 ) -> Result<Outcome> {
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = OPERATION.try_lock().map_err(|_| "已有清理任务在执行")?;
-        run(&workspace, &token, &selected, confirmed)
+        settings::require_enabled()?;
+        run(&workspace, &token, &selected, &range, confirmed)
     })
     .await
     .map_err(|_| "清理任务中断；请重新扫描检查结果".to_string())?
@@ -324,4 +481,24 @@ pub async fn cleanup_toolbox_cache() -> Result<Outcome> {
     })
     .await
     .map_err(|_| "缓存清理任务中断".to_string())?
+}
+
+#[tauri::command]
+pub fn experimental_settings() -> Result<settings::ExperimentalSettings> {
+    settings::read(&logging::data_path())
+}
+
+#[tauri::command]
+pub fn set_experimental_settings(
+    enabled: bool,
+    confirmed: bool,
+) -> Result<settings::ExperimentalSettings> {
+    let _guard = OPERATION
+        .try_lock()
+        .map_err(|_| "请等待当前扫描或清理结束后再切换实验性功能")?;
+    let result = settings::write(&logging::data_path(), enabled, confirmed)?;
+    if !enabled {
+        PLANS.lock().map_err(|_| "无法清除清理计划")?.clear();
+    }
+    Ok(result)
 }
