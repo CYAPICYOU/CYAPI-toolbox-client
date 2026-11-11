@@ -1,3 +1,16 @@
+## v3.0.0-preview（测试版）
+
+- 本次是预览测试版，只发布到 GitHub Releases 供试用验证，不更新官网下载页，也不会成为默认的「最新版本」。
+- 新增 Qwen Code 工作区：模型接入、Skill 安装（同时读取 `~/.qwen/skills` 与 `~/.agents/skills`）、MCP 管理（使用 Qwen 的 `httpUrl` 传输字段）、用量统计与本机日志全部独立可用，不再与 Codex / Claude Code / OpenCode 混用配置。
+- 新增「空间清理 · 实验性」：按工具分析日志、会话、缓存、临时文件的占用，可按时间范围选择并永久清理；需在设置中显式确认风险后才出现入口，永久删除不进入回收站。
+- 设置页新增「一键清理缓存」：只清理超过 24 小时的工具箱安装包缓存，保留备份、运行环境与安装记录。
+- 恢复「创作 / 工作流」入口：工作流库、草稿、上传、队列、结果下载与远程编辑器重新开放，与「工具接入」平级。
+- 图片编辑支持绘制蒙版与标注层：涂抹区域作为透明蒙版，圈画箭头作为独立标注层，两者互斥并附使用引导。
+- Kimi Code 由原 Kimi Code CLI 升级适配：桌面版与 CLI 共用 `~/.kimi-code`，写入与之匹配的提供商类型与模型别名，并清理旧版残留别名。
+- 模型协议默认改为 OpenAI Responses，Cline、Kilo Code、Qwen Code、Continue、Grok Build 等统一按 Responses 优先排列；WorkBuddy 仍固定使用 Chat Completions。
+- 软件接入列表新增各应用官网入口，并修正 Kimi Code 桌面版的安装路径探测。
+- 新增 Qwen Code、Qwen 日志与空间清理的测试覆盖；旧的 Roo Code 接入移除。
+
 ## v2.0.2
 
 - 修复 WorkBuddy 配置写入位置错误：现在按 WorkBuddy 自身的解析顺序定位用户配置目录（`WORKBUDDY_CONFIG_DIR`、`CODEBUDDY_CONFIG_DIR`、`WORKBUDDY_DATA_FOLDER_NAME`），最后才回退到 `~/.workbuddy`；便携版或多实例安装不会再写到错误目录。非法目录名与相对路径会直接拒绝写入，不再猜测。
