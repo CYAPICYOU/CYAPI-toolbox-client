@@ -233,6 +233,53 @@ export const editorToken = (
 // ---------------------------------------------------------------------------
 const WORKFLOW_API_PATH = '/api/workflows';
 
+export interface PreparedWorkflowImage {
+  id: string;
+  type: string;
+  width: number;
+  height: number;
+  originalBytes: number;
+  bytes: number;
+  changed: boolean;
+  resized: boolean;
+}
+
+export async function removeUnsubmittedWorkflowDraft(key: string, id: string): Promise<void> {
+  await requestResponse(`/drafts/${encodeURIComponent(id)}`, { method: 'DELETE', key, base: WORKFLOW_API_PATH });
+}
+
+export async function removeWorkflowUpload(key: string, id: string): Promise<void> {
+  await requestResponse(`/uploads/${encodeURIComponent(id)}`, { method: 'DELETE', key, base: WORKFLOW_API_PATH });
+}
+
+/** Browser Blob upload avoids JSON/Base64 and keeps each request bounded. */
+export async function uploadPreparedWorkflowImage(key: string, image: Blob, options: {
+  kind?: 'image' | 'mask' | 'markup'; overlay?: Blob; allowCompression?: boolean; allowResize?: boolean; signal?: AbortSignal;
+} = {}): Promise<{ image: PreparedWorkflowImage; overlay?: PreparedWorkflowImage }> {
+  const kind = options.kind ?? 'image';
+  if (options.overlay && kind === 'image') throw new Error('成组上传需要蒙版或标注类型。');
+  const params = new URLSearchParams({ kind });
+  if (options.allowCompression) params.set('allowCompression', '1');
+  if (options.allowResize) params.set('allowResize', '1');
+  if (options.overlay) {
+    params.set('imageBytes', String(image.size));
+    params.set('overlayBytes', String(options.overlay.size));
+  }
+  const response = await fetch(`${SERVER}${WORKFLOW_API_PATH}/uploads/${options.overlay ? 'prepared-pair' : 'prepared'}?${params}`, {
+    method: 'POST', headers: { Authorization: `Bearer ${key}`,
+      'Content-Type': options.overlay ? 'application/octet-stream' : image.type },
+    body: options.overlay ? new Blob([image, options.overlay], { type: 'application/octet-stream' }) : image,
+    credentials: 'omit', redirect: 'error',
+    signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(180_000)]) : AbortSignal.timeout(180_000),
+  });
+  if (!response.ok) {
+    const error = await readError(response);
+    throw new PlatformError(error.message, response.status, error.code);
+  }
+  const result = await response.json();
+  return options.overlay ? result : { image: result };
+}
+
 export type WorkflowTaskStatus =
   | 'created'
   | 'charging'
@@ -308,7 +355,7 @@ export interface WorkflowQuote {
   revision: number;
   amount: number;
   unit: string;
-  items: { nodeId: string; title?: string; classType: string; amount: number; unit: string }[];
+  items: { nodeId: string; title?: string; classType: string; amount: number; unit: string; priceDetails?: unknown }[];
   runFee?: number;
   bridgeQuote?: Record<string, unknown>;
 }

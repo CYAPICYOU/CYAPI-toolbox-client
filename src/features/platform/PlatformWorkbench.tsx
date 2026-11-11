@@ -25,6 +25,10 @@ import {
   runWorkflowDraft,
   saveWorkflowDraft,
   uploadWorkflowAsset,
+  uploadPreparedWorkflowImage,
+  PlatformError,
+  removeUnsubmittedWorkflowDraft,
+  removeWorkflowUpload,
   type WorkflowTask,
 } from './api';
 import { addKey, loadKeys, maskKey, saveKeys, type StoredKeyState } from './keyStore';
@@ -33,6 +37,9 @@ import {
   loadDraftState,
   saveDraftState,
   validateDraft,
+  storeBlobDraft,
+  loadBlobDraft,
+  deleteBlobDraft,
   type LocalWorkflowDraft,
   type WorkflowDraftState,
 } from './draftStore';
@@ -53,7 +60,8 @@ import { useWorkflowTasks } from './useWorkflowTasks';
 import { WorkflowTaskQueue } from './WorkflowTaskQueue';
 import { WorkflowResults } from './WorkflowResults';
 import { errorText } from './taskState';
-import { formatWorkflowUsd } from './workflowPrice';
+import { formatImagePriceDetails, formatWorkflowUsd } from './workflowPrice';
+import { OVERLAY_LIMIT, REFERENCE_LIMIT, prepareLocalImage } from './imagePreparation';
 import './platform.css';
 
 const viewContent = {
@@ -207,7 +215,7 @@ export function PlatformWorkbench({
       updatedAt: Date.now(),
     });
   }
-  function openDraft(item: LocalWorkflowDraft) {
+  async function openDraft(item: LocalWorkflowDraft) {
     const saved = item.template ?? catalog?.items.find((entry) => entry.kind === item.kind);
     const current = saved?.source === 'server' ? catalog?.items.find((entry) => entry.id === saved.id) : undefined;
     // Keep the saved execution configuration, but show the latest public examples.
@@ -218,12 +226,13 @@ export function PlatformWorkbench({
     }
     setDraftError('');
     setEditorTab('inputs');
-    setEditor({ ...item, template });
+    try { setEditor({ ...await loadBlobDraft(item), template }); }
+    catch (cause) { setDraftError(errorText(cause)); }
   }
   function backToLibrary() {
     if (
       editor &&
-      (editor.prompt || editor.fileData || editor.maskData || editor.markupData) &&
+      (editor.prompt || editor.fileData || editor.maskData || editor.markupData || editor.files?.length) &&
       !window.confirm('返回后将离开当前编辑。请确认已保存需要保留的草稿。')
     )
       return;
@@ -307,19 +316,28 @@ export function PlatformWorkbench({
       void launchEditor(item);
     });
   }
-  function saveDraft() {
+  async function saveDraft() {
     if (!editor) return;
+    const blobDraft = Boolean(editor.files?.some(file => file.blob) || editor.maskBlob || editor.markupBlob);
+    const blobDraftId = blobDraft ? crypto.randomUUID() : undefined;
+    try {
+      if (blobDraftId) await storeBlobDraft(editor, blobDraftId);
+    } catch {
+      setDraftError('本地图片存储空间不足或不可用，草稿未保存。');
+      return;
+    }
     if (
       persistDrafts({
         drafts: [
-          { ...editor, updatedAt: Date.now() },
+          { ...editor, blobDraft, blobDraftId, updatedAt: Date.now() },
           ...draftState.drafts.filter((item) => item.id !== editor.id),
         ],
       })
     ) {
+      if (editor.blobDraft) void deleteBlobDraft(editor.blobDraftId ?? editor.id).catch(() => {});
       setEditor(null);
       onViewChange('drafts');
-    }
+    } else if (blobDraftId) void deleteBlobDraft(blobDraftId).catch(() => {});
   }
   async function submitRun() {
     const item = editor;
@@ -337,24 +355,74 @@ export function PlatformWorkbench({
     }
     setSubmitting(true);
     setDraftError('');
+    let createdDraftId: string | undefined;
+    let submitted = false;
+    const uploadedIds: string[] = [];
     try {
       // The server owns the template graph: create a draft from the published
       // template, fill the prompt, quote, then submit the full graph to ComfyUI.
       const draft = await createWorkflowDraft(activeKey, template.id);
+      createdDraftId = draft.id;
       const localFiles = item.files?.length
         ? item.files
         : item.fileData
           ? [{ name: item.fileName, data: item.fileData }]
           : [];
       const references: string[] = [];
-      for (const file of localFiles.slice(0, 16))
-        references.push((await uploadWorkflowAsset(activeKey, file.data, undefined, template.id === 'gpt-image-25-edit')).id);
-      const mask = item.maskData
-        ? (await uploadWorkflowAsset(activeKey, item.maskData, 'mask')).id
-        : null;
-      const markup = item.markupData
-        ? (await uploadWorkflowAsset(activeKey, item.markupData, 'markup')).id
-        : null;
+      let mask: string | null = null, markup: string | null = null;
+      if (template.id === 'gpt-image-25-edit') {
+        const overlayKind = item.maskData ? 'mask' : item.markupData ? 'markup' : null;
+        const layer = overlayKind ? (overlayKind === 'mask' ? item.maskBlob : item.markupBlob)
+          ?? await fetch((overlayKind === 'mask' ? item.maskData : item.markupData)!).then(response => response.blob()) : undefined;
+        for (let index = 0; index < localFiles.length && index < 16; index++) {
+          if (taskIdentity.current !== activeKey) throw new Error('Key 已更换，请重新操作');
+          const file = localFiles[index];
+          const original = 'blob' in file && file.blob instanceof Blob ? file.blob : await fetch(file.data).then(response => response.blob());
+          const paired = index === 0 ? layer : undefined;
+          if ((original.size > REFERENCE_LIMIT || (paired && paired.size > OVERLAY_LIMIT)) &&
+              !window.confirm(`${file.name} 需要在本机压缩后上传。透明图层保持 PNG；是否继续？`)) return;
+          const prepared = await prepareLocalImage(original, paired, overlayKind ?? 'mask', () =>
+            window.confirm(paired ? '需要同步缩放基准图和标注层才能满足限制，是否继续？' : '需要缩小图片才能满足限制，是否继续？'));
+          if ((prepared.image.changed || prepared.overlay?.changed) && !window.confirm(
+            `本机处理：${file.name} ${(original.size / 1048576).toFixed(2)} → ${(prepared.image.blob.size / 1048576).toFixed(2)} MiB，${prepared.image.width} × ${prepared.image.height}，${prepared.image.blob.type}。${prepared.overlay ? `\n标注层 ${(paired!.size / 1048576).toFixed(2)} → ${(prepared.overlay.blob.size / 1048576).toFixed(2)} MiB。` : ''}\n是否上传？`)) return;
+          let uploaded;
+          let allowCompression = false, allowResize = false;
+          for (;;) {
+            try {
+              uploaded = await uploadPreparedWorkflowImage(activeKey, prepared.image.blob, {
+                kind: prepared.overlay ? overlayKind! : 'image', overlay: prepared.overlay?.blob, allowCompression, allowResize,
+              });
+              break;
+            } catch (cause) {
+              if (!(cause instanceof PlatformError)) throw cause;
+              if (!allowResize && /缩放/.test(cause.message) && [400, 409].includes(cause.status)) {
+                if (!window.confirm(`${cause.message}\n服务端需要${prepared.overlay ? '同步' : ''}缩放，是否允许？`)) throw cause;
+                allowResize = true;
+                allowCompression = true;
+              } else if (!allowCompression && cause.status === 409 && /压缩/.test(cause.message)) {
+                if (!window.confirm(`${cause.message}\n服务端需要再次压缩，是否允许？`)) throw cause;
+                allowCompression = true;
+              } else throw cause;
+            }
+          }
+          references.push(uploaded.image.id);
+          uploadedIds.push(uploaded.image.id);
+          if (uploaded.overlay) uploadedIds.push(uploaded.overlay.id);
+          if (uploaded.overlay && overlayKind === 'mask') mask = uploaded.overlay.id;
+          if (uploaded.overlay && overlayKind === 'markup') markup = uploaded.overlay.id;
+          if ((uploaded.image.changed || uploaded.overlay?.changed) && !window.confirm(`服务端兜底处理结果：${uploaded.image.width} × ${uploaded.image.height}，基准图 ${uploaded.image.bytes} 字节${uploaded.overlay ? `，标注层 ${uploaded.overlay.bytes} 字节` : ''}。是否使用处理后的素材？`)) return;
+        }
+      } else {
+        for (const file of localFiles.slice(0, 16)) {
+          const id = (await uploadWorkflowAsset(activeKey, file.data)).id;
+          references.push(id);
+          uploadedIds.push(id);
+        }
+        mask = item.maskData ? (await uploadWorkflowAsset(activeKey, item.maskData, 'mask')).id : null;
+        if (mask) uploadedIds.push(mask);
+        markup = item.markupData ? (await uploadWorkflowAsset(activeKey, item.markupData, 'markup')).id : null;
+        if (markup) uploadedIds.push(markup);
+      }
       const saved = await saveWorkflowDraft(activeKey, draft.id, {
         revision: draft.revision,
         description: item.prompt.trim(),
@@ -367,16 +435,25 @@ export function PlatformWorkbench({
       const quote = direct
         ? await quoteBridgeDraft(activeKey, draft.id)
         : await quoteWorkflowDraft(activeKey, draft.id);
+      const priceDetails = direct
+        ? formatImagePriceDetails(quote.bridgeQuote?.priceDetails)
+        : quote.items.map((item) => {
+            const detail = formatImagePriceDetails(item.priceDetails);
+            return detail ? `${item.title ?? item.classType}：${detail}` : '';
+          }).filter(Boolean).join('\n');
       if (taskIdentity.current !== activeKey) throw new Error('Key 已更换，请重新操作');
       if (
         !window.confirm(
           direct
-            ? `将由 CYAPI Bridge 直接调用真实 AI。\nAI 节点预估费用：${formatWorkflowUsd(quote.amount)}\n节点实际费用受确认报价上限约束。是否继续？`
-            : `将由 Worker ComfyUI 执行完整工作流。\nAI 节点预估费用：${formatWorkflowUsd(quote.amount)}\n工作流执行费：${formatWorkflowUsd(quote.runFee ?? 0)}\n节点实际费用受确认报价上限约束。是否继续？`,
+            ? `将由 CYAPI Bridge 直接调用真实 AI。\nAI 节点预估费用：${formatWorkflowUsd(quote.amount)}${priceDetails ? `\n${priceDetails}` : ''}\n节点实际费用受确认报价上限约束。是否继续？`
+            : `将由 Worker ComfyUI 执行完整工作流。\nAI 节点预估费用：${formatWorkflowUsd(quote.amount)}\n工作流执行费：${formatWorkflowUsd(quote.runFee ?? 0)}${priceDetails ? `\n${priceDetails}` : ''}\n节点实际费用受确认报价上限约束。是否继续？`,
         )
       )
         return;
       try {
+        // Once submission is attempted its outcome may be unknown; never
+        // delete the draft or inputs until the original task is reconciled.
+        submitted = true;
         if (direct) await runBridgeDraft(activeKey, draft.id, saved.revision, quote);
         else await runWorkflowDraft(activeKey, draft.id, saved.revision, quote);
       } catch (cause) {
@@ -385,14 +462,22 @@ export function PlatformWorkbench({
         );
       }
       if (taskIdentity.current !== activeKey) return;
-      if (draftState.drafts.some((entry) => entry.id === item.id))
-        persistDrafts({ drafts: draftState.drafts.filter((entry) => entry.id !== item.id) });
+      if (draftState.drafts.some((entry) => entry.id === item.id) &&
+          persistDrafts({ drafts: draftState.drafts.filter((entry) => entry.id !== item.id) })) {
+        if (item.blobDraft) void deleteBlobDraft(item.blobDraftId ?? item.id).catch(() => {});
+      }
       setEditor(null);
       onViewChange('queue');
       await loadTasks();
     } catch (cause) {
       if (taskIdentity.current === activeKey) setDraftError(errorText(cause));
     } finally {
+      if (!submitted && createdDraftId) {
+        try {
+          await removeUnsubmittedWorkflowDraft(activeKey, createdDraftId);
+          await Promise.allSettled(uploadedIds.map(id => removeWorkflowUpload(activeKey, id)));
+        } catch { /* Preserve referenced assets if draft removal is uncertain. */ }
+      }
       setSubmitting(false);
     }
   }
@@ -415,14 +500,9 @@ export function PlatformWorkbench({
       const objectUrl = await downloadWorkflowArtifact(key, output.download);
       try {
         const blob = await fetch(objectUrl).then((response) => response.blob());
-        const data = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result));
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
+        const data = URL.createObjectURL(blob);
         const name = output.title || '上一轮生成结果.png';
-        if (taskIdentity.current !== key) return;
+        if (taskIdentity.current !== key) { URL.revokeObjectURL(data); return; }
         setEditor({
           id: crypto.randomUUID(),
           kind: template.kind,
@@ -431,7 +511,7 @@ export function PlatformWorkbench({
           prompt: '',
           fileName: name,
           fileData: data,
-          files: [{ name, data }],
+          files: [{ name, data, blob }],
           params: {},
           maskName: '',
           maskData: '',
@@ -687,10 +767,9 @@ export function PlatformWorkbench({
                       <button
                         className="pfx-ghost"
                         onClick={() => {
-                          if (window.confirm('删除这份草稿？'))
-                            persistDrafts({
+                          if (window.confirm('删除这份草稿？') && persistDrafts({
                               drafts: draftState.drafts.filter((entry) => entry.id !== item.id),
-                            });
+                            }) && item.blobDraft) void deleteBlobDraft(item.blobDraftId ?? item.id).catch(() => {});
                         }}
                       >
                         删除

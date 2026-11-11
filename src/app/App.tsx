@@ -59,6 +59,7 @@ import { OpenCodeLogs } from './OpenCodeLogs';
 import { QwenLogs } from './QwenLogs';
 import { LogWindow } from './LogWindow';
 import { EditorLaunchNotice, type EditorLaunchNoticeState } from '../features/platform/EditorLaunchNotice';
+import { McpKeySync } from '../features/platform/mcpKeySync';
 import { openLogs } from '../lib/api/diagnostics';
 import { Integrations } from './Integrations';
 import { McpManager } from './McpManager';
@@ -804,6 +805,7 @@ export default function App() {
 
   return (
     <div className="app-shell workbench-shell">
+      <McpKeySync />
       <aside className="sidebar" inert={modalOpen}>
         <button
           className="brand"

@@ -15,7 +15,13 @@ import {
   Trash2,
   Unplug,
 } from 'lucide-react';
-import { nativeAvailable, nativeCall, SERVER_URL } from '../lib/api/native';
+import {
+  nativeAvailable,
+  nativeCall,
+  readMcpServerStatus,
+  SERVER_URL,
+  type McpServerStatus,
+} from '../lib/api/native';
 import { mcpConfirmation } from '../features/mcp/actions';
 import type {
   McpCatalog,
@@ -158,6 +164,7 @@ function WorkspaceMcpManager({
   focus?: McpFocus;
 }) {
   const [view, setView] = useState<McpView>();
+  const [mcpServer, setMcpServer] = useState<McpServerStatus>();
   const [busy, setBusy] = useState('read');
   const [catalogBusy, setCatalogBusy] = useState(false);
   const [catalogError, setCatalogError] = useState('');
@@ -235,6 +242,13 @@ function WorkspaceMcpManager({
       .finally(() => {
         if (active) setBusy('');
       });
+    if (nativeAvailable) {
+      void readMcpServerStatus()
+        .then((status) => {
+          if (active) setMcpServer(status);
+        })
+        .catch(() => {});
+    }
     return () => {
       active = false;
       mounted.current = false;
@@ -467,9 +481,18 @@ function WorkspaceMcpManager({
                         <span>{server.capabilities.join(' · ')}</span>
                       )}
                     </div>
+                    {server.id === 'cyapi-toolbox' && mcpServer && (
+                      <p className="n-config-note">
+                        {mcpServer.running
+                          ? `本机 MCP 服务已就绪（${mcpServer.endpoint}）${mcpServer.hasKey ? '' : '；尚未载入 API Key，工具调用会提示先添加 Key。'}`
+                          : '本机 MCP 服务未启动，请确认工具箱正在运行；接入仍会写入地址与令牌，服务恢复后即可使用。'}
+                      </p>
+                    )}
                     {status && !status.tokenAvailable && (
                       <p className="n-mcp-warning">
-                        未读取到本机 MCP 令牌，请先在对应软件中完成配置。
+                        {server.id === 'cyapi-toolbox'
+                          ? '无法生成工具箱访问令牌，请先在「工作流」页添加并激活 API Key。'
+                          : '未读取到本机 MCP 令牌，请先在对应软件中完成配置。'}
                       </p>
                     )}
                     {(server.steps.length > 0 || server.installCommand) && (
@@ -754,7 +777,9 @@ function WorkspaceMcpManager({
                     )}
                     {status && !status.tokenAvailable && (
                       <p className="n-mcp-warning">
-                        未读取到本机 MCP 令牌，请先在对应软件中完成配置。
+                        {server?.id === 'cyapi-toolbox'
+                          ? '无法生成工具箱访问令牌，请先在「工作流」页添加并激活 API Key。'
+                          : '未读取到本机 MCP 令牌，请先在对应软件中完成配置。'}
                       </p>
                     )}
                   </div>

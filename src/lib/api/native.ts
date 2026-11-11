@@ -492,6 +492,13 @@ export interface McpView {
   entries: McpEntryStatus[];
   local: McpLocalEntry[];
 }
+/** The loopback MCP server the desktop client serves to local agents. */
+export interface McpServerStatus {
+  running: boolean;
+  port: number | null;
+  hasKey: boolean;
+  endpoint: string | null;
+}
 export interface CodexLocalizationStatus {
   /** Windows is the only platform the desktop package ships a proxy target for. */
   supported: boolean;
@@ -509,6 +516,18 @@ export interface CodexLocalizationStatus {
   message: string;
 }
 export const nativeAvailable = isTauri();
+
+/** Push the active workflow Key into the loopback MCP server. */
+export async function syncMcpKey(key: string | null): Promise<McpServerStatus> {
+  if (!nativeAvailable) return { running: false, port: null, hasKey: false, endpoint: null };
+  return invoke<McpServerStatus>('cyapi_mcp_key', { key });
+}
+
+export async function readMcpServerStatus(): Promise<McpServerStatus> {
+  if (!nativeAvailable) return { running: false, port: null, hasKey: false, endpoint: null };
+  return invoke<McpServerStatus>('cyapi_mcp_status');
+}
+
 // 后台读取（状态、预览、更新检查等）失败只在日志中记录，不自动弹出日志窗口。
 const quietActions = [
   'status',

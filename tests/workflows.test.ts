@@ -10,8 +10,21 @@ import {
 import { unzipSync, strFromU8 } from 'fflate';
 import {
   formatWorkflowUsd,
+  formatImagePriceDetails,
+  workflowHasImagePricing,
   workflowReferencePrice,
 } from '../src/features/platform/workflowPrice.ts';
+
+test('image pricing presentation shows the configured breakdown safely', () => {
+  const catalog = { templates: [{ id: 'fictional', display: { pricingMode: 'image' } }] };
+  assert.equal(workflowHasImagePricing(catalog, 'fictional'), true);
+  assert.equal(workflowHasImagePricing(catalog, 'other'), false);
+  const text = formatImagePriceDetails({ counts: { image: 2, mask: 1, markup: 0 }, outputCount: 2, amountUnits: 16_000_000, rule: { baseUnits: 1_000_000, imageUnits: 2_000_000, maskUnits: 3_000_000, markupUnits: 4_000_000 } });
+  assert.match(text, /参考图 2/);
+  assert.match(text, /整体 × 2 张/);
+  assert.match(text, /\$0\.16 USD/);
+  assert.equal(formatImagePriceDetails({ counts: {} }), '');
+});
 import {
   createEditorLauncher,
   editorLaunchPending,
@@ -24,6 +37,7 @@ import {
 } from '../src/features/platform/draftStore.ts';
 import { pollResource } from '../src/features/platform/polling.ts';
 import { overlayDimensions } from '../src/features/platform/overlayDimensions.ts';
+import { createImagePreparation, REFERENCE_LIMIT, OVERLAY_LIMIT } from '../src/features/platform/imagePreparation.ts';
 import {
   importWorkflow,
   loadPersonalWorkflows,
@@ -40,6 +54,54 @@ import {
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const exists = (path: string) => existsSync(new URL(`../${path}`, import.meta.url));
+
+test('local image preparation retains safe originals and synchronizes approved resizing', async () => {
+  const blob = (size: number, type: string) => ({ size, type,
+    slice: () => new Blob([new Uint8Array([0, 0, 0, 0, 73, 68, 65, 84])]) }) as Blob;
+  const image = blob(REFERENCE_LIMIT + 1, 'image/jpeg');
+  const overlay = blob(OVERLAY_LIMIT + 1, 'image/png');
+  const calls: { width: number; height: number; type: string }[] = [];
+  let closed = 0;
+  const codec = {
+    async decode() { return { width: 100, height: 80, close() { closed++; } }; },
+    hasTransparency() { return true; },
+    async encode(_value: unknown, width: number, height: number, type: string) {
+      calls.push({ width, height, type });
+      return blob(width === 100 ? REFERENCE_LIMIT + 5 : 30, type);
+    },
+  };
+  const prepare = createImagePreparation(codec).prepare;
+  let confirmations = 0;
+  const result = await prepare(image, overlay, 'mask', () => { confirmations++; return true; });
+  assert.equal(confirmations, 1);
+  assert.equal(result.image.resized, true);
+  assert.equal(result.overlay?.resized, true);
+  assert.deepEqual([result.image.width, result.image.height], [85, 68]);
+  assert.equal(result.overlay?.blob.type, 'image/png');
+  assert.ok(calls.some(call => call.type === 'image/png' && call.width === 85));
+  assert.equal(closed, 3);
+  const safe = blob(12, 'image/webp');
+  const unchanged = await prepare(safe);
+  assert.equal(unchanged.image.blob, safe);
+  assert.equal(unchanged.image.changed, false);
+  await assert.rejects(prepare(image, overlay, 'mask', () => false), /取消/);
+});
+
+test('local preparation refuses animated PNG and opaque masks before compression', async () => {
+  const chunks = (type: string) => new Uint8Array([0, 0, 0, 0, ...Buffer.from(type), 0, 0, 0, 0]);
+  const png = (type: string) => new Blob([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), chunks(type)], { type: 'image/png' });
+  let decoded = 0, closed = 0;
+  const codec = {
+    async decode() { decoded++; return { width: 1, height: 1, close() { closed++; } }; },
+    hasTransparency() { return false; },
+    async encode() { throw new Error('should not encode'); },
+  };
+  const prepare = createImagePreparation(codec).prepare;
+  await assert.rejects(prepare(png('acTL')), /动画/);
+  assert.equal(decoded, 0);
+  await assert.rejects(prepare(png('IDAT'), png('IDAT'), 'mask'), /透明/);
+  assert.equal(closed, 2);
+});
 
 test('public workflow examples are optional, bounded and only use public server image paths', () => {
   assert.deepEqual(workflowExamples(undefined), []);

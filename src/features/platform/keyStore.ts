@@ -64,6 +64,12 @@ export function saveKeys(keys: StoredKey[], activeId: string | null): void {
   } catch {
     // A full or unavailable storage must not break the current session.
   }
+  // The loopback MCP server keeps the active Key in memory, so every change is
+  // announced instead of only the workbench page noticing it. Node runs of the
+  // pure helpers have no window, so the event is dispatched only in a browser.
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    window.dispatchEvent(new CustomEvent('cyapi-keys-changed'));
+  }
 }
 
 export function addKey(keys: StoredKey[], name: string, value: string): StoredKey {

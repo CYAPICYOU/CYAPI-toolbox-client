@@ -62,12 +62,36 @@ export const referencePrices: UsagePrices = {
   'claude-sonnet-4-5-20250929': price(3, 15, 0.3, 3.75, 6),
   'claude-opus-4-1-20250805': price(15, 75, 1.5, 18.75, 30),
 };
+// Server-delivered official prices sit above the built-in table and below
+// custom prices; empty until the client loads them. See lib/api/model-prices.
+let deliveredPrices: UsagePrices = {};
+export function setDeliveredPrices(prices: UsagePrices) {
+  deliveredPrices = prices;
+}
+function referenceTable(): UsagePrices {
+  return Object.keys(deliveredPrices).length
+    ? { ...referencePrices, ...deliveredPrices }
+    : referencePrices;
+}
+export interface DeliveredPrices {
+  prices: UsagePrices;
+  updatedAt: string;
+}
+export function validDeliveredPrices(value: unknown): DeliveredPrices | null {
+  if (!value || Array.isArray(value) || typeof value !== 'object') return null;
+  const manifest = value as { schema?: unknown; updatedAt?: unknown; prices?: unknown };
+  if (manifest.schema !== 1 || typeof manifest.updatedAt !== 'string' || !manifest.updatedAt)
+    return null;
+  const prices = readPrices(JSON.stringify(manifest.prices ?? {}));
+  return Object.keys(prices).length ? { prices, updatedAt: manifest.updatedAt } : null;
+}
 export const priceFields = ['input', 'output', 'cacheRead', 'cacheWrite', 'cacheWrite1h'] as const;
 export function modelPrice(model: string, prices: UsagePrices): UsagePrice | undefined {
+  const reference = referenceTable();
   return Object.hasOwn(prices, model)
     ? prices[model]
-    : Object.hasOwn(referencePrices, model)
-      ? referencePrices[model]
+    : Object.hasOwn(reference, model)
+      ? reference[model]
       : undefined;
 }
 export function validPrice(value: unknown): value is UsagePrice {
@@ -107,7 +131,10 @@ export function usageCost(record: UsageRecord, prices: UsagePrices, multiplier =
   }
   const p =
     configured ??
-    (Object.hasOwn(referencePrices, record.model) ? referencePrices[record.model] : undefined);
+    (() => {
+      const reference = referenceTable();
+      return Object.hasOwn(reference, record.model) ? reference[record.model] : undefined;
+    })();
   if (!p || !validPrice(p)) return { usd: null, kind: 'unknown' };
   const cached = Math.min(record.cachedInput, record.input);
   const write = Math.min(record.cacheWrite, record.input - cached);

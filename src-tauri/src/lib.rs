@@ -26,6 +26,7 @@ mod integrations;
 mod logging;
 mod request_network;
 mod mcp;
+mod mcp_bridge;
 mod model_list;
 mod model_selection;
 mod models;
@@ -306,6 +307,20 @@ async fn open_workflow_editor(
         *value = Some(route);
     }
     Ok(())
+}
+
+/// Push the Key the workbench already holds to the loopback MCP server. The
+/// Key is kept in memory; a cleared value means the page was locked or the
+/// Key was removed, and the next tool call asks the user to open the workbench.
+#[tauri::command]
+fn cyapi_mcp_key(key: Option<String>) -> serde_json::Value {
+    crate::mcp_bridge::set_key(key);
+    crate::mcp_bridge::status()
+}
+
+#[tauri::command]
+fn cyapi_mcp_status() -> serde_json::Value {
+    crate::mcp_bridge::status()
 }
 
 /// Stop a running installation. The command does not take the service lock, so
@@ -618,6 +633,21 @@ pub fn run() {
     // Choose one official node now so the first user action does not pay for
     // the probe. A failed probe just leaves the choice open for the next request.
     std::thread::spawn(service::route_priority::warm);
+    // The loopback MCP server lets the agent the user already runs drive the
+    // workbench. It keeps the Key in memory and reuses the same node selection
+    // and tunnel, so no second credential store is introduced.
+    if let Ok(service) = &service {
+        let app_data = service.app_data_directory();
+        let server_url = service.server_url().to_string();
+        match mcp_bridge::start(&app_data, &server_url) {
+            Ok(port) => logging::event(
+                "info",
+                "mcp",
+                format!("MCP 接入地址 http://127.0.0.1:{port}/mcp"),
+            ),
+            Err(error) => logging::event("warn", "mcp", format!("MCP 本机服务未启动：{error}")),
+        }
+    }
     let builder = tauri::Builder::default().manage(AppService(Arc::new(Mutex::new(service))));
     let handler: Box<dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync> =
         Box::new(tauri::generate_handler![
@@ -626,6 +656,8 @@ pub fn run() {
             cyapi_routes,
             cyapi_request,
             cyapi_download,
+            cyapi_mcp_key,
+            cyapi_mcp_status,
             save_workflow_artifact,
             open_workflow_editor,
             cyapi_balance::cyapi_balance,

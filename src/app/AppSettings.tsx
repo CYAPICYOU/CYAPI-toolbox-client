@@ -108,11 +108,8 @@ export function AppSettings({
   return (
     <div className="n-settings">
       <div className="n-settings-intro">
-        <div>
-          <h2>偏好与应用</h2>
-          <p>调整工具箱外观，管理应用更新与本地数据。</p>
-        </div>
-        <span className="n-settings-scope">两个工作台通用</span>
+        <h2>偏好与应用</h2>
+        <p>调整工具箱外观，管理应用更新与本地数据。</p>
       </div>
 
       <section

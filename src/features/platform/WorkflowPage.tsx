@@ -16,10 +16,11 @@ import type { LocalWorkflowDraft } from './draftStore';
 import type { WorkflowTemplate } from './library';
 import { WorkflowIcon } from './WorkflowLibrary';
 import { getWorkflowPriceCatalog } from './api';
-import { formatWorkflowUsd, workflowReferencePrice } from './workflowPrice';
+import { formatWorkflowUsd, workflowHasImagePricing, workflowReferencePrice } from './workflowPrice';
 import { ImageAnnotationEditor } from '../../components/ImageAnnotationEditor';
 import { overlayDimensions } from './overlayDimensions';
 import { WorkflowExamples } from './WorkflowExamples';
+import { IMAGE_INPUT_LIMIT, OVERLAY_LIMIT, REFERENCE_LIMIT, prepareLocalImage } from './imagePreparation';
 
 export function WorkflowPage({
   draft,
@@ -49,13 +50,16 @@ export function WorkflowPage({
   editorStarting: boolean;
 }) {
   const [fileError, setFileError] = useState('');
+  const [preparing, setPreparing] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [paint, setPaint] = useState<'mask' | 'markup' | null>(null);
   const [price, setPrice] = useState<number | null>(null);
+  const [imagePricing, setImagePricing] = useState(false);
   const [priceLoading, setPriceLoading] = useState(template.source === 'server');
   useEffect(() => {
     let cancelled = false;
     setPrice(null);
+    setImagePricing(false);
     if (template.source !== 'server') {
       setPriceLoading(false);
       return;
@@ -63,7 +67,10 @@ export function WorkflowPage({
     setPriceLoading(true);
     void getWorkflowPriceCatalog()
       .then((catalog) => {
-        if (!cancelled) setPrice(workflowReferencePrice(catalog, template.id));
+        if (!cancelled) {
+          setPrice(workflowReferencePrice(catalog, template.id));
+          setImagePricing(workflowHasImagePricing(catalog, template.id));
+        }
       })
       .catch(() => {
         if (!cancelled) setPrice(null);
@@ -88,13 +95,49 @@ export function WorkflowPage({
   const maskRequest = useRef(0);
   const markupInput = useRef<HTMLInputElement>(null);
   const markupRequest = useRef(0);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; fileRequest.current++; maskRequest.current++; markupRequest.current++; };
+  }, []);
+  const previewUrls = useRef(new Set<string>());
+  useEffect(() => {
+    const current = new Set([draft.fileData, draft.maskData, draft.markupData, ...(draft.files ?? []).map(item => item.data)]
+      .filter((value): value is string => Boolean(value?.startsWith('blob:'))));
+    for (const url of previewUrls.current) if (!current.has(url)) URL.revokeObjectURL(url);
+    previewUrls.current = current;
+  }, [draft.fileData, draft.files, draft.maskData, draft.markupData]);
+  useEffect(() => () => { for (const url of previewUrls.current) URL.revokeObjectURL(url); }, []);
   const hasDocument = Boolean(template.apiGraph || template.workflow);
   async function chooseFile(selected?: File, selectedFiles?: FileList) {
-    if (!selected || !file) return;
+    if (!mounted.current || !selected || !file) return;
     const request = ++fileRequest.current;
     const candidates = file.multiple ? Array.from(selectedFiles ?? [selected]) : [selected];
     const existing = file.multiple ? (latest.current.files?.length ? latest.current.files : latest.current.fileData ? [{ name: latest.current.fileName, data: latest.current.fileData }] : []) : [];
     if (existing.length + candidates.length > (file.maxFiles ?? 16)) { setFileError(`最多选择 ${file.maxFiles ?? 16} 张图片。`); return; }
+    if (template.id === 'gpt-image-25-edit') {
+      if (candidates.some(item => item.size > IMAGE_INPUT_LIMIT)) { setFileError('单张图片不能超过 60 MiB，且不能超过 2500 万像素。'); return; }
+      if (candidates.some(item => item.size > REFERENCE_LIMIT) && !window.confirm('部分图片超过上游限制，将在本机自动压缩。透明图片会保留透明通道；处理结果会在页面预览。是否继续？')) return;
+      setPreparing(true);
+      const prepared: { name: string; data: string; blob: Blob }[] = [];
+      try {
+        for (const candidate of candidates) {
+          const result = await prepareLocalImage(candidate, undefined, 'mask', () => window.confirm('仅压缩不足以达到限制，需要缩小图片尺寸。是否继续？'));
+          if (result.image.changed && !window.confirm(`${candidate.name} 已在本机处理：${(candidate.size / 1048576).toFixed(2)} → ${(result.image.blob.size / 1048576).toFixed(2)} MiB，${result.image.width} × ${result.image.height}，${result.image.blob.type}。是否使用？`)) throw new Error('已取消使用处理后的图片。');
+          prepared.push({ name: candidate.name, data: URL.createObjectURL(result.image.blob), blob: result.image.blob });
+        }
+        if (latest.current.id !== draft.id || request !== fileRequest.current) { prepared.forEach(item => URL.revokeObjectURL(item.data)); return; }
+        const files = [...existing, ...prepared];
+        onChange({ ...latest.current, fileName: files[0]?.name ?? '', fileData: files[0]?.data ?? '', files,
+          ...(!existing.length ? { maskName: '', maskData: '', maskBlob: undefined, markupName: '', markupData: '', markupBlob: undefined } : {}) });
+        setFileError('');
+      } catch (error) {
+        prepared.forEach(item => URL.revokeObjectURL(item.data));
+        setFileError(error instanceof Error ? error.message : '图片处理失败。');
+      }
+      finally { setPreparing(false); }
+      return;
+    }
     if (candidates.some((item) => item.size > 2 * 1024 * 1024)) {
       setFileError('单个素材不能超过 2 MB，请压缩后重试。');
       return;
@@ -126,10 +169,36 @@ export function WorkflowPage({
     }
   }
   async function chooseOverlay(kind: 'mask' | 'markup', selected?: File) {
-    if (!selected || !(kind === 'mask' ? mask : markup)) return;
+    if (!mounted.current || !selected || !(kind === 'mask' ? mask : markup)) return;
     if (kind === 'mask' ? latest.current.markupData : latest.current.maskData) { setFileError('蒙版与标注层不能同时使用，请先移除另一项。'); return; }
     const requestRef = kind === 'mask' ? maskRequest : markupRequest;
     const request = ++requestRef.current;
+    if (template.id === 'gpt-image-25-edit') {
+      if (!latest.current.fileData) { setFileError('请先选择基准图。'); return; }
+      if (selected.type !== 'image/png' || selected.size > IMAGE_INPUT_LIMIT) { setFileError('标注层必须是 60 MiB 以内的透明 PNG。'); return; }
+      if (selected.size > OVERLAY_LIMIT && !window.confirm('标注层超过上游限制，将在本机无损压缩；如需缩放会另行确认。是否继续？')) return;
+      setPreparing(true);
+      try {
+        const first = latest.current.files?.[0];
+        const baseUrl = latest.current.fileData;
+        const base: Blob = first?.blob ? first.blob : await fetch(baseUrl).then(response => response.blob());
+        const result = await prepareLocalImage(base, selected, kind, () => window.confirm('需要同步缩放基准图和标注层才能满足大小限制，是否继续？'));
+        if (!result.overlay) throw new Error('标注层处理失败。');
+        if ((result.image.changed || result.overlay.changed) && !window.confirm(`本机处理结果：基准图 ${(base.size / 1048576).toFixed(2)} → ${(result.image.blob.size / 1048576).toFixed(2)} MiB；标注层 ${(selected.size / 1048576).toFixed(2)} → ${(result.overlay.blob.size / 1048576).toFixed(2)} MiB；尺寸 ${result.image.width} × ${result.image.height}。是否使用？`)) throw new Error('已取消使用处理结果。');
+        if (latest.current.id !== draft.id || request !== requestRef.current || latest.current.fileData !== baseUrl ||
+            (kind === 'mask' ? latest.current.markupData : latest.current.maskData)) return;
+        const files = [...(latest.current.files ?? [{ name: latest.current.fileName, data: latest.current.fileData }])];
+        const imageUrl = result.image.changed ? URL.createObjectURL(result.image.blob) : latest.current.fileData;
+        files[0] = { name: latest.current.fileName, data: imageUrl, blob: result.image.blob };
+        const overlayUrl = URL.createObjectURL(result.overlay.blob);
+        onChange({ ...latest.current, files, fileData: imageUrl, ...(kind === 'mask'
+          ? { maskName: selected.name, maskData: overlayUrl, maskBlob: result.overlay.blob }
+          : { markupName: selected.name, markupData: overlayUrl, markupBlob: result.overlay.blob }) });
+        setFileError('');
+      } catch (error) { setFileError(error instanceof Error ? error.message : '图片处理失败。'); }
+      finally { setPreparing(false); }
+      return;
+    }
     if (selected.size > 2 * 1024 * 1024 || selected.type !== 'image/png') {
       setFileError('蒙版和标注层必须是 2 MB 以内的 PNG 文件。');
       return;
@@ -200,6 +269,7 @@ export function WorkflowPage({
           {error || fileError}
         </div>
       )}
+      {preparing && <div className="pfx-alert" role="status">正在本机处理图片，请稍候；此过程不会上传原图。</div>}
       <div className="pfx-workflow-layout">
         <section
           className="pfx-input-panel"
@@ -225,6 +295,7 @@ export function WorkflowPage({
                     type="file"
                     multiple={file.multiple}
                     accept={file.accept}
+                    disabled={preparing || busy}
                     hidden
                     onChange={(event) => {
                       void chooseFile(event.target.files?.[0], event.target.files ?? undefined);
@@ -243,12 +314,14 @@ export function WorkflowPage({
                           <Check size={14} />
                           {draft.fileName}
                         </span>
+                        {draft.files?.[0]?.blob && <small>{(draft.files[0].blob.size / 1048576).toFixed(2)} MiB · {draft.files[0].blob.type}</small>}
                         <button
-                          className="pfx-icon-button"
-                          aria-label="移除素材"
+                           className="pfx-icon-button"
+                           aria-label="移除素材"
+                           disabled={preparing || busy}
                           onClick={() => {
                             fileRequest.current++;
-                            onChange({ ...draft, fileName: '', fileData: '', files: [], maskName: '', maskData: '', markupName: '', markupData: '' });
+                            onChange({ ...draft, fileName: '', fileData: '', files: [], maskName: '', maskData: '', maskBlob: undefined, markupName: '', markupData: '', markupBlob: undefined });
                             setFileError('');
                           }}
                         >
@@ -259,6 +332,7 @@ export function WorkflowPage({
                   ) : (
                     <button
                       type="button"
+                      disabled={preparing || busy}
                       className={`pfx-upload-zone${dragging ? ' dragging' : ''}`}
                       onClick={() => fileInput.current?.click()}
                       onDragOver={(event) => {
@@ -269,7 +343,7 @@ export function WorkflowPage({
                       onDrop={(event) => {
                         event.preventDefault();
                         setDragging(false);
-                        void chooseFile(event.dataTransfer.files[0], event.dataTransfer.files);
+                        if (!preparing && !busy) void chooseFile(event.dataTransfer.files[0], event.dataTransfer.files);
                       }}
                     >
                       {file.accept.startsWith('audio/') ? (
@@ -284,16 +358,16 @@ export function WorkflowPage({
                         {file.accept.startsWith('audio/')
                           ? '支持音频文件'
                           : '支持 JPG、PNG、WebP 等图片'}{' '}
-                        · 最大 2 MB
+                         {template.id === 'gpt-image-25-edit' ? ' · 单张最大 60 MiB，2500 万像素；超限将本机压缩' : ' · 最大 2 MB'}
                       </small>
                     </button>
                   )}
                   {file.multiple && draft.fileData && <>
                     <p className="pfx-hint">第一张是基准图 / 上一轮结果，后续图片作为参考图；最多 {file.maxFiles ?? 16} 张。</p>
                     {(draft.files ?? []).slice(1).map((item, index) => <div className="pfx-file-preview" key={`${index}-${item.name}`}>
-                      <img src={item.data} alt={`参考图 ${index + 2}`} /><div><span>参考图 {index + 2}：{item.name}</span><button type="button" className="pfx-icon-button" onClick={() => { const files = (latest.current.files ?? []).filter((_, i) => i !== index + 1); onChange({ ...latest.current, files }); }} aria-label={`移除参考图 ${index + 2}`}><X size={14} /></button></div>
+                      <img src={item.data} alt={`参考图 ${index + 2}`} /><div><span>参考图 {index + 2}：{item.name}</span><button type="button" className="pfx-icon-button" disabled={preparing || busy} onClick={() => { const files = (latest.current.files ?? []).filter((_, i) => i !== index + 1); onChange({ ...latest.current, files }); }} aria-label={`移除参考图 ${index + 2}`}><X size={14} /></button></div>
                     </div>)}
-                    <button type="button" className="pfx-secondary" onClick={() => fileInput.current?.click()}>添加参考图</button>
+                    <button type="button" className="pfx-secondary" disabled={preparing || busy} onClick={() => fileInput.current?.click()}>添加参考图</button>
                   </>}
                 </div>
               )}
@@ -314,9 +388,9 @@ export function WorkflowPage({
                 return <div className="pfx-field" key={kind}>
                   <label htmlFor={`workflow-${kind}`}>{spec.label}<span>{spec.required ? '必填' : '选填'}</span></label>
                   <input id={`workflow-${kind}`} ref={ref} type="file" accept={spec.accept} hidden onChange={event => { void chooseOverlay(kind, event.target.files?.[0]); event.target.value = ''; }} />
-                  {data ? <div className="pfx-file-preview"><img src={data} alt={name || label} /><div><span><Check size={14} />{name || label}</span><button type="button" className="pfx-icon-button" aria-label={`移除${label}`} onClick={() => { (kind === 'mask' ? maskRequest : markupRequest).current++; onChange({ ...latest.current, ...(kind === 'mask' ? { maskName: '', maskData: '' } : { markupName: '', markupData: '' }) }); setFileError(''); }}><X size={14} /></button></div></div> : <div className="pfx-paint-tools"><button type="button" className="pfx-secondary" disabled={!draft.fileData || !!other} onClick={() => setPaint(kind)}>在基准图上绘制{label}</button><button type="button" className="pfx-secondary" disabled={!!other} onClick={() => ref.current?.click()}>上传 PNG {label}</button></div>}
+                  {data ? <div className="pfx-file-preview"><img src={data} alt={name || label} /><div><span><Check size={14} />{name || label}</span><button type="button" className="pfx-icon-button" aria-label={`移除${label}`} onClick={() => { (kind === 'mask' ? maskRequest : markupRequest).current++; onChange({ ...latest.current, ...(kind === 'mask' ? { maskName: '', maskData: '', maskBlob: undefined } : { markupName: '', markupData: '', markupBlob: undefined }) }); setFileError(''); }}><X size={14} /></button></div></div> : <div className="pfx-paint-tools"><button type="button" className="pfx-secondary" disabled={!draft.fileData || !!other || preparing} onClick={() => setPaint(kind)}>在基准图上绘制{label}</button><button type="button" className="pfx-secondary" disabled={!!other || preparing} onClick={() => ref.current?.click()}>上传 PNG {label}</button></div>}
                       <small>{kind === 'mask' ? '绘制时涂红想修改的区域；上传 PNG 时，透明区域表示修改，不透明区域表示希望保留。例如涂满杯子，再写“把杯子换成花瓶”。' : '在图上画圈、箭头或线条，并在提示词中说明标记的含义；标注不是修改范围的硬边界。'}</small>
-                  <small>{other ? `已选择${kind === 'mask' ? '标注层' : '蒙版'}；移除后可切换。` : '绘制前先选择基准图。上传时请使用与处理后基准图同尺寸、含透明像素的 PNG；基准图最长边超过 2048 像素时会缩小。'}</small>
+                  <small>{other ? `已选择${kind === 'mask' ? '标注层' : '蒙版'}；移除后可切换。` : '绘制前先选择基准图。上传的透明 PNG 必须与基准图尺寸一致；需要缩放时会同步处理并征求确认。'}</small>
                 </div>;
               })}
               {prompt && (
@@ -409,11 +483,11 @@ export function WorkflowPage({
               )}
               {(prompt || file) && (
                 <div className="pfx-input-footer">
-                  <button className="pfx-secondary" onClick={onSave}>
+                  <button className="pfx-secondary" onClick={onSave} disabled={preparing}>
                     <Save size={14} />
                     保存草稿
                   </button>
-                  <button className="pfx-primary" onClick={onSubmit} disabled={busy}>
+                  <button className="pfx-primary" onClick={onSubmit} disabled={busy || preparing}>
                     {busy ? (
                       <>
                         <LoaderCircle size={14} className="pfx-spin" />
@@ -504,11 +578,13 @@ export function WorkflowPage({
               {priceLoading
                 ? '正在获取价格…'
                 : price === null
-                  ? '价格暂不可用'
+                  ? imagePricing ? '按实际参数计费' : '价格暂不可用'
                   : `${formatWorkflowUsd(price)} / 次`}
             </strong>
             <p className="pfx-hint">
-              {template.source === 'personal'
+              {imagePricing
+                ? '费用取决于模型、尺寸、质量、参考图和输出数量；运行前将显示确认报价。'
+                : template.source === 'personal'
                 ? '个人工作流的价格取决于实际节点和输入，暂无法在此预估。'
                 : '按当前 sub2api 扣费单元换算的模板能力参考价，不代表完整节点图总价；请以运行前确认的完整工作流报价及实际账单为准。'}
             </p>
@@ -546,7 +622,13 @@ export function WorkflowPage({
           )}
         </aside>
       </div>
-      {paint && draft.fileData && <ImageAnnotationEditor key={`${draft.id}-${paint}`} image={draft.fileData} kind={paint} outputSize={overlayDimensions} maxBytes={2 * 1024 * 1024} onCancel={() => setPaint(null)} onSave={data => {
+      {paint && draft.fileData && <ImageAnnotationEditor key={`${draft.id}-${paint}`} image={draft.fileData} kind={paint} outputSize={template.id === 'gpt-image-25-edit' ? undefined : overlayDimensions} maxBytes={template.id === 'gpt-image-25-edit' ? undefined : 2 * 1024 * 1024} onCancel={() => setPaint(null)} onSave={data => {
+        if (template.id === 'gpt-image-25-edit') {
+          const kind = paint;
+          setPaint(null);
+          void fetch(data).then(response => response.blob()).then(blob => chooseOverlay(kind, new File([blob], kind === 'mask' ? '绘制的蒙版.png' : '绘制的标注层.png', { type: 'image/png' })));
+          return;
+        }
         if (latest.current.id === draft.id && !(paint === 'mask' ? latest.current.markupData : latest.current.maskData)) {
           onChange({ ...latest.current, ...(paint === 'mask' ? { maskName: '绘制的蒙版.png', maskData: data } : { markupName: '绘制的标注层.png', markupData: data }) });
           setFileError('');

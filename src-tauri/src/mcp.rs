@@ -338,7 +338,7 @@ fn validate_catalog_bytes(bytes: &[u8]) -> Result<Catalog> {
 
 /// Token sources are declarative so a new MCP never needs a client change.
 fn validate_token_source(source: &str) -> Result<()> {
-    if source == "orbit-ssh" {
+    if source == "orbit-ssh" || source == "cyapi-toolbox" {
         return Ok(());
     }
     if let Some(path) = source.strip_prefix("file:") {
@@ -1138,6 +1138,14 @@ fn token(context: &Context, source: &str) -> Result<Option<String>> {
     }
     let relative = match source {
         "orbit-ssh" => "OrbitSSH/mcp-token",
+        // The desktop client writes this file itself, so the agent never needs
+        // a second credential store and the API Key stays in the toolbox.
+        "cyapi-toolbox" => {
+            return match crate::mcp_bridge::ensure_token(&context.app_data) {
+                Ok(token) => clean_token(token),
+                Err(error) => Err(error),
+            };
+        }
         _ => match source.strip_prefix("file:") {
             Some(path) => path,
             None => return Err("不支持的 MCP 令牌来源".into()),
@@ -1225,8 +1233,35 @@ fn resolved_descriptor(context: &Context, descriptor: &Descriptor) -> Descriptor
                 }
             }
         }
+        if source == "cyapi-toolbox" {
+            // The toolbox may fall back to another loopback port when the
+            // preferred one is taken, so the published URL is only a default.
+            if let (Some(port), Ok(mut endpoint)) = (toolbox_port(context), reqwest::Url::parse(url))
+            {
+                if endpoint.set_port(Some(port)).is_ok() {
+                    *url = endpoint.to_string();
+                }
+            }
+        }
     }
     descriptor
+}
+
+/// The port of the running loopback MCP server. A stopped toolbox leaves the
+/// last written port, which is the one the next start prefers.
+fn toolbox_port(context: &Context) -> Option<u16> {
+    let path = context.app_data.join("CYAPI-Toolbox/mcp/port");
+    no_links(&path).ok()?;
+    let meta = fs::metadata(&path).ok()?;
+    if !meta.is_file() || meta.len() > 32 {
+        return None;
+    }
+    fs::read_to_string(path)
+        .ok()?
+        .trim()
+        .parse::<u16>()
+        .ok()
+        .filter(|port| *port >= 1024)
 }
 
 fn resolved_catalog(data: &Path, context: &Context, mut catalog: Catalog) -> Catalog {

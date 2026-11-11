@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { Modal } from '../components/Primitives';
 import { nativeAvailable } from '../lib/api/native';
+import { fetchDeliveredPrices } from '../lib/api/model-prices';
 import { readUsage } from '../lib/api/usage';
 import {
   dayKey,
@@ -24,6 +25,7 @@ import {
   priceFields,
   readPrices,
   referencePrices,
+  setDeliveredPrices,
   summarizeUsage,
   usageBounds,
   usageCost,
@@ -32,6 +34,7 @@ import {
   validPrice,
 } from '../lib/usage';
 import type {
+  DeliveredPrices,
   UsagePrice,
   UsagePrices,
   UsageRange,
@@ -89,11 +92,13 @@ function savedSettings(workspace: UsageWorkspace) {
 function PriceDialog({
   model,
   initial,
+  referenceNote,
   onSave,
   onClose,
 }: {
   model: string;
   initial?: UsagePrice;
+  referenceNote?: string;
   onSave: (price: UsagePrice) => void;
   onClose: () => void;
 }) {
@@ -119,6 +124,7 @@ function PriceDialog({
       >
         <div className="u-price-form">
           <p>单位：USD / 百万 Token。请按所用服务的计费单价填写。</p>
+          {referenceNote && <small>{referenceNote}</small>}
           {priceFields.map((key) => (
             <label key={key}>
               <span>{priceLabels[key]}</span>
@@ -173,9 +179,23 @@ export function UsageStatistics({ workspace }: { workspace: UsageWorkspace }) {
   const { prices, multiplier } = settings;
   const [multiplierText, setMultiplierText] = useState(String(multiplier));
   const [editingPrice, setEditingPrice] = useState<string>();
+  const [delivered, setDelivered] = useState<DeliveredPrices | null>(null);
   const [metric, setMetric] = useState<'tokens' | 'cost'>('tokens');
   const [hovered, setHovered] = useState<number | null>(null);
   const request = useRef(0);
+  useEffect(() => {
+    let active = true;
+    void fetchDeliveredPrices().then((value) => {
+      // Delivered prices are module state; the local copy only re-renders.
+      if (active && value) {
+        setDeliveredPrices(value.prices);
+        setDelivered(value);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
   const load = useCallback(
     async (refresh = false) => {
       if (!nativeAvailable) return;
@@ -234,11 +254,11 @@ export function UsageStatistics({ workspace }: { workspace: UsageWorkspace }) {
   }, [allRecords, bounds.from, bounds.to, filterModel, filterSession, search]);
   const totals = useMemo(
     () => summarizeUsage(records, prices, multiplier),
-    [records, prices, multiplier],
+    [records, prices, multiplier, delivered],
   );
   const trend = useMemo(
     () => usageTrend(records, prices, multiplier, bounds.from, bounds.to),
-    [records, prices, multiplier, bounds.from, bounds.to],
+    [records, prices, multiplier, bounds.from, bounds.to, delivered],
   );
   const groups = useMemo(() => {
     const byModel = new Map<string, UsageRecord[]>();
@@ -265,7 +285,7 @@ export function UsageStatistics({ workspace }: { workspace: UsageWorkspace }) {
         }))
         .sort((a, b) => b.time - a.time),
     };
-  }, [records, prices, multiplier]);
+  }, [records, prices, multiplier, delivered]);
   const pages = Math.max(
     1,
     Math.ceil((tab === 'sessions' ? groups.sessions.length : records.length) / 25),
@@ -841,8 +861,10 @@ export function UsageStatistics({ workspace }: { workspace: UsageWorkspace }) {
           <div className="u-pricing-note">
             <Info size={15} />
             <p>
-              内置价格仅供参考。中转站、长上下文、订阅优惠等计费规则请按实际服务调整。未定价记录保留
+              官方参考价由服务端从 models.dev
+              下发，仅供参考。中转站、长上下文、订阅优惠等计费规则请按实际服务调整。未定价记录保留
               Token，用量费用显示为待配置。
+              {delivered && ` 参考价更新于 ${date(Date.parse(delivered.updatedAt))}。`}
             </p>
           </div>
           <form
@@ -894,6 +916,7 @@ export function UsageStatistics({ workspace }: { workspace: UsageWorkspace }) {
                 <tbody>
                   {priceModels.map((model) => {
                     const p = modelPrice(model, prices);
+                    const reference = p && !Object.hasOwn(prices, model);
                     return (
                       <tr key={model}>
                         <td>
@@ -901,7 +924,7 @@ export function UsageStatistics({ workspace }: { workspace: UsageWorkspace }) {
                           <small>
                             {Object.hasOwn(prices, model)
                               ? '自定义'
-                              : Object.hasOwn(referencePrices, model)
+                              : reference
                                 ? '参考单价'
                                 : '待配置'}
                           </small>
@@ -1001,6 +1024,13 @@ export function UsageStatistics({ workspace }: { workspace: UsageWorkspace }) {
         <PriceDialog
           model={editingPrice}
           initial={modelPrice(editingPrice, prices)}
+          referenceNote={
+            delivered && Object.hasOwn(delivered.prices, editingPrice)
+              ? `已带入官方参考价 · models.dev · 更新于 ${date(Date.parse(delivered.updatedAt))}`
+              : Object.hasOwn(referencePrices, editingPrice)
+                ? '已带入内置参考价，仅供参考。'
+                : ''
+          }
           onClose={() => setEditingPrice(undefined)}
           onSave={(price) => {
             if (saveSettings({ prices: { ...prices, [editingPrice]: price }, multiplier }))

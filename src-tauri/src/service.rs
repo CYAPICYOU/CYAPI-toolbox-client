@@ -1512,6 +1512,10 @@ impl Service {
             || !crate::platform::is_default_home(&self.home);
         crate::platform::app_data_dir(&self.home, isolated)
     }
+    /// The public wrapper the loopback MCP server needs at startup.
+    pub(crate) fn app_data_directory(&self) -> PathBuf {
+        self.app_data_dir()
+    }
     fn claude_mcp_config(&self) -> PathBuf {
         self.config_env("CLAUDE_CONFIG_DIR")
             .map(PathBuf::from)

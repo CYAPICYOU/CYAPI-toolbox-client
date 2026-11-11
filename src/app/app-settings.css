@@ -15,10 +15,6 @@
   gap: 8px;
 }
 .n-settings-intro {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
   margin-bottom: 4px;
 }
 .n-settings-intro h2 {
@@ -35,14 +31,6 @@
 }
 .n-settings-intro p {
   margin-top: 6px;
-}
-.n-settings-scope {
-  flex-shrink: 0;
-  padding: 5px 10px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  color: var(--muted);
-  font-size: 11px;
 }
 .n-settings-card {
   min-width: 0;
@@ -142,7 +130,7 @@
   grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
   gap: 20px;
 }
-/* Stretch both cards to the same height and keep the update footer note at the bottom. */
+/* Both cards stretch to one height, so the update footnote sits on the card bottom. */
 .n-settings-updates {
   display: flex;
   flex-direction: column;
@@ -232,7 +220,6 @@
 }
 .n-settings-updates > .n-settings-caption {
   margin-top: auto;
-  padding-top: 16px;
 }
 .n-settings-about {
   display: grid;
@@ -324,11 +311,6 @@
   }
   .n-settings-card {
     padding: 18px;
-  }
-  .n-settings-intro {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 10px;
   }
   .n-settings-themes {
     gap: 6px;
