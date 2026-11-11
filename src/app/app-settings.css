@@ -141,7 +141,11 @@
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
   gap: 20px;
-  align-items: start;
+}
+/* Stretch both cards to the same height and keep the update footer note at the bottom. */
+.n-settings-updates {
+  display: flex;
+  flex-direction: column;
 }
 .n-settings-card-heading {
   display: flex;
@@ -225,6 +229,10 @@
 }
 .n-settings-storage > .n-settings-caption {
   margin-top: 18px;
+}
+.n-settings-updates > .n-settings-caption {
+  margin-top: auto;
+  padding-top: 16px;
 }
 .n-settings-about {
   display: grid;
