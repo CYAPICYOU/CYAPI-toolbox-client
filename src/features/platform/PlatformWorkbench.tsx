@@ -208,7 +208,10 @@ export function PlatformWorkbench({
     });
   }
   function openDraft(item: LocalWorkflowDraft) {
-    const template = item.template ?? catalog?.items.find((entry) => entry.kind === item.kind);
+    const saved = item.template ?? catalog?.items.find((entry) => entry.kind === item.kind);
+    const current = saved?.source === 'server' ? catalog?.items.find((entry) => entry.id === saved.id) : undefined;
+    // Keep the saved execution configuration, but show the latest public examples.
+    const template = saved && current ? { ...saved, examples: current.examples } : saved;
     if (!template) {
       setDraftError('暂时无法找到这份草稿的工作流，请重新加载目录后再试。');
       return;

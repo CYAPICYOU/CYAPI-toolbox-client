@@ -1,5 +1,6 @@
 import { AudioLines, Box, FileText, GitBranch, Image, Search, Video, Workflow } from 'lucide-react';
 import type { WorkflowCatalog, WorkflowTemplate } from './library';
+import { workflowExamples } from './library';
 
 export function WorkflowIcon({ category, size = 21 }: { category: string; size?: number }) {
   const icons: Record<string, typeof Image> = {
@@ -121,7 +122,7 @@ export function WorkflowLibrary({
             </dl>
             <footer>
               <span>
-                {item.source === 'personal' ? '我的工作流' : `${item.steps.length} 个步骤`}
+                {item.source === 'personal' ? '我的工作流' : `${item.steps.length} 个步骤`}{workflowExamples(item.examples).length > 0 && ` · ${workflowExamples(item.examples).length} 个案例`}
               </span>
               <div>
                 <button className="pfx-secondary" onClick={() => onOpen(item, 'flow')}>

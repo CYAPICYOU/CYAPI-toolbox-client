@@ -26,6 +26,42 @@ export interface WorkflowTemplate {
   workflow?: Record<string, unknown>;
   execution: 'preview';
   transport?: 'bridge' | 'worker';
+  /** Optional public examples delivered with the server catalog. */
+  examples?: WorkflowExample[];
+}
+
+export interface WorkflowExample {
+  title: string;
+  description?: string;
+  prompt?: string;
+  steps?: string[];
+  inputImage?: string;
+  resultImage?: string;
+}
+
+/** Ignore malformed optional examples without breaking an otherwise usable catalog. */
+export function workflowExamples(value: unknown): WorkflowExample[] {
+  if (!Array.isArray(value)) return [];
+  const text = (item: unknown, max: number) => typeof item === 'string' ? item.trim().slice(0, max) : '';
+  const image = (item: unknown) => {
+    const path = text(item, 500);
+    return /^\/workflow\/platform\/api\/public\/[a-zA-Z0-9_./-]+$/.test(path) &&
+      !path.includes('..') && !path.includes('//') ? path : undefined;
+  };
+  return value.slice(0, 12).flatMap((item): WorkflowExample[] => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+    const example = item as Record<string, unknown>;
+    const title = text(example.title, 100);
+    if (!title) return [];
+    return [{
+      title,
+      description: text(example.description, 1000),
+      prompt: text(example.prompt, 4000),
+      steps: Array.isArray(example.steps) ? example.steps.slice(0, 12).map(step => text(step, 500)).filter(Boolean) : [],
+      inputImage: image(example.inputImage),
+      resultImage: image(example.resultImage),
+    }];
+  });
 }
 
 export interface WorkflowFormOption {

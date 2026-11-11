@@ -29,6 +29,7 @@ import {
   loadPersonalWorkflows,
   savePersonalWorkflows,
   workflowDocument,
+  workflowExamples,
 } from '../src/features/platform/library.ts';
 import {
   isCreationSection,
@@ -39,6 +40,24 @@ import {
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const exists = (path: string) => existsSync(new URL(`../${path}`, import.meta.url));
+
+test('public workflow examples are optional, bounded and only use public server image paths', () => {
+  assert.deepEqual(workflowExamples(undefined), []);
+  assert.deepEqual(workflowExamples([null, {}, { title: '   ' }]), []);
+  const [example] = workflowExamples([{
+    title: '  局部替换  ', description: '示例说明', prompt: '替换物体', steps: ['上传素材', 1, '绘制蒙版'],
+    inputImage: '/workflow/platform/api/public/examples/input.png',
+    resultImage: 'https://example.invalid/result.png',
+  }]);
+  assert.equal(example.title, '局部替换');
+  assert.deepEqual(example.steps, ['上传素材', '绘制蒙版']);
+  assert.equal(example.inputImage, '/workflow/platform/api/public/examples/input.png');
+  assert.equal(example.resultImage, undefined);
+  for (const path of ['/workflow/platform/api/public/../private', '//other/path', '/workflow/platform/api/public/a?token=x', '/workflow/platform/api/public/%2e%2e/private']) {
+    assert.equal(workflowExamples([{ title: 'x', inputImage: path }])[0].inputImage, undefined);
+  }
+  assert.equal(workflowExamples(Array.from({ length: 20 }, () => ({ title: 'x' }))).length, 12);
+});
 
 test('task polling coalesces refreshes and discards responses after identity disposal', async () => {
   let complete!: (value: string) => void;

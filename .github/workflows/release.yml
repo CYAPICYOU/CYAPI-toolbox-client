@@ -171,5 +171,9 @@ jobs:
           body_path: RELEASE_NOTES.md
           generate_release_notes: true
           fail_on_unmatched_files: true
+          # A `-preview` tag is a test build: it must never become the latest
+          # release the website and the update check read by default.
+          prerelease: ${{ contains(env.RELEASE_TAG, '-preview') }}
+          make_latest: ${{ contains(env.RELEASE_TAG, '-preview') && 'false' || 'legacy' }}
           files: |
             assets/*

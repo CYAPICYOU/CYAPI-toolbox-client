@@ -203,6 +203,16 @@ export const getWorkflowCatalog = async () => {
   }
   return catalog;
 };
+
+/** Public example images use the normal server route, never a user's Key. */
+export async function downloadWorkflowExampleImage(path: string): Promise<string> {
+  if (nativeAvailable) return cyapiDownload(path, '', { maxBytes: 3 * 1024 * 1024, timeoutMs: 30_000 });
+  const response = await fetch(SERVER + path, { credentials: 'omit', redirect: 'error' });
+  if (!response.ok) throw new Error('案例图片加载失败');
+  const blob = await response.blob();
+  if (!blob.type.startsWith('image/') || blob.size > 3 * 1024 * 1024) throw new Error('案例图片不可用');
+  return URL.createObjectURL(blob);
+}
 export const editorToken = (
   key: string,
   document?: Record<string, unknown>,

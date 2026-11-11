@@ -89,7 +89,7 @@ export function ImageAnnotationEditor({ image, kind, onSave, onCancel, outputSiz
     return data;
   }
   return <Modal title={kind === 'mask' ? '绘制蒙版' : '绘制标注层'} onClose={onCancel} wide className="image-annotation-dialog">
-      <p>{kind === 'mask' ? '涂红的位置是希望 AI 修改的区域，提交时会转换为透明蒙版。' : '标注会作为独立透明图层提交，不会直接画进原图。'}</p>
+      <p>{kind === 'mask' ? '把想修改的物体或区域涂红（不是只画轮廓）；红色会转换为透明修改区。未涂区域希望保留，但 AI 不保证完全不变。' : '画圈、箭头或线条来指示位置或方向；回到表单后，在提示词中说明标记的含义，例如“把圈中的杯子换成花瓶”。标注不是修改范围的硬边界。'}</p>
       <div className="image-annotation-tools">
         <button type="button" disabled={!!preview} onClick={() => setErase(!erase)}>{erase ? '橡皮擦（切换画笔）' : '画笔（切换橡皮擦）'}</button>
         <label>大小 <input type="range" min="2" max="160" value={size} onChange={event => setSize(Number(event.target.value))} /> {size}px</label>

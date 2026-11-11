@@ -58,8 +58,11 @@ export function rememberSkipped(version: string): void {
 export async function checkUpdate(): Promise<UpdateStatus> {
   if (nativeAvailable) return nativeCall<UpdateStatus>('update-check');
   // Browser preview can check releases and download, but cannot replace a desktop binary.
+  // The catalog accepts a numeric `x.y.z` query only, so a preview build sends
+  // its numeric core; the release it compares against is still a full semver.
+  const numericVersion = APP_VERSION.split(/[-+]/, 1)[0];
   const response = await fetch(
-    `${SERVER_URL}/api/client-release?currentVersion=${encodeURIComponent(APP_VERSION)}`,
+    `${SERVER_URL}/api/client-release?currentVersion=${encodeURIComponent(numericVersion)}`,
     {
       signal: AbortSignal.timeout(8000),
       cache: 'no-store',
@@ -80,7 +83,7 @@ export async function checkUpdate(): Promise<UpdateStatus> {
   if (
     manifest.schema !== 1 ||
     !/^\d+\.\d+\.\d+$/.test(manifest.version) ||
-    manifest.currentVersion !== APP_VERSION ||
+    manifest.currentVersion !== numericVersion ||
     typeof manifest.hasUpdate !== 'boolean' ||
     typeof manifest.mandatory !== 'boolean'
   )

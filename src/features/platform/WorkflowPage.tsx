@@ -19,6 +19,7 @@ import { getWorkflowPriceCatalog } from './api';
 import { formatWorkflowUsd, workflowReferencePrice } from './workflowPrice';
 import { ImageAnnotationEditor } from '../../components/ImageAnnotationEditor';
 import { overlayDimensions } from './overlayDimensions';
+import { WorkflowExamples } from './WorkflowExamples';
 
 export function WorkflowPage({
   draft,
@@ -296,6 +297,12 @@ export function WorkflowPage({
                   </>}
                 </div>
               )}
+              {(mask || markup) && <div className="pfx-annotation-guide">
+                <strong>想局部调整？选择一种方式即可</strong>
+                <p><b>蒙版 Mask：</b>涂满想修改的地方，适合替换或移除物体。</p>
+                <p><b>标注 Markup：</b>画圈或箭头，再在提示词里解释标记，适合指明位置或方向。</p>
+                <small>两者不能同时使用，也可以都不选；它们都是引导，不能保证其他区域完全不变。</small>
+              </div>}
               {(['mask', 'markup'] as const).map(kind => {
                 const spec = kind === 'mask' ? mask : markup;
                 if (!spec) return null;
@@ -308,7 +315,8 @@ export function WorkflowPage({
                   <label htmlFor={`workflow-${kind}`}>{spec.label}<span>{spec.required ? '必填' : '选填'}</span></label>
                   <input id={`workflow-${kind}`} ref={ref} type="file" accept={spec.accept} hidden onChange={event => { void chooseOverlay(kind, event.target.files?.[0]); event.target.value = ''; }} />
                   {data ? <div className="pfx-file-preview"><img src={data} alt={name || label} /><div><span><Check size={14} />{name || label}</span><button type="button" className="pfx-icon-button" aria-label={`移除${label}`} onClick={() => { (kind === 'mask' ? maskRequest : markupRequest).current++; onChange({ ...latest.current, ...(kind === 'mask' ? { maskName: '', maskData: '' } : { markupName: '', markupData: '' }) }); setFileError(''); }}><X size={14} /></button></div></div> : <div className="pfx-paint-tools"><button type="button" className="pfx-secondary" disabled={!draft.fileData || !!other} onClick={() => setPaint(kind)}>在基准图上绘制{label}</button><button type="button" className="pfx-secondary" disabled={!!other} onClick={() => ref.current?.click()}>上传 PNG {label}</button></div>}
-                  <small>先选择第一张基准图。与处理后的基准图同尺寸，需有透明像素；蒙版和标注层不能同时使用。大图按最长边 2048 像素缩小。</small>
+                      <small>{kind === 'mask' ? '绘制时涂红想修改的区域；上传 PNG 时，透明区域表示修改，不透明区域表示希望保留。例如涂满杯子，再写“把杯子换成花瓶”。' : '在图上画圈、箭头或线条，并在提示词中说明标记的含义；标注不是修改范围的硬边界。'}</small>
+                  <small>{other ? `已选择${kind === 'mask' ? '标注层' : '蒙版'}；移除后可切换。` : '绘制前先选择基准图。上传时请使用与处理后基准图同尺寸、含透明像素的 PNG；基准图最长边超过 2048 像素时会缩小。'}</small>
                 </div>;
               })}
               {prompt && (
@@ -483,6 +491,11 @@ export function WorkflowPage({
               )}
             </>
           )}
+          <WorkflowExamples value={template.examples} onUsePrompt={prompt ? (value) => {
+            if (latest.current.prompt.trim() && !window.confirm('使用示例提示词会替换当前文字，确定继续吗？')) return;
+            onChange({ ...latest.current, prompt: value });
+            onTab('inputs');
+          } : undefined} />
         </section>
         <aside className="pfx-workflow-aside">
           <section className="pfx-card" aria-label="工作流价格">

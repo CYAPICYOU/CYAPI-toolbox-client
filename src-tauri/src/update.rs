@@ -85,11 +85,36 @@ pub struct ReleaseManifest {
     pub downloads: Vec<ReleaseFile>,
 }
 
+/// Splits a version into its numeric core and its pre-release identifier.
+/// `3.0.0-preview` yields `((3, 0, 0), Some("preview"))`.
+fn version_parts(value: &str) -> Option<((u32, u32, u32), Option<String>)> {
+    let value = value.trim().trim_start_matches('v');
+    // Build metadata (`+abc`) is compared away, matching semver precedence.
+    let value = value.split_once('+').map_or(value, |(core, _)| core);
+    let (core, pre) = match value.split_once('-') {
+        Some((core, pre)) => (core, Some(pre.to_ascii_lowercase())),
+        None => (value, None),
+    };
+    Some((version_tuple(core)?, pre))
+}
+
 fn is_newer(candidate: &str, base: &str) -> bool {
-    matches!(
-        (version_tuple(candidate), version_tuple(base)),
-        (Some(candidate), Some(base)) if candidate > base
-    )
+    // Previews sort below the stable release with the same numeric core, so a
+    // `3.0.0` release still replaces an installed `3.0.0-preview`.
+    let (Some((candidate_core, candidate_pre)), Some((base_core, base_pre))) =
+        (version_parts(candidate), version_parts(base))
+    else {
+        return false;
+    };
+    if candidate_core != base_core {
+        return candidate_core > base_core;
+    }
+    match (candidate_pre, base_pre) {
+        (None, None) => false,
+        (None, Some(_)) => true,
+        (Some(_), None) => false,
+        (Some(candidate), Some(base)) => candidate.as_str() > base.as_str(),
+    }
 }
 
 fn valid_digest(value: &str) -> bool {
@@ -143,10 +168,12 @@ fn validate(manifest: &ReleaseManifest) -> Result<()> {
     if manifest.schema != 1 {
         return Err("更新清单格式无效".into());
     }
-    if version_tuple(&manifest.version).is_none() {
+    if version_parts(&manifest.version).is_none() {
         return Err("更新清单版本号无效".into());
     }
-    if !manifest.min_version.is_empty() && version_tuple(&manifest.min_version).is_none() {
+    if !manifest.min_version.is_empty()
+        && version_parts(&manifest.min_version).is_none()
+    {
         return Err("更新清单最低版本无效".into());
     }
     if !allowed_url(&manifest.download_page) {
@@ -262,8 +289,13 @@ fn read_manifest_with(
 /// the server URL so the request can run while the toolbox lock stays free.
 pub fn fetch_manifest(server_url: &str) -> Result<Vec<u8>> {
     let mut url = manifest_url(&crate::service::base_url_from(server_url)?)?;
-    url.query_pairs_mut()
-        .append_pair("currentVersion", env!("CARGO_PKG_VERSION"));
+    // The catalog only accepts a numeric `x.y.z` query. A preview build sends
+    // its numeric core so the server can still compare it against releases.
+    let current = version_parts(env!("CARGO_PKG_VERSION")).map(|(core, _)| core);
+    if let Some((major, minor, patch)) = current {
+        url.query_pairs_mut()
+            .append_pair("currentVersion", &format!("{major}.{minor}.{patch}"));
+    }
     fetch_server_with_progress(
         url,
         MANIFEST_LIMIT,
@@ -315,7 +347,7 @@ fn isolated() -> bool {
 }
 
 fn installer_path(data: &Path, version: &str) -> Result<PathBuf> {
-    if version_tuple(version).is_none() {
+    if version_parts(version).is_none() {
         return Err("更新版本号无效".into());
     }
     let name = if cfg!(windows) {
@@ -633,6 +665,13 @@ mod tests {
         assert!(is_newer("0.10.0", "0.9.9"));
         assert!(!is_newer("0.8.0", "0.8.0"));
         assert!(!is_newer("0.7.1", "0.8.0"));
+        // A preview build compares through its numeric core, so it still sees
+        // the stable release that replaces it.
+        assert!(is_newer("3.0.0", "3.0.0-preview"));
+        assert!(!is_newer("3.0.0-preview", "3.0.0"));
+        assert!(is_newer("3.1.0", "3.0.0-preview"));
+        assert!(!is_newer("3.0.0-preview", "3.0.0-preview"));
+        assert!(version_parts("3.0.0-preview").is_some());
     }
 
     #[test]
