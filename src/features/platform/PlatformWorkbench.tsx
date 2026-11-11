@@ -60,7 +60,7 @@ import { useWorkflowTasks } from './useWorkflowTasks';
 import { WorkflowTaskQueue } from './WorkflowTaskQueue';
 import { WorkflowResults } from './WorkflowResults';
 import { errorText } from './taskState';
-import { formatImagePriceDetails, formatWorkflowUsd } from './workflowPrice';
+import { formatImagePriceDetails, formatVideoPriceDetails, formatWorkflowUsd } from './workflowPrice';
 import { OVERLAY_LIMIT, REFERENCE_LIMIT, prepareLocalImage } from './imagePreparation';
 import './platform.css';
 
@@ -436,9 +436,9 @@ export function PlatformWorkbench({
         ? await quoteBridgeDraft(activeKey, draft.id)
         : await quoteWorkflowDraft(activeKey, draft.id);
       const priceDetails = direct
-        ? formatImagePriceDetails(quote.bridgeQuote?.priceDetails)
+        ? formatImagePriceDetails(quote.bridgeQuote?.priceDetails) || formatVideoPriceDetails(quote.bridgeQuote?.priceDetails)
         : quote.items.map((item) => {
-            const detail = formatImagePriceDetails(item.priceDetails);
+            const detail = formatImagePriceDetails(item.priceDetails) || formatVideoPriceDetails(item.priceDetails);
             return detail ? `${item.title ?? item.classType}：${detail}` : '';
           }).filter(Boolean).join('\n');
       if (taskIdentity.current !== activeKey) throw new Error('Key 已更换，请重新操作');

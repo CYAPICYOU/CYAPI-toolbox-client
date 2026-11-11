@@ -281,6 +281,12 @@ fn read_chunked(stream: &mut TcpStream, mut buffer: Vec<u8>) -> Result<Vec<u8>> 
         };
         let size = size_line(&buffer[offset..line_end])?;
         offset = line_end + 2;
+        // A declared chunk size is attacker-controlled. Reject one larger than
+        // the total cap before it can overflow the offset arithmetic or grow
+        // the buffer past the limit.
+        if size > MAX_BODY - body.len() {
+            return Err("请求内容过大".into());
+        }
         if size == 0 {
             // Consume the optional trailers up to the final empty line.
             loop {
@@ -314,9 +320,16 @@ fn read_chunked(stream: &mut TcpStream, mut buffer: Vec<u8>) -> Result<Vec<u8>> 
                 return Err("请求内容不完整".into());
             }
             buffer.extend_from_slice(&chunk[..read]);
+            if buffer.len() > MAX_BODY {
+                return Err("请求内容过大".into());
+            }
         }
         body.extend_from_slice(&buffer[offset..offset + size]);
-        offset += size + 2;
+        // Drop the chunk that was just consumed. Without this the buffer keeps
+        // every byte of a streaming body and would reject a valid request that
+        // happens to be split into many small chunks.
+        buffer.drain(..offset + size + 2);
+        offset = 0;
     }
 }
 
@@ -351,8 +364,23 @@ fn connection(mut stream: TcpStream, server: &Server) -> Result<()> {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(120)));
     loop {
-        let Some(request) = read_request(&mut stream)? else {
-            return Ok(());
+        let request = match read_request(&mut stream) {
+            Ok(Some(request)) => request,
+            Ok(None) => return Ok(()),
+            Err(message) => {
+                // A malformed request still deserves a status line; an agent
+                // client that only sees a closed socket reports a network error
+                // instead of the actual reason.
+                let body = json!({"error": message}).to_string();
+                let _ = respond(
+                    &mut stream,
+                    400,
+                    "application/json; charset=utf-8",
+                    body.as_bytes(),
+                    false,
+                );
+                return Ok(());
+            }
         };
         let close = request
             .header("connection")
@@ -508,7 +536,7 @@ fn tools() -> Vec<Value> {
         }),
         json!({
             "name": "cyapi_workflow_list_templates",
-            "description": "列出可运行的工作流模板：ID、标题、分类、需要哪些素材和可调参数。不返回图数据。",
+            "description": "列出可运行的工作流模板：ID、标题、分类、transport、需要的素材与可调参数。transport=worker 的模板由托管 ComfyUI 执行完整工作流，素材需先在客户端编辑器中同步；transport=bridge 的模板可直接由本工具运行时传入图片或音频。不返回图数据。",
             "inputSchema": {"type":"object","properties":{
                 "category": schema("string","只返回该分类的模板；省略表示全部")
             },"additionalProperties":false}
@@ -519,8 +547,8 @@ fn tools() -> Vec<Value> {
             "inputSchema": {"type":"object","properties":{
                 "templateId": schema("string","工作流模板 ID"),
                 "prompt": schema("string","画面或任务描述"),
-                "images": array(schema("string","本机图片绝对路径"),"参考图/输入图路径，按模板要求提供（PNG/JPG/WebP，单张不超过 12 MB）"),
-                "audio": schema("string","语音类模板的本机 PCM WAV 音频路径（不超过 12 MB）"),
+                "images": array(schema("string","本机图片绝对路径"),"参考图/输入图路径，按模板要求提供（PNG/JPG/WebP，单张不超过 8 MB）"),
+                "audio": schema("string","语音类模板的本机 PCM WAV 音频路径（不超过 8 MB）"),
                 "params": {"type":"object","description":"模板声明的可选参数，只接受字符串、数字和布尔值","additionalProperties":true}
             },"required":["templateId"],"additionalProperties":false}
         }),
@@ -530,8 +558,8 @@ fn tools() -> Vec<Value> {
             "inputSchema": {"type":"object","properties":{
                 "templateId": schema("string","工作流模板 ID"),
                 "prompt": schema("string","画面或任务描述"),
-                "images": array(schema("string","本机图片绝对路径"),"参考图/输入图路径，按模板要求提供（PNG/JPG/WebP，单张不超过 12 MB）"),
-                "audio": schema("string","语音类模板的本机 PCM WAV 音频路径（不超过 12 MB）"),
+                "images": array(schema("string","本机图片绝对路径"),"参考图/输入图路径，按模板要求提供（PNG/JPG/WebP，单张不超过 8 MB）"),
+                "audio": schema("string","语音类模板的本机 PCM WAV 音频路径（不超过 8 MB）"),
                 "params": {"type":"object","description":"模板声明的可选参数，只接受字符串、数字和布尔值","additionalProperties":true},
                 "maxCostUsd": {"type":"number","description":"本次运行允许的最高模型费用（美元，含执行费），必填；报价超出时拒绝执行"}
             },"required":["templateId","maxCostUsd"],"additionalProperties":false}
@@ -728,14 +756,14 @@ fn image_data(path: &str) -> Result<Value> {
     };
     let file = fs::File::open(path).map_err(|_| format!("无法读取图片：{path}"))?;
     if file.metadata().map_err(|_| format!("无法读取图片：{path}"))?.len() > MAX_IMAGE {
-        return Err(format!("图片超过 12 MB：{path}"));
+        return Err(format!("图片超过 8 MB：{path}"));
     }
     let mut bytes = Vec::new();
     file.take(MAX_IMAGE + 1)
         .read_to_end(&mut bytes)
         .map_err(|_| format!("无法读取图片：{path}"))?;
     if bytes.len() as u64 > MAX_IMAGE {
-        return Err(format!("图片超过 12 MB：{path}"));
+        return Err(format!("图片超过 8 MB：{path}"));
     }
     Ok(json!({
         "type": kind,
@@ -786,9 +814,28 @@ struct Prepared {
 
 impl Prepared {
     fn cleanup(&self, server: &Server) {
-        for (kind, id) in self.discard.iter().rev() {
-            let _ = delete_object(server, kind, id);
+        discard_all(server, &self.discard);
+    }
+}
+
+/// The order in which a failed or temporary call's objects are deleted. The
+/// server refuses to delete an upload that a live draft still references, so
+/// drafts go first; otherwise the assets would be left behind forever.
+fn discard_plan<'a>(discard: &'a [(&'static str, String)]) -> Vec<(&'static str, &'a str)> {
+    let mut plan = Vec::new();
+    for kind in ["drafts", "uploads"] {
+        for (current, id) in discard {
+            if *current == kind {
+                plan.push((*current, id.as_str()));
+            }
         }
+    }
+    plan
+}
+
+fn discard_all(server: &Server, discard: &[(&'static str, String)]) {
+    for (kind, id) in discard_plan(discard) {
+        let _ = delete_object(server, kind, id);
     }
 }
 
@@ -806,9 +853,7 @@ fn prepare(server: &Server, arguments: &Value) -> Result<Prepared> {
     let result = fill(server, arguments, &mut discard);
     if result.is_err() {
         // A failure part way through must not leave the uploaded images behind.
-        for (kind, id) in discard.iter().rev() {
-            let _ = delete_object(server, kind, id);
-        }
+        discard_all(server, &discard);
     }
     result
 }
@@ -827,14 +872,14 @@ fn audio_data(path: &str) -> Result<Value> {
     }
     let file = fs::File::open(path).map_err(|_| format!("无法读取音频：{path}"))?;
     if file.metadata().map_err(|_| format!("无法读取音频：{path}"))?.len() > MAX_IMAGE {
-        return Err(format!("音频超过 12 MB：{path}"));
+        return Err(format!("音频超过 8 MB：{path}"));
     }
     let mut bytes = Vec::new();
     file.take(MAX_IMAGE + 1)
         .read_to_end(&mut bytes)
         .map_err(|_| format!("无法读取音频：{path}"))?;
     if bytes.len() as u64 > MAX_IMAGE {
-        return Err(format!("音频超过 12 MB：{path}"));
+        return Err(format!("音频超过 8 MB：{path}"));
     }
     Ok(json!({
         "type": "audio/wav",
@@ -844,12 +889,12 @@ fn audio_data(path: &str) -> Result<Value> {
 
 /// Templates are either executed by the hosted ComfyUI (`worker`) or call the
 /// model directly from the Bridge (`bridge`). Their quote and run routes differ,
-/// so the transport has to be known before a draft is filled.
-/// What a template needs before a draft is even worth creating.
+/// and so do the assets a draft needs, so both are read before a draft is made.
 struct Template {
     transport: String,
     requires_images: bool,
     requires_audio: bool,
+    requires_prompt: bool,
 }
 
 fn template_info(server: &Server, template_id: &str) -> Result<Template> {
@@ -867,7 +912,11 @@ fn template_info(server: &Server, template_id: &str) -> Result<Template> {
     let item = templates
         .iter()
         .find(|item| item.get("id").and_then(Value::as_str) == Some(template_id))
-        .ok_or_else(|| format!("模板 {template_id} 不存在"))?;
+        .ok_or_else(|| {
+            format!(
+                "模板 {template_id} 不在公共模板目录中；个人工作流与未发布模板请在 CYAPI 工具箱的编辑器中运行"
+            )
+        })?;
     let transport = item
         .get("transport")
         .and_then(Value::as_str)
@@ -882,6 +931,12 @@ fn template_info(server: &Server, template_id: &str) -> Result<Template> {
         .and_then(|file| file.get("required"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let prompt = item
+        .get("form")
+        .and_then(|form| form.get("prompt"))
+        .and_then(|prompt| prompt.get("required"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     Ok(Template {
         transport: if transport == "bridge" {
             transport
@@ -890,6 +945,7 @@ fn template_info(server: &Server, template_id: &str) -> Result<Template> {
         },
         requires_images: required && !accept.starts_with("audio/"),
         requires_audio: required && accept.starts_with("audio/"),
+        requires_prompt: prompt,
     })
 }
 
@@ -947,6 +1003,20 @@ fn fill(
     if template.requires_audio && audio.is_none() {
         return Err(format!(
             "模板 {template_id} 需要 PCM WAV 音频；请通过 audio 提供本机音频路径"
+        ));
+    }
+    if template.requires_prompt && prompt.trim().is_empty() {
+        return Err(format!(
+            "模板 {template_id} 需要 prompt（描述要生成或处理的内容）"
+        ));
+    }
+    // Worker templates execute the whole graph inside the hosted ComfyUI, which
+    // only receives assets through the editor. The service rejects any draft
+    // that still references an upload, so name the real remedy here instead of
+    // uploading assets that cannot be used.
+    if template.transport != "bridge" && (!images.is_empty() || audio.is_some()) {
+        return Err(format!(
+            "模板 {template_id} 由 Worker ComfyUI 执行完整工作流，参考图与音频需要先在 CYAPI 工具箱的编辑器中同步；Agent 直接运行时请改用 transport=bridge 的模板"
         ));
     }
     let transport = template.transport;
@@ -1443,6 +1513,34 @@ mod tests {
         assert_eq!(view["total"], 0.25);
         let view = quote_view(&json!({"amount":1.5,"runFee":0,"unit":"USD"}), &draft);
         assert_eq!(view["total"], 1.5);
+    }
+
+    /// Uploads referenced by a live draft are rejected by the server, so the
+    /// cleanup plan has to delete every draft before any of its uploads.
+    #[test]
+    fn cleanup_deletes_drafts_before_their_uploads() {
+        let discard = vec![
+            ("drafts", "draft-a".to_string()),
+            ("uploads", "upload-1".to_string()),
+            ("uploads", "upload-2".to_string()),
+        ];
+        let plan = discard_plan(&discard);
+        let kinds = plan.iter().map(|(kind, _)| *kind).collect::<Vec<_>>();
+        assert_eq!(kinds, vec!["drafts", "uploads", "uploads"]);
+        assert_eq!(plan[0].1, "draft-a");
+        assert_eq!(plan[1].1, "upload-1");
+        assert_eq!(plan[2].1, "upload-2");
+        // Both uploads are kept in their original order, so a failure deleting
+        // one does not reorder the rest.
+        let discard = vec![
+            ("uploads", "upload-1".to_string()),
+            ("drafts", "draft-a".to_string()),
+            ("uploads", "upload-2".to_string()),
+        ];
+        let plan = discard_plan(&discard);
+        assert_eq!(plan[0], ("drafts", "draft-a"));
+        assert_eq!(plan[1], ("uploads", "upload-1"));
+        assert_eq!(plan[2], ("uploads", "upload-2"));
     }
 
     #[test]

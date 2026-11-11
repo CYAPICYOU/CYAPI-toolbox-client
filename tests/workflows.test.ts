@@ -11,7 +11,9 @@ import { unzipSync, strFromU8 } from 'fflate';
 import {
   formatWorkflowUsd,
   formatImagePriceDetails,
+  formatVideoPriceDetails,
   workflowHasImagePricing,
+  workflowHasVideoPricing,
   workflowReferencePrice,
 } from '../src/features/platform/workflowPrice.ts';
 
@@ -24,6 +26,16 @@ test('image pricing presentation shows the configured breakdown safely', () => {
   assert.match(text, /整体 × 2 张/);
   assert.match(text, /\$0\.16 USD/);
   assert.equal(formatImagePriceDetails({ counts: {} }), '');
+});
+
+test('video pricing presentation shows seconds and billable references safely', () => {
+  const catalog = { templates: [{ id: 'fictional', display: { pricingMode: 'video' } }] };
+  assert.equal(workflowHasVideoPricing(catalog, 'fictional'), true);
+  const text = formatVideoPriceDetails({ outputSeconds: 5, inputMilliseconds: 1500, billedInputMilliseconds: 2000, imageCount: 3, billableImages: 1, amountUnits: 20_000_000, rule: { baseUnits: 0, outputSecondUnits: 1_000_000, inputSecondUnits: 2_000_000, imageUnits: 3_000_000 } });
+  assert.match(text, /输出 5 秒/);
+  assert.match(text, /输入视频 2 秒/);
+  assert.match(text, /收费图片 1\/3 张/);
+  assert.equal(formatVideoPriceDetails({ outputSeconds: 5 }), '');
 });
 import {
   createEditorLauncher,

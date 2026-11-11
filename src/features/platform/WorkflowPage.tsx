@@ -16,7 +16,7 @@ import type { LocalWorkflowDraft } from './draftStore';
 import type { WorkflowTemplate } from './library';
 import { WorkflowIcon } from './WorkflowLibrary';
 import { getWorkflowPriceCatalog } from './api';
-import { formatWorkflowUsd, workflowHasImagePricing, workflowReferencePrice } from './workflowPrice';
+import { formatWorkflowUsd, workflowHasImagePricing, workflowHasVideoPricing, workflowReferencePrice } from './workflowPrice';
 import { ImageAnnotationEditor } from '../../components/ImageAnnotationEditor';
 import { overlayDimensions } from './overlayDimensions';
 import { WorkflowExamples } from './WorkflowExamples';
@@ -55,11 +55,13 @@ export function WorkflowPage({
   const [paint, setPaint] = useState<'mask' | 'markup' | null>(null);
   const [price, setPrice] = useState<number | null>(null);
   const [imagePricing, setImagePricing] = useState(false);
+  const [videoPricing, setVideoPricing] = useState(false);
   const [priceLoading, setPriceLoading] = useState(template.source === 'server');
   useEffect(() => {
     let cancelled = false;
     setPrice(null);
     setImagePricing(false);
+    setVideoPricing(false);
     if (template.source !== 'server') {
       setPriceLoading(false);
       return;
@@ -70,6 +72,7 @@ export function WorkflowPage({
         if (!cancelled) {
           setPrice(workflowReferencePrice(catalog, template.id));
           setImagePricing(workflowHasImagePricing(catalog, template.id));
+          setVideoPricing(workflowHasVideoPricing(catalog, template.id));
         }
       })
       .catch(() => {
@@ -578,11 +581,13 @@ export function WorkflowPage({
               {priceLoading
                 ? '正在获取价格…'
                 : price === null
-                  ? imagePricing ? '按实际参数计费' : '价格暂不可用'
+                  ? imagePricing || videoPricing ? '按实际参数计费' : '价格暂不可用'
                   : `${formatWorkflowUsd(price)} / 次`}
             </strong>
             <p className="pfx-hint">
-              {imagePricing
+              {videoPricing
+                ? '费用取决于视频模型、分辨率、请求时长和参考素材；运行前将显示确认报价。'
+                : imagePricing
                 ? '费用取决于模型、尺寸、质量、参考图和输出数量；运行前将显示确认报价。'
                 : template.source === 'personal'
                 ? '个人工作流的价格取决于实际节点和输入，暂无法在此预估。'
