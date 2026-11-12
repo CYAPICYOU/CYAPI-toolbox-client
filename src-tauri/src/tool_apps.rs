@@ -14,6 +14,7 @@ const TOOLS: &[(&str, &[&str])] = &[
     ("workbuddy", &["workbuddy"]),
     ("pi", &["pi"]),
     ("minimax", &["minimax", "minimax-code"]),
+    ("alma", &["alma"]),
     ("cline", &["cline"]),
     ("kilo", &["kilo"]),
     ("qwen", &["qwen"]),
@@ -116,6 +117,7 @@ fn desktop_declarations() -> Vec<Value> {
         ("dsh", "DeepSeek Harness", "DeepSeek Harness.app", "localAppData", "Programs/DeepSeek Harness/DeepSeek Harness.exe"),
         ("workbuddy", "WorkBuddy", "WorkBuddy.app", "localAppData", "Programs/WorkBuddy/WorkBuddy.exe"),
         ("minimax", "MiniMax Code", "MiniMax Code.app", "localAppData", "Programs/MiniMax Code/MiniMax Code.exe"),
+        ("alma", "Alma", "Alma.app", "localAppData", "Programs/Alma/Alma.exe"),
         ("cline", "Cline", "Cline.app", "localAppData", "Programs/Cline/Cline.exe"),
         // The Kimi Code desktop installer targets Program Files, not the
         // per-user Programs directory.

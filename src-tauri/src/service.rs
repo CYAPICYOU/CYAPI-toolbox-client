@@ -2571,10 +2571,16 @@ exit 1
                 );
             }
             "harness-model-read" => {
+                if request.workspace.as_deref() == Some("alma") {
+                    return crate::alma_config::view();
+                }
                 return crate::harness_config::view(&self.home, &self.data, request.workspace.as_deref().ok_or("缺少工具标识")?);
             }
             "tool-apps-detect" => return Ok(crate::tool_apps::detect(&self.home)),
             "harness-model-save" => {
+                if request.workspace.as_deref() == Some("alma") {
+                    return crate::alma_config::save(request.harness_model.as_ref().ok_or("缺少模型配置")?);
+                }
                 return crate::harness_config::save(&self.home, &self.data, request.workspace.as_deref().ok_or("缺少工具标识")?, request.harness_model.as_ref().ok_or("缺少模型配置")?);
             }
             "harness-model-restore" => {

@@ -80,6 +80,15 @@ export const harnesses = [
     protocols: ['openai-responses', 'openai-completions', 'anthropic-messages'],
     note: '写入 Grok Build 的 config.toml 自定义模型并设为默认。保存后运行 grok models 或 /model 确认；支持 GROK_HOME。',
   },
+  {
+    id: 'alma',
+    name: 'Alma',
+    hint: '桌面 AI',
+    docs: 'https://alma.now/docs/zh/settings/providers',
+    site: 'https://alma.now/',
+    protocols: ['openai-completions'],
+    note: '需要先启动 Alma。客户端通过 Alma 本机接口创建或更新 CYAPI Toolbox 自定义服务商，并设置默认模型；不会直接修改 Alma 数据库。',
+  },
 ] as const;
 
 export type HarnessTool = (typeof harnesses)[number]['id'];

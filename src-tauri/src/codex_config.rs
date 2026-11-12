@@ -223,6 +223,13 @@ fn configured_key(doc: &DocumentMut, auth: &Value) -> Option<String> {
 }
 
 // Hash TOML content without comments, key order, or quote/whitespace differences.
+// With `preserve_order`, a JSON object keeps insertion order, so the hash would
+// depend on the TOML key order unless each object is sorted explicitly.
+fn sorted_object(pairs: impl IntoIterator<Item = (String, Value)>) -> Value {
+    let mut pairs: Vec<(String, Value)> = pairs.into_iter().collect();
+    pairs.sort_by(|left, right| left.0.cmp(&right.0));
+    Value::Object(pairs.into_iter().collect())
+}
 fn semantic_value(value: &toml_edit::Value) -> Value {
     use toml_edit::Value as TomlValue;
     match value {
@@ -232,22 +239,21 @@ fn semantic_value(value: &toml_edit::Value) -> Value {
         TomlValue::Boolean(value) => json!(value.value()),
         TomlValue::Datetime(value) => json!(value.value().to_string()),
         TomlValue::Array(values) => Value::Array(values.iter().map(semantic_value).collect()),
-        TomlValue::InlineTable(table) => Value::Object(
+        TomlValue::InlineTable(table) => sorted_object(
             table
                 .iter()
-                .map(|(key, value)| (key.into(), semantic_value(value)))
-                .collect(),
+                .map(|(key, value)| (key.to_string(), semantic_value(value))),
         ),
     }
 }
 fn semantic_item(item: Option<&Item>) -> Value {
     match item {
         Some(Item::Value(value)) => semantic_value(value),
-        Some(Item::Table(table)) => Value::Object(
+        Some(Item::Table(table)) => sorted_object(
             table
                 .iter()
-                .map(|(key, item)| (key.into(), semantic_item(Some(item))))
-                .collect(),
+                .map(|(key, item)| (key.to_string(), semantic_item(Some(item))))
+                .collect::<Vec<_>>(),
         ),
         Some(Item::ArrayOfTables(tables)) => Value::Array(
             tables

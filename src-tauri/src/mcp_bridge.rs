@@ -1515,6 +1515,16 @@ mod tests {
         assert_eq!(view["total"], 1.5);
     }
 
+    /// The Bridge compares the returned `chargePlan` with `JSON.stringify`, so a
+    /// reordered object would fail its quote check with HTTP 409 even though the
+    /// values match. Keys must survive a parse/serialize round trip untouched.
+    #[test]
+    fn a_bridge_quote_keeps_its_key_order_when_it_is_forwarded() {
+        let quote = r#"{"mode":"real-provider","draftId":"d","revision":1,"amount":0.01,"strategy":{"chargePlan":[{"unitId":"u1","billingModel":"per-call","count":1,"faceAmountUnits":1000000,"gatewayAmountUnits":1000000}]}}"#;
+        let parsed: Value = serde_json::from_str(quote).unwrap();
+        assert_eq!(serde_json::to_string(&parsed).unwrap(), quote);
+    }
+
     /// Uploads referenced by a live draft are rejected by the server, so the
     /// cleanup plan has to delete every draft before any of its uploads.
     #[test]

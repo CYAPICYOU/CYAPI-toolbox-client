@@ -1,4 +1,5 @@
 mod agent_logs;
+mod alma_config;
 mod blender_runtime;
 mod blender_service;
 mod cancel;

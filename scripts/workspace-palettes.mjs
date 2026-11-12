@@ -19,6 +19,7 @@ export const LOGO_COLOURS = {
   cursor: '#383838',
   gemini: '#3186ff', // base fill underneath the multicolour gradient
   grok: '#383838',
+  alma: '#000000', // alma-logo.png: monochrome official mark
 };
 
 const rgb = (hex) =>

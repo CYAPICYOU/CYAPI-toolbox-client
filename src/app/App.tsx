@@ -48,6 +48,7 @@ import { OpenCodeSettings } from './OpenCodeSettings';
 import { DesktopModelSettings } from './DesktopModelSettings';
 import { harnesses, isHarnessTool, type HarnessTool } from '../features/harness/catalog';
 import { HarnessModelSettings } from '../features/harness/HarnessModelSettings';
+import { AlmaModelSettings } from '../features/harness/AlmaModelSettings';
 import { ManageApps } from '../features/harness/ManageApps';
 import { useToolApps } from '../features/harness/useToolApps';
 import { AppLogo } from '../features/harness/AppLogo';
@@ -1041,7 +1042,7 @@ export default function App() {
               <section className="n-panel"><p className="n-config-note">当前没有显示的 App，请在管理中添加。</p><button className="n-button" onClick={() => setManageAppsOpen(true)}><Plus size={14} />管理 App</button></section>
             ) : page === 'codex' &&
               (desktopTool ? (
-                isHarnessTool(desktopTool) ? <HarnessModelSettings key={desktopTool} tool={desktopTool} /> : <DesktopModelSettings key={desktopTool} tool={desktopTool} />
+                desktopTool === 'alma' ? <AlmaModelSettings key={desktopTool} /> : isHarnessTool(desktopTool) ? <HarnessModelSettings key={desktopTool} tool={desktopTool} /> : <DesktopModelSettings key={desktopTool} tool={desktopTool} />
               ) : workspace === 'claude' ? (
                 <ClaudeSettings />
               ) : workspace === 'opencode' ? (

@@ -281,6 +281,15 @@ export interface OpenCodeConfiguration {
   cliPath: string;
   canRestore: boolean;
 }
+export interface AlmaConfiguration {
+  revision: string;
+  baseUrl: string;
+  model: string;
+  api: 'openai-completions';
+  models: string[];
+  apiKeyConfigured: boolean;
+  canRestore: false;
+}
 export interface IntegrationField {
   id: string;
   label: string;

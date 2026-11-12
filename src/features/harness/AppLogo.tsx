@@ -15,6 +15,7 @@ import grok from '../../assets/app-logos/lobe/grok.svg';
 import pi from '../../assets/app-logos/pi/logo.svg';
 import continueLogo from '../../assets/app-logos/continue/logo.png';
 import aider from '../../assets/app-logos/aider/logo.png';
+import alma from '../../assets/app-logos/alma/logo.png';
 
 // LobeHub brand marks: https://github.com/lobehub/lobe-icons (MIT).
 // Pi: https://pi.dev/logo-auto.svg; Continue / Aider: their official extension / website icons.
@@ -36,6 +37,7 @@ const logos: Record<string, { src: string; mono?: boolean }> = {
   cursor: { src: cursor, mono: true },
   gemini: { src: gemini },
   grok: { src: grok, mono: true },
+  alma: { src: alma },
 };
 
 export function AppLogo({ id, size = 'small' }: { id: string; size?: 'small' | 'large' }) {

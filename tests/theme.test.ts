@@ -167,10 +167,12 @@ test('every supported App has a logo-derived palette, including monochrome ident
     const svg = readFileSync(path.join(root, 'src/assets/app-logos', file), 'utf8').toLowerCase();
     assert.ok(svg.includes(LOGO_COLOURS[id]), `${id} seed must come from its bundled logo`);
   }
-  for (const id of ['opencode', 'cline', 'kilo', 'cursor', 'grok']) {
+  for (const id of ['opencode', 'cline', 'kilo', 'cursor', 'grok', 'alma']) {
     const channels = workspaceVariables(id, 'light').sidebar.slice(1).match(/../g)!;
     assert.equal(new Set(channels).size, 1, `${id} must retain its monochrome identity`);
   }
+  const logo = readFileSync(path.join(root, 'src/assets/app-logos/alma/logo.png'));
+  assert.deepEqual(logo.subarray(0, 8), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
 });
 
 test('workspace accents follow system appearance without overriding explicit light', () => {
