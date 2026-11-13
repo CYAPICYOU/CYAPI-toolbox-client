@@ -138,10 +138,12 @@ function TaskLogContent({
             <time dateTime={new Date(entry.at).toISOString()}>
               {new Date(entry.at).toLocaleTimeString()}
             </time>
-            <span className="pfx-log-level">
-              {entry.level === 'error' ? '错误' : entry.level === 'warning' ? '注意' : '信息'}
-            </span>
             <span>
+              {entry.level !== 'info' && (
+                <span className="pfx-log-level">
+                  {entry.level === 'error' ? '错误' : '注意'}
+                </span>
+              )}
               {entry.nodeId && <code>节点 {entry.nodeId} · </code>}
               {entry.message}
             </span>

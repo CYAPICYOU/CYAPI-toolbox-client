@@ -1182,7 +1182,7 @@
 }
 .pfx-log-entry {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 10px;
   padding: 3px 0;
   overflow-wrap: anywhere;
@@ -1190,6 +1190,9 @@
 }
 .pfx-log-entry time {
   color: var(--muted);
+}
+.pfx-log-level {
+  margin-right: 8px;
 }
 .pfx-log-warning .pfx-log-level {
   color: #a16c1c;
