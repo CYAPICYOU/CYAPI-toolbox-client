@@ -14,6 +14,7 @@ import {
 import {
   cancelWorkflowTask,
   createWorkflowDraft,
+  deleteWorkflowTask,
   downloadWorkflowArtifact,
   editorToken,
   getActivation,
@@ -488,6 +489,14 @@ export function PlatformWorkbench({
       await loadTasks();
     });
   }
+  async function deleteTask(task: WorkflowTask) {
+    if (!requireKey()) return;
+    if (!window.confirm('删除这条记录及其生成结果？此操作不可恢复。')) return;
+    await run(async () => {
+      await deleteWorkflowTask(activeKey, task.id);
+      await loadTasks();
+    });
+  }
   async function continueImage(output: WorkflowTask['outputs'][number]) {
     const key = activeKey;
     const template = catalog?.items.find((item) => item.id === 'gpt-image-25-edit');
@@ -802,7 +811,9 @@ export function PlatformWorkbench({
                 tasks={tasks}
                 activeKey={activeKey}
                 visible={visible}
+                busy={busy}
                 onContinue={(output) => void continueImage(output)}
+                onDelete={(task) => void deleteTask(task)}
               />
             ) : null}
           </>

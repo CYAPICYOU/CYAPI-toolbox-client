@@ -393,6 +393,12 @@ export const cancelWorkflowTask = (key: string, id: string) =>
     key,
     body: {},
   });
+/** Removes the finished task record and its generated artifacts. */
+export const deleteWorkflowTask = (key: string, id: string) =>
+  workflowRequest<{ removed: boolean }>(`/tasks/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    key,
+  });
 export const createWorkflowDraft = (key: string, templateId: string) =>
   workflowRequest<WorkflowDraft>('/drafts', { method: 'POST', key, body: { templateId } });
 export const saveWorkflowDraft = (

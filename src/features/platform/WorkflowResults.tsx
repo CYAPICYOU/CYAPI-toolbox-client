@@ -1,4 +1,4 @@
-import { LoaderCircle } from 'lucide-react';
+import { LoaderCircle, Trash2 } from 'lucide-react';
 import type { WorkflowTask } from './api';
 import { artifactSourceLabel, groupIdenticalImages } from './artifactDisplay';
 import { useWorkflowArtifacts } from './useWorkflowArtifacts';
@@ -9,12 +9,16 @@ export function WorkflowResults({
   tasks,
   activeKey,
   visible,
+  busy,
   onContinue,
+  onDelete,
 }: {
   tasks: WorkflowTask[];
   activeKey: string;
   visible: boolean;
+  busy: boolean;
   onContinue?: (output: WorkflowTask['outputs'][number]) => void;
+  onDelete: (task: WorkflowTask) => void;
 }) {
   const {
     artifacts,
@@ -53,6 +57,15 @@ export function WorkflowResults({
               <div className="pfx-result-meta">
                 <small>{new Date(task.createdAt).toLocaleString()}</small>
                 <small>建议 30 天内下载，超过后文件可能过期</small>
+                <button
+                  type="button"
+                  className="pfx-ghost"
+                  disabled={busy}
+                  onClick={() => onDelete(task)}
+                >
+                  <Trash2 size={14} />
+                  删除
+                </button>
               </div>
             </div>
             {task.outputs.length > 0 && (

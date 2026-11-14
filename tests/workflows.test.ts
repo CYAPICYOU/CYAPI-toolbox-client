@@ -395,6 +395,17 @@ test('task responses and visible results are scoped to the active Key', () => {
   assert.match(page, /<WorkflowTaskQueue\s+key=\{activeKey\}/);
 });
 
+test('result cards can delete the finished task record and its artifacts', () => {
+  const api = read('src/features/platform/api.ts');
+  assert.match(api, /deleteWorkflowTask[\s\S]*method: 'DELETE'/);
+  const page = read('src/features/platform/PlatformWorkbench.tsx');
+  assert.match(page, /deleteWorkflowTask\(activeKey, task\.id\)/);
+  assert.match(page, /删除这条记录及其生成结果/);
+  const results = read('src/features/platform/WorkflowResults.tsx');
+  assert.match(results, /onDelete: \(task: WorkflowTask\) => void/);
+  assert.match(results, /onClick=\{\(\) => onDelete\(task\)\}/);
+});
+
 test('workflows ship in standard builds with no research switch', () => {
   const pkg = JSON.parse(read('package.json'));
   assert.ok(pkg.scripts['desktop:exe']);
