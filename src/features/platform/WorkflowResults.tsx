@@ -1,12 +1,17 @@
-import { LoaderCircle, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { LoaderCircle, Maximize2, Play, Trash2 } from 'lucide-react';
+import { Modal } from '../../components/Primitives';
 import type { WorkflowTask } from './api';
 import { artifactSourceLabel, groupIdenticalImages } from './artifactDisplay';
+import type { WorkflowTemplate } from './library';
+import { taskParameters } from './taskParameters';
 import { useWorkflowArtifacts } from './useWorkflowArtifacts';
 import { WorkflowTaskLogs } from './WorkflowTaskLogs';
 
 // Mounted with the active Key as React key: previews and pending downloads belong to one identity.
 export function WorkflowResults({
   tasks,
+  templates = [],
   activeKey,
   visible,
   busy,
@@ -14,6 +19,7 @@ export function WorkflowResults({
   onDelete,
 }: {
   tasks: WorkflowTask[];
+  templates?: WorkflowTemplate[];
   activeKey: string;
   visible: boolean;
   busy: boolean;
@@ -23,6 +29,8 @@ export function WorkflowResults({
   const {
     artifacts,
     artifactErrors,
+    references,
+    referenceErrors,
     imageHashes,
     saveNotice,
     zipTaskId,
@@ -30,6 +38,11 @@ export function WorkflowResults({
     saveTaskZip,
     retryArtifact,
   } = useWorkflowArtifacts(activeKey, tasks, visible);
+  const [preview, setPreview] = useState<{
+    kind: 'image' | 'video';
+    url: string;
+    title: string;
+  } | null>(null);
   const completed = tasks.filter(
     (task) => task.status === 'succeeded' && task.outputs.length > 0,
   );
@@ -50,6 +63,9 @@ export function WorkflowResults({
         const groups = worker
           ? groupIdenticalImages(task.outputs, imageHashes)
           : task.outputs.map((output) => [output]);
+        const prompt = task.description?.trim() ?? '';
+        const parameterList = taskParameters(task, templates.find((item) => item.id === task.templateId));
+        const referenceIds = task.references ?? [];
         return (
           <article key={task.id} className="pfx-card pfx-task-result">
             <div className="pfx-task-row">
@@ -79,6 +95,66 @@ export function WorkflowResults({
               </button>
             )}
             {worker && task.message && <small>{task.message}</small>}
+            {(prompt || referenceIds.length > 0 || parameterList.length > 0) && (
+              <section className="pfx-result-inputs" aria-label="任务参数">
+                {prompt && (
+                  <div className="pfx-result-prompt">
+                    <span>提示词</span>
+                    <p>{prompt}</p>
+                  </div>
+                )}
+                {referenceIds.length > 0 && (
+                  <div className="pfx-result-references">
+                    <span>参考图</span>
+                    <div className="pfx-result-reference-list">
+                      {referenceIds.map((id, index) => {
+                        const url = references[id];
+                        const error = referenceErrors[id];
+                        return url ? (
+                          <button
+                            key={id}
+                            type="button"
+                            className="pfx-result-reference"
+                            aria-label={`放大参考图 ${index + 1}`}
+                            onClick={() =>
+                              setPreview({
+                                kind: 'image',
+                                url,
+                                title: `参考图 ${index + 1}`,
+                              })
+                            }
+                          >
+                            <img src={url} alt={`参考图 ${index + 1}`} loading="lazy" decoding="async" />
+                          </button>
+                        ) : (
+                          <div
+                            key={id}
+                            className="pfx-result-reference pfx-result-reference-empty"
+                            role={error ? 'alert' : 'status'}
+                          >
+                            {error ? (
+                              <span>{error}</span>
+                            ) : (
+                              <LoaderCircle size={14} className="pfx-spin" />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                {parameterList.length > 0 && (
+                  <dl className="pfx-result-params">
+                    {parameterList.map((parameter) => (
+                      <div key={parameter.key}>
+                        <dt>{parameter.label}</dt>
+                        <dd>{parameter.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+              </section>
+            )}
             <div className="pfx-results">
               {groups.map((group) => {
                 const output = group[0];
@@ -100,9 +176,41 @@ export function WorkflowResults({
                       group.map((item) => <small key={item.id}>{artifactSourceLabel(item)}</small>)}
                     {url ? (
                       output.kind === 'video' ? (
-                        <video src={url} controls playsInline />
+                        <div className="pfx-result-video">
+                          <video src={url} controls playsInline preload="metadata" />
+                          <button
+                            type="button"
+                            className="pfx-result-play"
+                            aria-label="播放视频"
+                            onClick={() =>
+                              setPreview({
+                                kind: 'video',
+                                url,
+                                title: output.title || '视频预览',
+                              })
+                            }
+                          >
+                            <Play size={22} />
+                          </button>
+                        </div>
                       ) : output.kind === 'image' ? (
-                        <img src={url} alt={output.title || '生成结果'} />
+                        <button
+                          type="button"
+                          className="pfx-result-image"
+                          aria-label="放大预览图片"
+                          onClick={() =>
+                            setPreview({
+                              kind: 'image',
+                              url,
+                              title: output.title || '图片预览',
+                            })
+                          }
+                        >
+                          <img src={url} alt={output.title || '生成结果'} />
+                          <span className="pfx-result-zoom" aria-hidden="true">
+                            <Maximize2 size={18} />
+                          </span>
+                        </button>
                       ) : output.kind === 'audio' ? (
                         <audio src={url} controls />
                       ) : (
@@ -176,6 +284,24 @@ export function WorkflowResults({
           </article>
         );
       })}
+      {preview && (
+        <Modal
+          title={preview.title}
+          onClose={() => setPreview(null)}
+          wide
+          className="pfx-media-modal"
+        >
+          {preview.kind === 'video' ? (
+            <div className="pfx-media-video">
+              <video src={preview.url} controls autoPlay playsInline />
+            </div>
+          ) : (
+            <div className="pfx-media-image">
+              <img src={preview.url} alt={preview.title} />
+            </div>
+          )}
+        </Modal>
+      )}
     </>
   );
 }

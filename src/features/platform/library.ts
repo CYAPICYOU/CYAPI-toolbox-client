@@ -15,7 +15,7 @@ export interface WorkflowTemplate {
   steps: string[];
   form: {
     prompt?: { label: string; placeholder?: string; required: boolean };
-    file?: { label: string; accept: string; required: boolean; multiple?: boolean; maxFiles?: number };
+    file?: { label: string; accept: string; required: boolean; multiple?: boolean; maxFiles?: number; hint?: string };
     mask?: { label: string; accept: string; required: boolean };
     markup?: { label: string; accept: string; required: boolean };
     options?: WorkflowFormOption[];
@@ -213,6 +213,23 @@ export function workflowDocument(template: WorkflowTemplate, prompt = '') {
         graph[overlay] = { class_type: 'LoadImage', inputs: { image: '' }, _meta: { title: '可选透明标注 PNG：选择图片后连接标注输出' } };
         const combine = String(next++);
         graph[combine] = { class_type: 'CYAPI_MarkupFromImage', inputs: { image: [overlay, 0], mask: [overlay, 1] }, _meta: { title: '合并标注透明通道（连到 markup）' } };
+      }
+      // Reference sockets that the published graph leaves unconnected become
+      // explicit LoadImage nodes. Without them the editor opens on a single
+      // generator node, which reads as an unfinished workflow even though the
+      // node itself accepts eight references.
+      if (template.id !== 'gpt-image-25-edit') {
+        const reference = /^(?:first_frame|last_frame|image_\d+|reference_image_\d+)$/;
+        for (const [name, value] of Object.entries(node.inputs)) {
+          if (!reference.test(name) || (value !== null && value !== undefined)) continue;
+          const load = String(next++);
+          const index = Number(name.match(/\d+$/)?.[0] ?? 0);
+          const title = name === 'first_frame' ? '首帧（可选）'
+            : name === 'last_frame' ? '尾帧（可选）'
+              : `参考图 ${index}（可选）`;
+          graph[load] = { class_type: 'LoadImage', inputs: { image: '' }, _meta: { title } };
+          node.inputs[name] = [load, 0];
+        }
       }
       // Every image or video generator ends with the same save-and-preview node.
       // Images use the standard SaveImage; video uses CYAPI_SaveVideo so the

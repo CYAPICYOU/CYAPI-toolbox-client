@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import type { LocalWorkflowDraft } from './draftStore';
 import type { WorkflowTemplate } from './library';
+import { workflowDocument } from './library';
 import { WorkflowIcon } from './WorkflowLibrary';
 import { getWorkflowPriceCatalog } from './api';
 import { formatWorkflowUsd, workflowHasImagePricing, workflowHasVideoPricing, workflowReferencePrice } from './workflowPrice';
@@ -221,7 +222,13 @@ export function WorkflowPage({
       setFileError('读取图片失败，请重新选择。');
     }
   }
-  const graphNodes = Object.entries(template.apiGraph ?? {});
+  // Show the document the editor will actually open: server templates expand
+  // their reference sockets into LoadImage nodes there, so a node-only preview
+  // understates the published workflow.
+  const document = workflowDocument(template) as {
+    prompt?: Record<string, { class_type: string; inputs: Record<string, unknown>; _meta?: { title?: string } }>;
+  };
+  const graphNodes = Object.entries(document.prompt ?? template.apiGraph ?? {});
   const canvasNodes = Array.isArray(template.workflow?.nodes)
     ? (template.workflow.nodes as { id: string | number; type?: string; title?: string }[])
     : [];
@@ -366,7 +373,7 @@ export function WorkflowPage({
                     </button>
                   )}
                   {file.multiple && draft.fileData && <>
-                    <p className="pfx-hint">第一张是基准图 / 上一轮结果，后续图片作为参考图；最多 {file.maxFiles ?? 16} 张。</p>
+                    <p className="pfx-hint">{file.hint ?? `第一张是基准图 / 上一轮结果，后续图片作为参考图；最多 ${file.maxFiles ?? 16} 张。`}</p>
                     {(draft.files ?? []).slice(1).map((item, index) => <div className="pfx-file-preview" key={`${index}-${item.name}`}>
                       <img src={item.data} alt={`参考图 ${index + 2}`} /><div><span>参考图 {index + 2}：{item.name}</span><button type="button" className="pfx-icon-button" disabled={preparing || busy} onClick={() => { const files = (latest.current.files ?? []).filter((_, i) => i !== index + 1); onChange({ ...latest.current, files }); }} aria-label={`移除参考图 ${index + 2}`}><X size={14} /></button></div>
                     </div>)}

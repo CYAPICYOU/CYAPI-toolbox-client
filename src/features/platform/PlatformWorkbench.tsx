@@ -809,6 +809,7 @@ export function PlatformWorkbench({
               <WorkflowResults
                 key={activeKey}
                 tasks={tasks}
+                templates={catalog?.items ?? []}
                 activeKey={activeKey}
                 visible={visible}
                 busy={busy}

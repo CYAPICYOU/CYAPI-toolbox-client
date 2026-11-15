@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { nativeAvailable } from '../../lib/api/native';
-import { downloadWorkflowArtifact, type WorkflowTask, type WorkflowTaskOutput } from './api';
+import { downloadWorkflowArtifact, downloadWorkflowUpload, type WorkflowTask, type WorkflowTaskOutput } from './api';
 import { imagePixelHash, saveArtifact, taskArtifactsZip } from './artifactDisplay';
 import { errorText } from './taskState';
 
@@ -17,10 +17,13 @@ const saveMessage = (saved: boolean) =>
 export function useWorkflowArtifacts(activeKey: string, tasks: WorkflowTask[], enabled: boolean) {
   const [artifacts, setArtifacts] = useState<Record<string, string>>({});
   const [artifactErrors, setArtifactErrors] = useState<Record<string, string>>({});
+  const [references, setReferences] = useState<Record<string, string>>({});
+  const [referenceErrors, setReferenceErrors] = useState<Record<string, string>>({});
   const [imageHashes, setImageHashes] = useState<Record<string, string>>({});
   const [saveNotice, setSaveNotice] = useState('');
   const [zipTaskId, setZipTaskId] = useState('');
   const pending = useRef(new Set<string>());
+  const referencePending = useRef(new Set<string>());
   const urls = useRef<string[]>([]);
   const generation = useRef(0);
   const zipBusy = useRef(false);
@@ -31,6 +34,7 @@ export function useWorkflowArtifacts(activeKey: string, tasks: WorkflowTask[], e
       for (const url of urls.current) URL.revokeObjectURL(url);
       urls.current = [];
       pending.current.clear();
+      referencePending.current.clear();
     },
     [],
   );
@@ -63,6 +67,36 @@ export function useWorkflowArtifacts(activeKey: string, tasks: WorkflowTask[], e
       }
     }
   }, [tasks, enabled, activeKey, artifacts, artifactErrors]);
+
+  // Reference images belong to the finished task's input, not its outputs, so
+  // they are loaded from the Key-scoped upload route the same way.
+  useEffect(() => {
+    if (!enabled || !activeKey) return;
+    const request = generation.current;
+    for (const task of tasks) {
+      if (task.status !== 'succeeded') continue;
+      for (const id of task.references ?? []) {
+        if (references[id] || referenceErrors[id] || referencePending.current.has(id)) continue;
+        referencePending.current.add(id);
+        void downloadWorkflowUpload(activeKey, id)
+          .then((url) => {
+            if (request !== generation.current) {
+              URL.revokeObjectURL(url);
+              return;
+            }
+            urls.current.push(url);
+            setReferences((current) => ({ ...current, [id]: url }));
+          })
+          .catch((cause) => {
+            if (request === generation.current)
+              setReferenceErrors((current) => ({ ...current, [id]: errorText(cause) }));
+          })
+          .finally(() => {
+            if (request === generation.current) referencePending.current.delete(id);
+          });
+      }
+    }
+  }, [tasks, enabled, activeKey, references, referenceErrors]);
 
   useEffect(() => {
     let cancelled = false;
@@ -153,6 +187,8 @@ export function useWorkflowArtifacts(activeKey: string, tasks: WorkflowTask[], e
   return {
     artifacts,
     artifactErrors,
+    references,
+    referenceErrors,
     imageHashes,
     saveNotice,
     zipTaskId,

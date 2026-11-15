@@ -7,6 +7,7 @@ import {
   saveArtifact,
   taskArtifactsZip,
 } from '../src/features/platform/artifactDisplay.ts';
+import { taskParameters } from '../src/features/platform/taskParameters.ts';
 import { unzipSync, strFromU8 } from 'fflate';
 import {
   formatWorkflowUsd,
@@ -393,6 +394,63 @@ test('task responses and visible results are scoped to the active Key', () => {
   );
   assert.match(page, /<WorkflowResults\s+key=\{activeKey\}/);
   assert.match(page, /<WorkflowTaskQueue\s+key=\{activeKey\}/);
+});
+
+test('result images open a larger preview and videos open a player', () => {
+  const results = read('src/features/platform/WorkflowResults.tsx');
+  const css = read('src/features/platform/platform.css');
+  assert.match(results, /import \{ Modal \} from '\.\.\/\.\.\/components\/Primitives'/);
+  assert.match(results, /aria-label="放大预览图片"/);
+  assert.match(results, /aria-label="播放视频"/);
+  assert.match(results, /className="pfx-result-image"/);
+  assert.match(results, /className="pfx-result-play"/);
+  assert.match(results, /className="pfx-media-image"/);
+  assert.match(results, /className="pfx-media-video"/);
+  assert.match(results, /autoPlay/);
+  assert.match(results, /setPreview\(null\)/);
+  assert.match(css, /\.pfx-media-image img,[\s\S]*max-height: 72vh/);
+});
+
+test('result cards show the submitted prompt, reference images and parameters', () => {
+  const template = {
+    form: {
+      options: [
+        { key: 'size', label: '尺寸', kind: 'select' as const, default: '1024x1024',
+          choices: [{ value: '1024x1024', label: '1024 × 1024' }] },
+        { key: 'quality', label: '质量', kind: 'select' as const, default: 'high' },
+        { key: 'n', label: '数量', kind: 'number' as const, default: 1 },
+      ],
+    },
+  };
+  const parameters = taskParameters(
+    { params: { quality: 'max', n: 2, steps: 28, background: false } },
+    template as unknown as Parameters<typeof taskParameters>[1],
+  );
+  assert.deepEqual(parameters, [
+    { key: 'size', label: '尺寸', value: '1024 × 1024' },
+    { key: 'quality', label: '质量', value: 'max' },
+    { key: 'n', label: '数量', value: '2' },
+    { key: 'steps', label: '步数', value: '28' },
+    { key: 'background', label: '背景', value: '关闭' },
+  ]);
+  const results = read('src/features/platform/WorkflowResults.tsx');
+  const artifacts = read('src/features/platform/useWorkflowArtifacts.ts');
+  const api = read('src/features/platform/api.ts');
+  const css = read('src/features/platform/platform.css');
+  assert.match(api, /params\?: Record<string, string \| number \| boolean>/);
+  assert.match(api, /references\?: string\[\]/);
+  assert.match(api, /downloadWorkflowUpload[\s\S]*uploads\/\$\{id\}/);
+  assert.match(artifacts, /downloadWorkflowUpload\(activeKey, id\)/);
+  assert.match(results, /taskParameters\(task, templates\.find/);
+  assert.match(results, /const prompt = task\.description\?\.trim\(\)/);
+  assert.match(results, /const referenceIds = task\.references \?\? \[\]/);
+  assert.match(results, /提示词/);
+  assert.match(results, /参考图/);
+  assert.match(results, /aria-label=\{`放大参考图 \$\{index \+ 1\}`\}/);
+  assert.match(results, /<dl className="pfx-result-params">/);
+  assert.match(read('src/features/platform/PlatformWorkbench.tsx'),
+    /<WorkflowResults[\s\S]*templates=\{catalog\?\.items \?\? \[\]\}/);
+  assert.match(css, /\.pfx-result-reference img[\s\S]*width: 84px/);
 });
 
 test('result cards can delete the finished task record and its artifacts', () => {
@@ -858,6 +916,72 @@ test('GPT Image editor graphs add an explicit base image and a connected save no
   assert.equal(document.prompt['6'].class_type, 'SaveImage');
   assert.deepEqual(document.prompt['6'].inputs.images, ['1', 0]);
   assert.equal(template.apiGraph?.['1'].inputs.image_1, null);
+});
+
+test('reference sockets expand into explicit LoadImage nodes', () => {
+  const graph = {
+    '1': {
+      class_type: 'CYAPI_MiniMaxH3ImageFast',
+      inputs: {
+        prompt: '',
+        width: 4096,
+        height: 4096,
+        seed: 42,
+        canvas: '自动（用 width/height）',
+        prompt_mode: '原文',
+        image_1: null,
+        image_2: null,
+        image_3: null,
+        count: 1,
+      },
+    },
+  };
+  const template = {
+    ...importWorkflow(JSON.stringify(graph), 'fixture.json'),
+    id: 'minimax-h3-image',
+    kind: 'image' as const,
+    outputs: ['IMAGE'],
+    source: 'server' as const,
+    form: { prompt: { label: '描述', required: true } },
+  };
+  const document = workflowDocument(template) as {
+    prompt: Record<string, { class_type: string; inputs: Record<string, unknown>; _meta?: { title?: string } }>;
+  };
+  const loads = Object.values(document.prompt).filter((node) => node.class_type === 'LoadImage');
+  assert.equal(loads.length, 3);
+  assert.deepEqual(document.prompt['1'].inputs.image_1, ['2', 0]);
+  assert.deepEqual(document.prompt['1'].inputs.image_2, ['3', 0]);
+  assert.deepEqual(document.prompt['1'].inputs.image_3, ['4', 0]);
+  assert.equal(document.prompt['1'].inputs.width, 4096);
+  assert.equal(document.prompt['2']._meta?.title, '参考图 1（可选）');
+  assert.equal(document.prompt['1'].class_type, 'CYAPI_MiniMaxH3ImageFast');
+  assert.equal(template.apiGraph?.['1'].inputs.image_1, null);
+});
+
+test('video templates link a first frame and numbered reference sockets', () => {
+  const graph = {
+    '1': {
+      class_type: 'CYAPI_SelfHosted_Fast',
+      inputs: { prompt: '', first_frame: null, reference_image_1: null, reference_image_2: null },
+    },
+  };
+  const template = {
+    ...importWorkflow(JSON.stringify(graph), 'fixture.json'),
+    id: 'minimax-h3-video',
+    kind: 'video' as const,
+    outputs: ['VIDEO'],
+    source: 'server' as const,
+    form: { prompt: { label: '描述', required: true } },
+  };
+  const document = workflowDocument(template) as {
+    prompt: Record<string, { class_type: string; inputs: Record<string, unknown>; _meta?: { title?: string } }>;
+  };
+  assert.deepEqual(document.prompt['1'].inputs.first_frame, ['2', 0]);
+  assert.deepEqual(document.prompt['1'].inputs.reference_image_1, ['3', 0]);
+  assert.deepEqual(document.prompt['1'].inputs.reference_image_2, ['4', 0]);
+  assert.equal(document.prompt['2']._meta?.title, '首帧（可选）');
+  assert.equal(document.prompt['3']._meta?.title, '参考图 1（可选）');
+  assert.ok(Object.values(document.prompt).some((node) => node.class_type === 'CYAPI_SaveVideo'));
 });
 
 test('every image or video template ends its canvas with the same save node', () => {

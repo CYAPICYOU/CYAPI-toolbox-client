@@ -312,12 +312,17 @@ export interface WorkflowTaskOutput {
 export interface WorkflowTask {
   id: string;
   draftId: string;
+  templateId?: string | null;
   name: string;
   source?: 'editor';
   mode?: string;
   description: string;
   status: WorkflowTaskStatus;
   message?: string;
+  /** Applied form options, exactly as the draft submitted them. */
+  params?: Record<string, string | number | boolean>;
+  /** Reference image upload IDs (`<uuid>.<ext>`), when the server recorded them. */
+  references?: string[];
   outputs: WorkflowTaskOutput[];
   createdAt: number;
   finishedAt?: number;
@@ -453,6 +458,14 @@ export async function uploadWorkflowAsset(key: string, dataUrl: string, kind?: '
     body: { type: match[1], data, ...(kind ? { kind } : {}), ...(preserveAlpha ? { preserveAlpha: true } : {}) },
     timeoutMs: 180_000,
   });
+}
+
+const REFERENCE_UPLOAD = /^[0-9a-f-]{36}\.(?:png|jpg|jpeg|webp)$/;
+
+/** A task's reference images live under the Key-scoped upload routes. */
+export async function downloadWorkflowUpload(key: string, id: string): Promise<string> {
+  if (!REFERENCE_UPLOAD.test(id)) throw new PlatformError('参考图不可用', 400, 'invalid_reference');
+  return downloadWorkflowArtifact(key, `${WORKFLOW_API_PATH}/uploads/${id}`);
 }
 
 /** Private result URLs need the Key; return an object URL for the renderer. */

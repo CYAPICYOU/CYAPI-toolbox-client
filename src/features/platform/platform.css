@@ -228,6 +228,70 @@
   border-radius: 10px;
   background: var(--workspace-tint);
 }
+.pfx-result-image,
+.pfx-result-video {
+  position: relative;
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  cursor: zoom-in;
+  overflow: hidden;
+  line-height: 0;
+}
+.pfx-result-image:focus-visible,
+.pfx-result-video:focus-visible {
+  outline-offset: 2px;
+}
+.pfx-result-zoom {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: #fff;
+  background: rgba(12, 16, 24, 0.62);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.pfx-result-image:hover .pfx-result-zoom,
+.pfx-result-image:focus-visible .pfx-result-zoom {
+  opacity: 1;
+}
+.pfx-result-video {
+  cursor: default;
+}
+.pfx-result-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(12, 16, 24, 0.66);
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.pfx-result-play:hover,
+.pfx-result-play:focus-visible {
+  background: rgba(12, 16, 24, 0.86);
+}
+.pfx-result-play:focus-visible {
+  outline-color: #fff;
+  outline-offset: 2px;
+}
 .pfx-result .pfx-secondary {
   align-self: flex-start;
   text-decoration: none;
@@ -241,6 +305,109 @@
   background: var(--workspace-tint);
   color: var(--muted);
   font-size: 12px;
+}
+.pfx-result-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 10px 0 2px;
+}
+.pfx-result-prompt,
+.pfx-result-references {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pfx-result-prompt > span,
+.pfx-result-references > span,
+.pfx-result-params dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+.pfx-result-prompt p {
+  margin: 0;
+  max-height: 7.5em;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+.pfx-result-reference-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.pfx-result-reference {
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: var(--workspace-tint);
+  overflow: hidden;
+  line-height: 0;
+  cursor: zoom-in;
+}
+.pfx-result-reference img {
+  display: block;
+  width: 84px;
+  height: 84px;
+  max-width: none;
+  border-radius: 0;
+  object-fit: cover;
+}
+.pfx-result-reference-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 84px;
+  height: 84px;
+  padding: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: center;
+  cursor: default;
+}
+.pfx-result-params {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 0;
+}
+.pfx-result-params div {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.pfx-result-params dt {
+  font-weight: 400;
+}
+.pfx-result-params dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.modal-backdrop > .pfx-media-modal {
+  width: min(1100px, 94vw);
+  max-width: 94vw;
+}
+.pfx-media-image,
+.pfx-media-video {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  background: #0c1018;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.pfx-media-image img,
+.pfx-media-video video {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 72vh;
+  object-fit: contain;
+  background: #0c1018;
 }
 @media (max-width: 480px) {
   .pfx-key-dialog-body {
