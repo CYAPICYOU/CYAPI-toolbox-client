@@ -199,6 +199,46 @@
 .n-settings-description {
   margin: 24px 0 20px;
 }
+.n-settings-mcp-connect {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+}
+.n-settings-select {
+  min-height: var(--page-control-height);
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-muted);
+  font-size: 12px;
+}
+.n-settings-mcp-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 18px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.n-settings-mcp-state > svg {
+  flex-shrink: 0;
+  color: var(--green);
+}
+.n-settings-mcp-state code {
+  overflow-wrap: anywhere;
+}
+.n-settings-mcp-state + .n-error-text {
+  margin-top: 8px;
+}
+.n-settings-mcp > .n-offline-note,
+.n-settings-mcp > .n-alert,
+.n-settings-mcp > .n-settings-caption {
+  margin-top: 14px;
+}
 .n-settings-path > span {
   display: block;
   margin-bottom: 8px;

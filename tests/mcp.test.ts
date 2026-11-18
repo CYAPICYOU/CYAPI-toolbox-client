@@ -59,6 +59,20 @@ test('MCP UI hides management internals and keeps read-only entries actionless',
   assert.match(source, /if \(confirmation && !window\.confirm\(confirmation\)\) return;/);
 });
 
+test('settings connects the toolbox server through the shared install action', () => {
+  const settings = readFileSync(new URL('../src/app/AppSettings.tsx', import.meta.url), 'utf8');
+  const connect = readFileSync(new URL('../src/app/McpConnect.tsx', import.meta.url), 'utf8');
+  assert.match(settings, /<McpConnect \/>/);
+  assert.match(connect, /const CYAPI_SERVER = 'cyapi-toolbox'/);
+  assert.match(connect, /'mcp-install'/);
+  // The entry revision comes from the same read the MCP page uses, so a write
+  // still refuses a configuration that changed after the card was rendered.
+  assert.match(connect, /configurationRevision: entry\.revision/);
+  assert.match(connect, /'mcp-catalog-read'/);
+  assert.match(connect, /'mcp-view'/);
+  assert.doesNotMatch(connect, /接管|mcp-remove|mcp-adopt/);
+});
+
 test('flat MCP workspaces stay in sync with the Rust layout', () => {
   // The UI hides the enable/disable toggle for these agents because their
   // configuration has no flag. If the Rust side grows another such agent,

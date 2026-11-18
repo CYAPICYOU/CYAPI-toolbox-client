@@ -26,6 +26,7 @@ import { clearToolboxCache } from '../lib/api/cleanup';
 import { cleanupBytes } from '../lib/cleanup';
 import { nativeAvailable } from '../lib/api/native';
 import { Modal } from '../components/Primitives';
+import { McpConnect } from './McpConnect';
 
 const themes = [
   { value: 'system', label: '跟随系统', description: '随系统自动切换', Icon: Monitor },
@@ -145,6 +146,8 @@ export function AppSettings({
           ))}
         </div>
       </section>
+
+      <McpConnect />
 
       <div className="n-settings-grid">
         <section
