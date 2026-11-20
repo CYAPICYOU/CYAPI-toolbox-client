@@ -803,6 +803,7 @@ export function PlatformWorkbench({
                 visible={visible}
                 busy={busy}
                 onCancel={(task) => void cancelTask(task)}
+                onDelete={(task) => void deleteTask(task)}
                 onResults={() => onViewChange('results')}
               />
             ) : view === 'results' ? (

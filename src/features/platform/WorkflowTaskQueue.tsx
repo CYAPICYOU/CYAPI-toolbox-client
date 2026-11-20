@@ -1,3 +1,4 @@
+import { Trash2 } from 'lucide-react';
 import { type WorkflowTask } from './api';
 import { taskActive, taskStatusLabel } from './taskState';
 import { WorkflowTaskLogs } from './WorkflowTaskLogs';
@@ -8,6 +9,7 @@ export function WorkflowTaskQueue({
   visible,
   busy,
   onCancel,
+  onDelete,
   onResults,
 }: {
   tasks: WorkflowTask[];
@@ -15,6 +17,7 @@ export function WorkflowTaskQueue({
   visible: boolean;
   busy: boolean;
   onCancel: (task: WorkflowTask) => void;
+  onDelete: (task: WorkflowTask) => void;
   onResults: () => void;
 }) {
   if (!tasks.length)
@@ -36,13 +39,18 @@ export function WorkflowTaskQueue({
               查看结果
             </button>
           )}
-          {taskActive(task.status) && task.source !== 'editor' && (
+          {taskActive(task.status) ? (
             <button
               className="pfx-ghost"
-              disabled={busy || task.status === 'submitting'}
+              disabled={busy}
               onClick={() => onCancel(task)}
             >
               取消任务
+            </button>
+          ) : (
+            <button className="pfx-ghost" disabled={busy} onClick={() => onDelete(task)}>
+              <Trash2 size={14} />
+              删除
             </button>
           )}
         </div>
