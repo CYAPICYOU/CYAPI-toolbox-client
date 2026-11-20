@@ -464,6 +464,17 @@ test('result cards can delete the finished task record and its artifacts', () =>
   assert.match(results, /onClick=\{\(\) => onDelete\(task\)\}/);
 });
 
+test('task queue cancels active tasks and deletes stopped ones', () => {
+  const page = read('src/features/platform/PlatformWorkbench.tsx');
+  const queue = read('src/features/platform/WorkflowTaskQueue.tsx');
+  assert.match(page, /onCancel=\{\(task\) => void cancelTask\(task\)\}/);
+  assert.match(page, /onDelete=\{\(task\) => void deleteTask\(task\)\}/);
+  assert.match(page, /cancelWorkflowTask\(activeKey, task\.id\)/);
+  assert.match(queue, /taskActive\(task\.status\)/);
+  assert.match(queue, /取消任务/);
+  assert.match(queue, /onClick=\{\(\) => onDelete\(task\)\}/);
+});
+
 test('workflows ship in standard builds with no research switch', () => {
   const pkg = JSON.parse(read('package.json'));
   assert.ok(pkg.scripts['desktop:exe']);

@@ -40,11 +40,7 @@ export function WorkflowTaskQueue({
             </button>
           )}
           {taskActive(task.status) ? (
-            <button
-              className="pfx-ghost"
-              disabled={busy}
-              onClick={() => onCancel(task)}
-            >
+            <button className="pfx-ghost" disabled={busy} onClick={() => onCancel(task)}>
               取消任务
             </button>
           ) : (
