@@ -14,6 +14,18 @@ const saveMessage = (saved: boolean) =>
       : '已取消保存。'
     : '已发起浏览器下载，请查看浏览器下载列表。';
 
+/** A queued artifact fetch; `id` deduplicates it while queued or in flight. */
+interface DownloadJob {
+  id: string;
+  load: () => Promise<string>;
+  commit: (url: string) => void;
+  fail: (message: string) => void;
+}
+
+// Each artifact is several megabytes. Loading every successful task at once
+// saturates one line, and transfers that slow to a crawl get cut off mid-body.
+const MAX_PARALLEL_DOWNLOADS = 2;
+
 export function useWorkflowArtifacts(activeKey: string, tasks: WorkflowTask[], enabled: boolean) {
   const [artifacts, setArtifacts] = useState<Record<string, string>>({});
   const [artifactErrors, setArtifactErrors] = useState<Record<string, string>>({});
@@ -23,47 +35,72 @@ export function useWorkflowArtifacts(activeKey: string, tasks: WorkflowTask[], e
   const [saveNotice, setSaveNotice] = useState('');
   const [zipTaskId, setZipTaskId] = useState('');
   const pending = useRef(new Set<string>());
-  const referencePending = useRef(new Set<string>());
   const urls = useRef<string[]>([]);
   const generation = useRef(0);
   const zipBusy = useRef(false);
+  const queue = useRef<DownloadJob[]>([]);
+  const activeDownloads = useRef(0);
 
   useEffect(
     () => () => {
       generation.current++;
+      queue.current = [];
+      activeDownloads.current = 0;
       for (const url of urls.current) URL.revokeObjectURL(url);
       urls.current = [];
       pending.current.clear();
-      referencePending.current.clear();
     },
     [],
   );
 
+  function pumpDownloads() {
+    const request = generation.current;
+    while (activeDownloads.current < MAX_PARALLEL_DOWNLOADS && queue.current.length) {
+      const job = queue.current.shift()!;
+      activeDownloads.current += 1;
+      void job
+        .load()
+        .then((url) => {
+          if (request !== generation.current) {
+            URL.revokeObjectURL(url);
+            return;
+          }
+          urls.current.push(url);
+          job.commit(url);
+        })
+        .catch((cause) => {
+          if (request === generation.current) job.fail(errorText(cause));
+        })
+        .finally(() => {
+          // An unmounted generation abandons its slot; the cleanup reset it.
+          if (request !== generation.current) return;
+          pending.current.delete(job.id);
+          activeDownloads.current -= 1;
+          pumpDownloads();
+        });
+    }
+  }
+
+  function enqueueDownload(job: DownloadJob) {
+    if (pending.current.has(job.id)) return;
+    pending.current.add(job.id);
+    queue.current.push(job);
+    pumpDownloads();
+  }
+
   useEffect(() => {
     if (!enabled || !activeKey) return;
-    const request = generation.current;
     for (const task of tasks) {
       if (task.status !== 'succeeded') continue;
       for (const output of task.outputs) {
         const id = output.download;
-        if (artifacts[id] || artifactErrors[id] || pending.current.has(id)) continue;
-        pending.current.add(id);
-        void downloadWorkflowArtifact(activeKey, id)
-          .then((url) => {
-            if (request !== generation.current) {
-              URL.revokeObjectURL(url);
-              return;
-            }
-            urls.current.push(url);
-            setArtifacts((current) => ({ ...current, [id]: url }));
-          })
-          .catch((cause) => {
-            if (request === generation.current)
-              setArtifactErrors((current) => ({ ...current, [id]: errorText(cause) }));
-          })
-          .finally(() => {
-            if (request === generation.current) pending.current.delete(id);
-          });
+        if (artifacts[id] || artifactErrors[id]) continue;
+        enqueueDownload({
+          id,
+          load: () => downloadWorkflowArtifact(activeKey, id),
+          commit: (url) => setArtifacts((current) => ({ ...current, [id]: url })),
+          fail: (message) => setArtifactErrors((current) => ({ ...current, [id]: message })),
+        });
       }
     }
   }, [tasks, enabled, activeKey, artifacts, artifactErrors]);
@@ -72,28 +109,16 @@ export function useWorkflowArtifacts(activeKey: string, tasks: WorkflowTask[], e
   // they are loaded from the Key-scoped upload route the same way.
   useEffect(() => {
     if (!enabled || !activeKey) return;
-    const request = generation.current;
     for (const task of tasks) {
       if (task.status !== 'succeeded') continue;
       for (const id of task.references ?? []) {
-        if (references[id] || referenceErrors[id] || referencePending.current.has(id)) continue;
-        referencePending.current.add(id);
-        void downloadWorkflowUpload(activeKey, id)
-          .then((url) => {
-            if (request !== generation.current) {
-              URL.revokeObjectURL(url);
-              return;
-            }
-            urls.current.push(url);
-            setReferences((current) => ({ ...current, [id]: url }));
-          })
-          .catch((cause) => {
-            if (request === generation.current)
-              setReferenceErrors((current) => ({ ...current, [id]: errorText(cause) }));
-          })
-          .finally(() => {
-            if (request === generation.current) referencePending.current.delete(id);
-          });
+        if (references[id] || referenceErrors[id]) continue;
+        enqueueDownload({
+          id,
+          load: () => downloadWorkflowUpload(activeKey, id),
+          commit: (url) => setReferences((current) => ({ ...current, [id]: url })),
+          fail: (message) => setReferenceErrors((current) => ({ ...current, [id]: message })),
+        });
       }
     }
   }, [tasks, enabled, activeKey, references, referenceErrors]);

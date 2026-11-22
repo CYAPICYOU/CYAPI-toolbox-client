@@ -128,12 +128,39 @@ fn client_for(route: Route, url: &Url, timeout: Duration) -> Result<Client> {
 struct TransportError {
     message: String,
     route_failed: bool,
+    /// The status line arrived but the body broke off (dropped connection,
+    /// truncated transfer, stalled read).  The node answered, yet this route
+    /// cannot be trusted to finish a large download, so it is worth retrying
+    /// on the next one.
+    interrupted: bool,
+}
+
+/// reqwest only renders the outermost kind ("request or response body error");
+/// the useful reason is one or more `source()` links below it.
+fn describe(error: &(dyn std::error::Error + 'static)) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    let mut current = Some(error);
+    while let Some(source) = current {
+        let text = source.to_string();
+        let text = text.trim();
+        if !text.is_empty() && !parts.iter().any(|part| part == text) {
+            parts.push(text.to_string());
+        }
+        current = source.source();
+    }
+    if parts.is_empty() {
+        "未知错误".into()
+    } else {
+        parts.join("：")
+    }
 }
 
 fn transport_error(error: reqwest::Error) -> TransportError {
+    let interrupted = error.is_body() || error.is_decode();
     TransportError {
-        route_failed: error.is_connect() || error.is_request(),
-        message: error.to_string(),
+        route_failed: interrupted || error.is_connect() || error.is_request(),
+        interrupted,
+        message: describe(&error),
     }
 }
 
@@ -159,14 +186,17 @@ fn send_raw(
         .map_err(|_| TransportError {
             message: "API 地址无效".into(),
             route_failed: false,
+            interrupted: false,
         })?;
     let client = client_for(route, &url, timeout).map_err(|message| TransportError {
         message,
         route_failed: false,
+        interrupted: false,
     })?;
     let method = parse_method(&request.method).map_err(|message| TransportError {
         message,
         route_failed: false,
+        interrupted: false,
     })?;
     let mut outgoing = client.request(method, url);
     outgoing = outgoing.header("Accept", "application/json");
@@ -195,6 +225,7 @@ fn send_raw(
         return Err(TransportError {
             message: "API 响应过大".into(),
             route_failed: false,
+            interrupted: false,
         });
     }
     let mut bytes = Vec::new();
@@ -202,13 +233,19 @@ fn send_raw(
         .take(max + 1)
         .read_to_end(&mut bytes)
         .map_err(|error| TransportError {
-            message: error.to_string(),
-            route_failed: false,
+            // A body read only fails once the transfer itself broke: the
+            // connection dropped, the line cut it off, or the read stalled.
+            // The node sent a status line, but it cannot finish the artifact,
+            // so retry on the next route and stop trusting this one.
+            message: describe(&error),
+            route_failed: true,
+            interrupted: true,
         })?;
     if bytes.len() as u64 > max {
         return Err(TransportError {
             message: "API 响应过大".into(),
             route_failed: false,
+            interrupted: false,
         });
     }
     Ok(RawResponse {
@@ -463,7 +500,11 @@ fn attempt_download(
                 ),
             );
             Err(AttemptFailure {
-                message: error.message,
+                message: if error.interrupted {
+                    format!("下载中断（{}）", error.message)
+                } else {
+                    error.message
+                },
                 route_failed: error.route_failed,
                 response: None,
             })
@@ -485,7 +526,6 @@ pub(crate) fn download(
         .unwrap_or(64 * 1024 * 1024)
         .clamp(1024, 256 * 1024 * 1024);
     let budget = Duration::from_millis(request.timeout_ms.unwrap_or(120_000).clamp(1_000, 300_000));
-    let deadline = Instant::now() + budget;
     let http = HttpRequest {
         path: request.path,
         method: "GET".into(),
@@ -514,7 +554,10 @@ pub(crate) fn download(
     } else {
         Route::Cloudflare
     };
-    let first_failure = match attempt_download(&base, first, &http, deadline, max) {
+    // Each attempt gets its own budget. reqwest's blocking timeout is per read,
+    // so a body that broke off after minutes has already spent the first
+    // budget; sharing one deadline would make the retry fail before it starts.
+    let first_failure = match attempt_download(&base, first, &http, Instant::now() + budget, max) {
         Ok(raw) => return finish(raw),
         Err(failure) => failure,
     };
@@ -527,7 +570,17 @@ pub(crate) fn download(
     let second = route_priority::PRIORITY
         .select(Some(first), route_priority::probe)
         .unwrap_or_else(|| first.next());
-    match attempt_download(&base, second, &http, deadline, max) {
+    crate::logging::event(
+        "warn",
+        "network",
+        format!(
+            "{}下载失败，已重新选择{}：{}",
+            first.label(),
+            second.label(),
+            first_failure.message
+        ),
+    );
+    match attempt_download(&base, second, &http, Instant::now() + budget, max) {
         Ok(raw) => finish(raw),
         Err(second_failure) => {
             if second_failure.route_failed {
@@ -570,6 +623,34 @@ mod tests {
         }
         assert!(parse_method("OPTIONS").is_err());
         assert!(parse_method("POST").is_ok());
+    }
+
+    #[test]
+    fn transport_messages_keep_the_underlying_cause() {
+        #[derive(Debug)]
+        struct Cause;
+        impl std::fmt::Display for Cause {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("connection closed before message completed")
+            }
+        }
+        impl std::error::Error for Cause {}
+        #[derive(Debug)]
+        struct Body(Cause);
+        impl std::fmt::Display for Body {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("request or response body error")
+            }
+        }
+        impl std::error::Error for Body {
+            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+                Some(&self.0)
+            }
+        }
+        assert_eq!(
+            describe(&Body(Cause)),
+            "request or response body error：connection closed before message completed"
+        );
     }
 
     #[test]
