@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { nativeAvailable } from '../../lib/api/native';
-import { downloadWorkflowArtifact, downloadWorkflowUpload, type WorkflowTask, type WorkflowTaskOutput } from './api';
+import {
+  downloadWorkflowArtifact,
+  downloadWorkflowUpload,
+  type WorkflowTask,
+  type WorkflowTaskOutput,
+} from './api';
 import { imagePixelHash, saveArtifact, taskArtifactsZip } from './artifactDisplay';
 import { errorText } from './taskState';
 
@@ -194,7 +199,9 @@ export function useWorkflowArtifacts(activeKey: string, tasks: WorkflowTask[], e
       if (request === generation.current) setSaveNotice(saveMessage(saved));
     } catch (cause) {
       if (request === generation.current)
-        setSaveNotice(`打包失败，未生成 ZIP：${errorText(cause)}。请重试或单个下载。`);
+        setSaveNotice(
+          `${zipUrl ? '保存 ZIP 失败' : '打包失败，未生成 ZIP'}：${errorText(cause)}。请重试或单个下载。`,
+        );
     } finally {
       if (zipUrl) URL.revokeObjectURL(zipUrl);
       zipBusy.current = false;

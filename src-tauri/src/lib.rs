@@ -1,5 +1,7 @@
 mod agent_logs;
 mod alma_config;
+#[cfg(target_os = "macos")]
+mod artifact_save;
 mod blender_runtime;
 mod blender_service;
 mod cancel;
@@ -44,6 +46,8 @@ mod usage;
 
 pub mod tunnel;
 
+#[cfg(target_os = "macos")]
+use artifact_save::artifact_save_dialog;
 use models::Request;
 use service::Service;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -169,25 +173,54 @@ async fn cyapi_download(
 }
 
 #[tauri::command]
-async fn save_workflow_artifact(window: tauri::WebviewWindow, filename: String, base64: String) -> Result<bool, String> {
+async fn save_workflow_artifact(
+    window: tauri::WebviewWindow,
+    filename: String,
+    base64: String,
+) -> Result<bool, String> {
     use base64::Engine;
-    #[cfg(target_os = "windows")]
-    let owner = window.hwnd().map_err(|_| "无法获取主窗口")?.0 as isize;
-    #[cfg(not(target_os = "windows"))]
-    let owner = { let _ = window; 0isize };
-    if base64.len() > 45 * 1024 * 1024 { return Err("产物超过保存大小限制".into()); }
-    let filename = std::path::Path::new(&filename).file_name().and_then(|s| s.to_str())
-        .filter(|s| !s.is_empty()).unwrap_or("workflow-result").to_owned();
-    tauri::async_runtime::spawn_blocking(move || {
-        let bytes = base64::engine::general_purpose::STANDARD.decode(base64).map_err(|_| "产物数据无效")?;
-        let Some(path) = artifact_save_dialog(&filename, owner)? else { return Ok(false); };
-        std::fs::write(path, bytes).map_err(|e| format!("保存失败：{e}"))?;
-        Ok(true)
-    }).await.map_err(|e| format!("保存操作失败：{e}"))?
+    if base64.len() > 45 * 1024 * 1024 {
+        return Err("产物超过保存大小限制".into());
+    }
+    let filename = std::path::Path::new(&filename)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("workflow-result")
+        .to_owned();
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
+        base64::engine::general_purpose::STANDARD.decode(base64)
+    })
+    .await
+    .map_err(|e| format!("保存操作失败：{e}"))?
+    .map_err(|_| "产物数据无效")?;
+
+    let Some(path) = artifact_save_dialog(&window, filename).await? else {
+        return Ok(false);
+    };
+    tauri::async_runtime::spawn_blocking(move || std::fs::write(path, bytes))
+        .await
+        .map_err(|e| format!("保存操作失败：{e}"))?
+        .map_err(|e| format!("无法写入文件：{e}"))?;
+    Ok(true)
 }
 
 #[cfg(target_os = "windows")]
-fn artifact_save_dialog(filename: &str, owner: isize) -> Result<Option<std::path::PathBuf>, String> {
+async fn artifact_save_dialog(
+    window: &tauri::WebviewWindow,
+    filename: String,
+) -> Result<Option<std::path::PathBuf>, String> {
+    let owner = window.hwnd().map_err(|_| "无法获取主窗口")?.0 as isize;
+    tauri::async_runtime::spawn_blocking(move || windows_artifact_save_dialog(&filename, owner))
+        .await
+        .map_err(|e| format!("保存操作失败：{e}"))?
+}
+
+#[cfg(target_os = "windows")]
+fn windows_artifact_save_dialog(
+    filename: &str,
+    owner: isize,
+) -> Result<Option<std::path::PathBuf>, String> {
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
     use windows_sys::Win32::UI::Controls::Dialogs::{CommDlgExtendedError, GetSaveFileNameW, OPENFILENAMEW, OFN_EXPLORER, OFN_OVERWRITEPROMPT, OFN_PATHMUSTEXIST};
     let mut buffer = vec![0u16; 32768];
@@ -207,8 +240,11 @@ fn artifact_save_dialog(filename: &str, owner: isize) -> Result<Option<std::path
     Ok(Some(std::path::PathBuf::from(std::ffi::OsString::from_wide(&buffer[..end]))))
 }
 
-#[cfg(not(target_os = "windows"))]
-fn artifact_save_dialog(_filename: &str, _owner: isize) -> Result<Option<std::path::PathBuf>, String> {
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+async fn artifact_save_dialog(
+    _window: &tauri::WebviewWindow,
+    _filename: String,
+) -> Result<Option<std::path::PathBuf>, String> {
     Err("当前系统暂不支持保存产物".into())
 }
 
