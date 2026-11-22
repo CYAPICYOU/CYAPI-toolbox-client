@@ -54,7 +54,7 @@ export function WorkflowResults({
   activeKey: string;
   visible: boolean;
   busy: boolean;
-  onContinue?: (output: WorkflowTask['outputs'][number]) => void;
+  onContinue?: (output: WorkflowTask['outputs'][number], task: WorkflowTask, url: string) => void;
   onDelete: (task: WorkflowTask) => void;
 }) {
   const {
@@ -278,7 +278,7 @@ export function WorkflowResults({
                       <button
                         type="button"
                         className="pfx-secondary"
-                        onClick={() => onContinue(output)}
+                        onClick={() => onContinue(output, task, url)}
                       >
                         继续修改
                       </button>

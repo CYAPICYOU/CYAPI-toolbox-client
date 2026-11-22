@@ -47,6 +47,7 @@ import {
 } from './draftStore';
 import {
   importWorkflow,
+  isGptImageEditTemplate,
   loadPersonalWorkflows,
   savePersonalWorkflows,
   workflowDocument,
@@ -128,6 +129,7 @@ export function PlatformWorkbench({
   );
   const editorStarting = editorLaunchPending(editorLaunch);
   const importFile = useRef<HTMLInputElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const activeKey = keys.keys.find((entry) => entry.id === keys.activeId)?.key ?? '';
   const {
     tasks,
@@ -197,6 +199,12 @@ export function PlatformWorkbench({
     // public catalog.
     setError('');
   }, [view]);
+
+  // Opening a workflow from a scrolled results list must land on its heading,
+  // and an error raised from deep in the list must be visible.
+  useEffect(() => {
+    if (editor?.id || error) bodyRef.current?.scrollTo?.({ top: 0 });
+  }, [editor?.id, error]);
 
   function persistDrafts(next: WorkflowDraftState) {
     try {
@@ -403,7 +411,7 @@ export function PlatformWorkbench({
           : [];
       const references: string[] = [];
       let mask: string | null = null, markup: string | null = null;
-      if (template.id === 'gpt-image-25-edit') {
+      if (isGptImageEditTemplate(template.id)) {
         const overlayKind = item.maskData ? 'mask' : item.markupData ? 'markup' : null;
         const layer = overlayKind ? (overlayKind === 'mask' ? item.maskBlob : item.markupBlob)
           ?? await fetch((overlayKind === 'mask' ? item.maskData : item.markupData)!).then(response => response.blob()) : undefined;
@@ -525,21 +533,35 @@ export function PlatformWorkbench({
       await loadTasks();
     });
   }
-  async function continueImage(output: WorkflowTask['outputs'][number]) {
+  async function continueImage(
+    output: WorkflowTask['outputs'][number],
+    task: WorkflowTask,
+    artifactUrl?: string,
+  ) {
     const key = activeKey;
-    const template = catalog?.items.find((item) => item.id === 'gpt-image-25-edit');
+    const items = catalog?.items ?? [];
+    // Reuse the task's own edit template (async stays async) and fall back to the
+    // current hosted edit template, whatever release the catalog publishes.
+    const template =
+      items.find((item) => item.id === task.templateId && isGptImageEditTemplate(item.id)) ??
+      items.find((item) => isGptImageEditTemplate(item.id));
     if (!template) {
-      setError('GPT Image 2.5 改图模板当前不可用，请先启用 OpenAI Images Provider。');
+      setError('改图模板当前不可用，请先启用 OpenAI Images Provider。');
       return;
     }
     if (!requireKey()) return;
     await run(async () => {
-      const objectUrl = await downloadWorkflowArtifact(key, output.download);
+      // The results page already holds a blob URL for this image; reuse it and
+      // only hit the network when no loaded copy was passed in.
+      const sourceUrl = artifactUrl ?? (await downloadWorkflowArtifact(key, output.download));
       try {
-        const blob = await fetch(objectUrl).then((response) => response.blob());
+        const blob = await fetch(sourceUrl).then((response) => {
+          if (!response.ok) throw new Error('无法读取产物');
+          return response.blob();
+        });
+        if (taskIdentity.current !== key) return;
         const data = URL.createObjectURL(blob);
         const name = output.title || '上一轮生成结果.png';
-        if (taskIdentity.current !== key) { URL.revokeObjectURL(data); return; }
         setEditor({
           id: crypto.randomUUID(),
           kind: template.kind,
@@ -556,7 +578,7 @@ export function PlatformWorkbench({
         });
         setEditorTab('inputs');
       } finally {
-        URL.revokeObjectURL(objectUrl);
+        if (!artifactUrl) URL.revokeObjectURL(sourceUrl);
       }
     });
   }
@@ -665,7 +687,7 @@ export function PlatformWorkbench({
           </button>
         </div>
       </header>
-      <div className="pfx-body">
+      <div className="pfx-body" ref={bodyRef}>
         {error && (
           <div className="pfx-alert" role="alert">
             <AlertCircle size={16} />
@@ -843,7 +865,7 @@ export function PlatformWorkbench({
                 activeKey={activeKey}
                 visible={visible}
                 busy={busy}
-                onContinue={(output) => void continueImage(output)}
+                onContinue={(output, task, url) => void continueImage(output, task, url)}
                 onDelete={(task) => void deleteTask(task)}
               />
             ) : null}

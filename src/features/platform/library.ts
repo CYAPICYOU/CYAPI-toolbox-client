@@ -30,6 +30,14 @@ export interface WorkflowTemplate {
   examples?: WorkflowExample[];
 }
 
+// The hosted GPT Image templates are versioned (2.5 → 2.6 …). Match the
+// capability, not a release number, so a catalog update never silently disables
+// the edit or continue flows.
+const GPT_IMAGE_TEMPLATE_ID = /^gpt-image-[0-9.]+-(?:async-)?(?:generate|edit)$/;
+const GPT_IMAGE_EDIT_TEMPLATE_ID = /^gpt-image-[0-9.]+-(?:async-)?edit$/;
+export const isGptImageTemplate = (id?: string | null) => GPT_IMAGE_TEMPLATE_ID.test(id ?? '');
+export const isGptImageEditTemplate = (id?: string | null) => GPT_IMAGE_EDIT_TEMPLATE_ID.test(id ?? '');
+
 export interface WorkflowExample {
   title: string;
   description?: string;
@@ -203,7 +211,7 @@ export function workflowDocument(template: WorkflowTemplate, prompt = '') {
     if (entry) {
       const [id, node] = entry;
       let next = Math.max(0, ...Object.keys(graph).map(key => Number(key) || 0)) + 1;
-      if (template.id === 'gpt-image-25-edit' && !Array.isArray(node.inputs.image_1)) {
+      if (isGptImageEditTemplate(template.id) && !Array.isArray(node.inputs.image_1)) {
         const load = String(next++);
         graph[load] = { class_type: 'LoadImage', inputs: { image: '' }, _meta: { title: '基准图 / 上一轮结果（请选择图片）' } };
         node.inputs.image_1 = [load, 0];
@@ -218,7 +226,7 @@ export function workflowDocument(template: WorkflowTemplate, prompt = '') {
       // explicit LoadImage nodes. Without them the editor opens on a single
       // generator node, which reads as an unfinished workflow even though the
       // node itself accepts eight references.
-      if (template.id !== 'gpt-image-25-edit') {
+      if (!isGptImageEditTemplate(template.id)) {
         const reference = /^(?:first_frame|last_frame|image_\d+|reference_image_\d+)$/;
         for (const [name, value] of Object.entries(node.inputs)) {
           if (!reference.test(name) || (value !== null && value !== undefined)) continue;

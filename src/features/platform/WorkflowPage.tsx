@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import type { LocalWorkflowDraft } from './draftStore';
 import type { WorkflowTemplate } from './library';
-import { workflowDocument } from './library';
+import { isGptImageEditTemplate, isGptImageTemplate, workflowDocument } from './library';
 import { WorkflowIcon } from './WorkflowLibrary';
 import { getWorkflowPriceCatalog } from './api';
 import { formatWorkflowUsd, workflowHasImagePricing, workflowHasVideoPricing, workflowReferencePrice } from './workflowPrice';
@@ -121,7 +121,7 @@ export function WorkflowPage({
     const candidates = file.multiple ? Array.from(selectedFiles ?? [selected]) : [selected];
     const existing = file.multiple ? (latest.current.files?.length ? latest.current.files : latest.current.fileData ? [{ name: latest.current.fileName, data: latest.current.fileData }] : []) : [];
     if (existing.length + candidates.length > (file.maxFiles ?? 16)) { setFileError(`最多选择 ${file.maxFiles ?? 16} 张图片。`); return; }
-    if (template.id === 'gpt-image-25-edit') {
+    if (isGptImageEditTemplate(template.id)) {
       if (candidates.some(item => item.size > IMAGE_INPUT_LIMIT)) { setFileError('单张图片不能超过 60 MiB，且不能超过 2500 万像素。'); return; }
       if (candidates.some(item => item.size > REFERENCE_LIMIT) && !window.confirm('部分图片超过上游限制，将在本机自动压缩。透明图片会保留透明通道；处理结果会在页面预览。是否继续？')) return;
       setPreparing(true);
@@ -179,7 +179,7 @@ export function WorkflowPage({
     if (kind === 'mask' ? latest.current.markupData : latest.current.maskData) { setFileError('蒙版与标注层不能同时使用，请先移除另一项。'); return; }
     const requestRef = kind === 'mask' ? maskRequest : markupRequest;
     const request = ++requestRef.current;
-    if (template.id === 'gpt-image-25-edit') {
+    if (isGptImageEditTemplate(template.id)) {
       if (!latest.current.fileData) { setFileError('请先选择基准图。'); return; }
       if (selected.type !== 'image/png' || selected.size > IMAGE_INPUT_LIMIT) { setFileError('标注层必须是 60 MiB 以内的透明 PNG。'); return; }
       if (selected.size > OVERLAY_LIMIT && !window.confirm('标注层超过上游限制，将在本机无损压缩；如需缩放会另行确认。是否继续？')) return;
@@ -304,7 +304,7 @@ export function WorkflowPage({
               <div className="pfx-panel-heading">
                 <h2>准备创作内容</h2>
                 <p>填写文字或添加素材，无需操作节点。</p>
-                {template.id === 'gpt-image-25-edit' && <p>继续修改：在结果页选择“继续修改”，或把上一轮结果作为第一张基准图上传。绘制蒙版和标注层二选一。</p>}
+                {isGptImageEditTemplate(template.id) && <p>继续修改：在结果页选择“继续修改”，或把上一轮结果作为第一张基准图上传。绘制蒙版和标注层二选一。</p>}
               </div>
               {file && (
                 <div className="pfx-field">
@@ -381,7 +381,7 @@ export function WorkflowPage({
                         {file.accept.startsWith('audio/')
                           ? '支持音频文件'
                           : '支持 JPG、PNG、WebP 等图片'}{' '}
-                         {template.id === 'gpt-image-25-edit' ? ' · 单张最大 60 MiB，2500 万像素；超限将本机压缩' : ' · 最大 2 MB'}
+                         {isGptImageEditTemplate(template.id) ? ' · 单张最大 60 MiB，2500 万像素；超限将本机压缩' : ' · 最大 2 MB'}
                       </small>
                     </button>
                   )}
@@ -446,7 +446,7 @@ export function WorkflowPage({
                         <label htmlFor={`workflow-option-${option.key}`}>
                           {option.label}
                         </label>
-                        {option.key === 'background' && template.id.startsWith('gpt-image-25-') ? (
+                        {option.key === 'background' && isGptImageTemplate(template.id) ? (
                           <label className="pfx-toggle" htmlFor={`workflow-option-${option.key}`}><input id={`workflow-option-${option.key}`} type="checkbox" checked={current === 'transparent'} onChange={event => update(event.target.checked ? 'transparent' : 'auto')} /><span>透明背景（PNG）：{current === 'transparent' ? '开启' : '关闭'}</span></label>
                         ) : option.kind === 'select' ? (
                           <select
@@ -531,7 +531,7 @@ export function WorkflowPage({
               <div className="pfx-panel-heading">
                 <h2>工作流如何运行</h2>
                 <p>查看处理步骤，需要调整节点时再进入 ComfyUI。</p>
-                {template.id === 'gpt-image-25-edit' && <p>在 ComfyUI 中请选择基准图；可选蒙版的 MASK 输出接到 mask，或将透明标注图的合并输出接到 markup，二者不要同时连接。保存图片节点已连接。</p>}
+                {isGptImageEditTemplate(template.id) && <p>在 ComfyUI 中请选择基准图；可选蒙版的 MASK 输出接到 mask，或将透明标注图的合并输出接到 markup，二者不要同时连接。保存图片节点已连接。</p>}
               </div>
               <ol className="pfx-flow-steps">
                 {template.steps.map((step, index) => (
@@ -647,8 +647,8 @@ export function WorkflowPage({
           )}
         </aside>
       </div>
-      {paint && draft.fileData && <ImageAnnotationEditor key={`${draft.id}-${paint}`} image={draft.fileData} kind={paint} outputSize={template.id === 'gpt-image-25-edit' ? undefined : overlayDimensions} maxBytes={template.id === 'gpt-image-25-edit' ? undefined : 2 * 1024 * 1024} onCancel={() => setPaint(null)} onSave={data => {
-        if (template.id === 'gpt-image-25-edit') {
+      {paint && draft.fileData && <ImageAnnotationEditor key={`${draft.id}-${paint}`} image={draft.fileData} kind={paint} outputSize={isGptImageEditTemplate(template.id) ? undefined : overlayDimensions} maxBytes={isGptImageEditTemplate(template.id) ? undefined : 2 * 1024 * 1024} onCancel={() => setPaint(null)} onSave={data => {
+        if (isGptImageEditTemplate(template.id)) {
           const kind = paint;
           setPaint(null);
           void fetch(data).then(response => response.blob()).then(blob => chooseOverlay(kind, new File([blob], kind === 'mask' ? '绘制的蒙版.png' : '绘制的标注层.png', { type: 'image/png' })));

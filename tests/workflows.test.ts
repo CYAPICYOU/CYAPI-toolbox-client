@@ -53,6 +53,8 @@ import { overlayDimensions } from '../src/features/platform/overlayDimensions.ts
 import { createImagePreparation, REFERENCE_LIMIT, OVERLAY_LIMIT } from '../src/features/platform/imagePreparation.ts';
 import {
   importWorkflow,
+  isGptImageEditTemplate,
+  isGptImageTemplate,
   loadPersonalWorkflows,
   savePersonalWorkflows,
   workflowDocument,
@@ -996,6 +998,36 @@ test('GPT Image editor graphs add an explicit base image and a connected save no
   assert.equal(document.prompt['6'].class_type, 'SaveImage');
   assert.deepEqual(document.prompt['6'].inputs.images, ['1', 0]);
   assert.equal(template.apiGraph?.['1'].inputs.image_1, null);
+});
+
+test('GPT Image matching follows the capability across catalog versions', () => {
+  for (const id of ['gpt-image-25-edit', 'gpt-image-26-edit', 'gpt-image-2.6-edit', 'gpt-image-26-async-edit'])
+    assert.equal(isGptImageEditTemplate(id), true, id);
+  for (const id of ['gpt-image-26-generate', 'gpt-image-26-async-generate', 'wan27-image', undefined])
+    assert.equal(isGptImageEditTemplate(id), false, String(id));
+  for (const id of ['gpt-image-25-generate', 'gpt-image-26-edit', 'gpt-image-26-async-generate', 'gpt-image-27-edit', 'gpt-image-2.7-edit'])
+    assert.equal(isGptImageTemplate(id), true, id);
+  for (const id of ['gpt-image-async-edit', 'wan27-image', '', undefined])
+    assert.equal(isGptImageTemplate(id), false, String(id));
+
+  // A renamed catalog release must still expand the editable base image.
+  const base = importWorkflow(JSON.stringify({ '1': { class_type: 'CYAPI_GPTImage26Edit', inputs: { prompt: '', image_1: null } } }), 'fixture.json');
+  const template = { ...base, id: 'gpt-image-26-edit', kind: 'image' as const, outputs: ['IMAGE'], source: 'server' as const, form: { prompt: { label: '提示', required: true } } };
+  const document = workflowDocument(template) as { prompt: Record<string, { class_type: string }> };
+  assert.equal(document.prompt['2'].class_type, 'LoadImage');
+  assert.equal(document.prompt['5'].class_type, 'CYAPI_MarkupFromImage');
+  assert.equal(document.prompt['6'].class_type, 'SaveImage');
+
+  // Continue editing resolves the edit template from the catalog or the task.
+  const page = read('src/features/platform/PlatformWorkbench.tsx');
+  assert.doesNotMatch(page, /gpt-image-25/);
+  assert.match(page, /item\.id === task\.templateId && isGptImageEditTemplate\(item\.id\)/);
+  assert.match(page, /onContinue=\{\(output, task, url\) => void continueImage\(output, task, url\)\}/);
+  const results = read('src/features/platform/WorkflowResults.tsx');
+  assert.match(results, /onClick=\{\(\) => onContinue\(output, task, url\)\}/);
+  assert.match(read('src/features/platform/WorkflowPage.tsx'), /isGptImageEditTemplate\(template\.id\)/);
+  assert.doesNotMatch(read('src/features/platform/WorkflowPage.tsx'), /gpt-image-25/);
+  assert.doesNotMatch(read('src/features/platform/library.ts'), /gpt-image-25/);
 });
 
 test('reference sockets expand into explicit LoadImage nodes', () => {
