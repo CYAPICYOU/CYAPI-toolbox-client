@@ -13,7 +13,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["unstable"] }
+# `macos-proxy` enables the per-webview proxy that carries a route override
+# into the editor window on macOS 14+.
+tauri = { version = "2", features = ["unstable", "macos-proxy"] }
 tokio = { version = "1", features = ["net", "time", "io-util", "rt", "sync"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 serde = { version = "1", features = ["derive"] }

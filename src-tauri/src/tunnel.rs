@@ -1,20 +1,25 @@
-//! Local CONNECT proxy that carries the platform traffic through Beijing.
+//! Local CONNECT proxy that carries the platform traffic through a fixed node.
 //!
-//! The mainland address of the Beijing host filters TLS handshakes whose SNI is
-//! `*.cyapi.cyou`, and it filters plain HTTP requests carrying the same Host
-//! header, so the domain cannot appear on the client-to-Beijing hop at all.
+//! Two nodes are reached this way:
 //!
-//! The tunnel therefore nests the real TLS connection inside a second TLS
-//! connection that is opened to the Beijing *IP address*.  No SNI is sent for
-//! the outer layer, nginx on the Beijing host terminates only that outer layer
-//! and forwards the inner bytes untouched to the Hong Kong origin, and the
-//! Hong Kong origin answers with the genuine `api.cyapi.cyou` certificate.
-//! The client keeps talking to `https://api.cyapi.cyou`; only the local socket
-//! is redirected here.
+//! - The mainland address of the Beijing host filters TLS handshakes whose SNI
+//!   is `*.cyapi.cyou`, and it filters plain HTTP requests carrying the same
+//!   Host header, so the domain cannot appear on the client-to-Beijing hop at
+//!   all.  The tunnel therefore nests the real TLS connection inside a second
+//!   TLS connection that is opened to the Beijing *IP address*.  No SNI is sent
+//!   for the outer layer, nginx on the Beijing host terminates only that outer
+//!   layer and forwards the inner bytes untouched to the Hong Kong origin, and
+//!   the Hong Kong origin answers with the genuine `api.cyapi.cyou` certificate.
+//!   The client keeps talking to `https://api.cyapi.cyou`; only the local socket
+//!   is redirected here.
+//! - The Hong Kong origin is reached by dialling its address directly.  The
+//!   client still keeps the official hostname, Host header, SNI, cookies and
+//!   certificate check; only the socket destination changes.
 //!
-//! This is a loopback-only HTTP CONNECT proxy.  Requests for `*.cyapi.cyou`
-//! are tunnelled; everything else is connected directly so a browser webview
-//! that has this proxy configured still loads ordinary resources normally.
+//! Both are loopback-only HTTP CONNECT proxies.  Requests for `*.cyapi.cyou`
+//! are carried by the configured node; everything else is connected directly
+//! so a webview that has this proxy configured still loads ordinary resources
+//! normally.
 
 use std::{
     io,
@@ -35,31 +40,98 @@ use tokio::{
 use tokio_rustls::TlsConnector;
 
 const BEIJING_IP: Ipv4Addr = Ipv4Addr::new(101, 201, 221, 190);
+const HONG_KONG_IP: Ipv4Addr = Ipv4Addr::new(149, 104, 31, 54);
 const TUNNEL_PORT: u16 = 443;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_HEADER: usize = 16 * 1024;
 
-static PORT: OnceLock<u16> = OnceLock::new();
+static BEIJING_PORT: OnceLock<u16> = OnceLock::new();
+static HONG_KONG_PORT: OnceLock<u16> = OnceLock::new();
 static TLS_CONFIG: OnceLock<Arc<ClientConfig>> = OnceLock::new();
+
+#[derive(Clone, Copy)]
+enum Line {
+    Beijing,
+    HongKong,
+}
+
+impl Line {
+    /// Anonymous, user-facing name. The log never says which line is which.
+    fn label(self) -> &'static str {
+        match self {
+            Self::Beijing => "线路一",
+            Self::HongKong => "线路二",
+        }
+    }
+
+    fn thread_name(self) -> &'static str {
+        match self {
+            Self::Beijing => "cyapi-line-1",
+            Self::HongKong => "cyapi-line-2",
+        }
+    }
+}
+
+fn proxy_url_for(port: u16) -> String {
+    format!("http://127.0.0.1:{port}")
+}
 
 /// `http://127.0.0.1:<port>` for reqwest/WebView2, once the tunnel is running.
 pub fn proxy_url() -> Option<String> {
-    PORT.get().map(|port| format!("http://127.0.0.1:{port}"))
+    BEIJING_PORT.get().copied().map(proxy_url_for)
 }
 
-/// Start the loopback proxy once; later calls return the same port.
+/// Local CONNECT proxy for one direct editor line. The public hostname needs
+/// none, so an unknown name returns `None`.
+pub fn line_proxy_url(line: &str) -> Option<String> {
+    let (slot, kind) = match line {
+        "beijing" => (&BEIJING_PORT, Line::Beijing),
+        "hongkong" => (&HONG_KONG_PORT, Line::HongKong),
+        _ => return None,
+    };
+    slot.get()
+        .copied()
+        .map(proxy_url_for)
+        .or_else(|| start_forwarder(slot, kind).ok().map(proxy_url_for))
+}
+
+/// WKWebView applies a per-webview proxy through Network.framework only from
+/// macOS 14 onwards. Older releases cannot carry a route override at all, so
+/// the caller keeps the public hostname instead of leaving the proxy unset.
+#[cfg(target_os = "macos")]
+pub fn editor_proxy_supported() -> bool {
+    std::process::Command::new("/usr/bin/sw_vers")
+        .arg("-productVersion")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .and_then(|text| text.trim().split('.').next()?.parse::<u16>().ok())
+        .is_some_and(|major| major >= 14)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn editor_proxy_supported() -> bool {
+    false
+}
+
+/// Start the Beijing loopback proxy once; later calls return the same port.
 pub fn start() -> io::Result<u16> {
-    if let Some(port) = PORT.get() {
+    start_forwarder(&BEIJING_PORT, Line::Beijing)
+}
+
+fn start_forwarder(slot: &'static OnceLock<u16>, line: Line) -> io::Result<u16> {
+    if let Some(port) = slot.get() {
         return Ok(*port);
     }
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
     listener.set_nonblocking(true)?;
     let port = listener.local_addr()?.port();
-    if PORT.set(port).is_err() {
-        return Ok(*PORT.get().expect("tunnel port"));
+    if slot.set(port).is_err() {
+        return Ok(*slot.get().expect("proxy port"));
     }
     std::thread::Builder::new()
-        .name("cyapi-tunnel".into())
+        .name(line.thread_name().into())
         .spawn(move || {
             let runtime = match tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -70,7 +142,7 @@ pub fn start() -> io::Result<u16> {
                     crate::logging::event(
                         "error",
                         "network",
-                        format!("线路一隧道线程启动失败：{error}"),
+                        format!("{}代理线程启动失败：{error}", line.label()),
                     );
                     return;
                 }
@@ -82,7 +154,7 @@ pub fn start() -> io::Result<u16> {
                         crate::logging::event(
                             "error",
                             "network",
-                            format!("线路一隧道监听失败：{error}"),
+                            format!("{}代理监听失败：{error}", line.label()),
                         );
                         return;
                     }
@@ -91,14 +163,14 @@ pub fn start() -> io::Result<u16> {
                     match listener.accept().await {
                         Ok((socket, _)) => {
                             tokio::spawn(async move {
-                                let _ = serve(socket).await;
+                                let _ = serve(socket, line).await;
                             });
                         }
                         Err(error) => {
                             crate::logging::event(
                                 "warn",
                                 "network",
-                                format!("线路一隧道接受连接失败：{error}"),
+                                format!("{}代理接受连接失败：{error}", line.label()),
                             );
                             tokio::time::sleep(Duration::from_millis(200)).await;
                         }
@@ -124,7 +196,7 @@ fn tls_config() -> Arc<ClientConfig> {
         .clone()
 }
 
-async fn serve(mut client: TcpStream) -> io::Result<()> {
+async fn serve(mut client: TcpStream, line: Line) -> io::Result<()> {
     let _ = client.set_nodelay(true);
     let mut buffer = Vec::with_capacity(1024);
     let mut chunk = [0u8; 1024];
@@ -162,6 +234,22 @@ async fn serve(mut client: TcpStream) -> io::Result<()> {
     if !is_cyapi_host(host) {
         return forward_direct(client, host, port, leftover).await;
     }
+    match line {
+        Line::Beijing => forward_tunnel(client, leftover).await,
+        Line::HongKong => {
+            connect_forward(
+                client,
+                SocketAddr::new(IpAddr::V4(HONG_KONG_IP), port),
+                leftover,
+            )
+            .await
+        }
+    }
+}
+
+/// The Beijing entry filters the official hostname, so the socket is opened
+/// through a second TLS layer that carries the real connection untouched.
+async fn forward_tunnel(mut client: TcpStream, leftover: Vec<u8>) -> io::Result<()> {
     let address = SocketAddr::new(IpAddr::V4(BEIJING_IP), TUNNEL_PORT);
     let tcp = match tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(address)).await {
         Ok(Ok(stream)) => stream,
@@ -221,12 +309,20 @@ async fn serve(mut client: TcpStream) -> io::Result<()> {
 }
 
 async fn forward_direct(
-    mut client: TcpStream,
+    client: TcpStream,
     host: &str,
     port: u16,
     leftover: Vec<u8>,
 ) -> io::Result<()> {
-    let connect = tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect((host, port))).await;
+    connect_forward(client, (host, port), leftover).await
+}
+
+async fn connect_forward(
+    mut client: TcpStream,
+    target: impl tokio::net::ToSocketAddrs + Send,
+    leftover: Vec<u8>,
+) -> io::Result<()> {
+    let connect = tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(target)).await;
     let mut upstream = match connect {
         Ok(Ok(stream)) => stream,
         _ => {

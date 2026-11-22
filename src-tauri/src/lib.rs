@@ -56,6 +56,18 @@ fn editor_route_state() -> &'static Mutex<Option<String>> {
     EDITOR_ROUTE.get_or_init(|| Mutex::new(None))
 }
 
+/// A stable WKWebsiteDataStore identifier per editor line. The store carries
+/// the webview's proxy configuration, so sharing it with the main window or
+/// another line would leak that route beyond the editor.
+#[cfg(target_os = "macos")]
+fn editor_route_store_id(route: &str) -> [u8; 16] {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(format!("cyapi-editor-{route}").as_bytes());
+    let mut id = [0u8; 16];
+    id.copy_from_slice(&digest[..16]);
+    id
+}
+
 /// Only the packaged (or dev-server) main WebView can call native commands.
 fn trusted_caller(view: &tauri::Webview) -> bool {
     view.label() == "main" && view.url().is_ok_and(|url| local_app_url(&url))
@@ -212,11 +224,28 @@ async fn open_workflow_editor(
     use tauri::Manager;
     let parsed = tauri::Url::parse(&url).map_err(|_| "编辑器地址无效".to_string())?;
     let route = route.unwrap_or_else(|| "cloudflare".into());
+    if !matches!(route.as_str(), "beijing" | "hongkong" | "cloudflare") {
+        return Err("编辑器线路无效".into());
+    }
+    // A route override must stay inside the editor window. Windows passes it
+    // through WebView2 arguments; macOS 14+ applies a per-webview proxy. Other
+    // platforms support neither, so they keep the public hostname instead of
+    // failing a launch that can still work through the CDN.
+    #[cfg(not(target_os = "windows"))]
+    let route = if route != "cloudflare" && !tunnel::editor_proxy_supported() {
+        logging::event(
+            "warn",
+            "network",
+            "当前系统不支持为编辑器覆盖线路，已使用公共线路打开",
+        );
+        "cloudflare".to_string()
+    } else {
+        route
+    };
     let route_ip = match route.as_str() {
         "beijing" => Some("101.201.221.190"),
         "hongkong" => Some("149.104.31.54"),
-        "cloudflare" => None,
-        _ => return Err("编辑器线路无效".into()),
+        _ => None,
     };
     let scheme = parsed.scheme();
     if scheme != "http" && scheme != "https" {
@@ -232,10 +261,6 @@ async fn open_workflow_editor(
     }
     if route_ip.is_some() && loopback {
         return Err("本地编辑器不能使用公网线路覆盖".into());
-    }
-    #[cfg(not(target_os = "windows"))]
-    if route_ip.is_some() {
-        return Err("当前平台不支持为编辑器设置安全的域名线路覆盖".into());
     }
 
     const LABEL: &str = "workflow-editor";
@@ -253,8 +278,9 @@ async fn open_workflow_editor(
             let _ = window.set_focus();
             return Ok(());
         }
-        // WebView2's resolver rules are fixed when the environment is built;
-        // recreate the child if a failed API route selects another origin.
+        // The route is baked into the window environment (WebView2 arguments
+        // or the WKWebView proxy), so a failed API route that selects another
+        // origin has to rebuild the child window.
         let _ = window.close();
         if let Ok(mut value) = editor_route_state().lock() {
             *value = None;
@@ -297,6 +323,20 @@ async fn open_workflow_editor(
             builder = builder.additional_browser_args(&args);
         }
         builder = builder.data_directory(data_directory);
+    }
+    #[cfg(target_os = "macos")]
+    if route_ip.is_some() {
+        // WKWebView cannot rewrite DNS answers, but macOS 14+ applies a proxy
+        // per webview. The loopback proxy keeps `api.cyapi.cyou` as the
+        // hostname, Host header and TLS SNI while the socket goes to the
+        // selected node. A dedicated data store per line keeps the proxy
+        // configuration away from the main window and the other lines.
+        let proxy = tunnel::line_proxy_url(&route)
+            .and_then(|url| tauri::Url::parse(&url).ok())
+            .ok_or_else(|| "无法建立编辑器线路".to_string())?;
+        builder = builder
+            .data_store_identifier(editor_route_store_id(&route))
+            .proxy_url(proxy);
     }
     builder
         .title("CYAPI 工作流")
