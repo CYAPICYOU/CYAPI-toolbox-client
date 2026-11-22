@@ -49,6 +49,33 @@
   max-width: 100%;
   min-width: 0;
 }
+.modal.confirm-dialog {
+  --confirm-padding: clamp(16px, 5vw, 24px);
+  width: 420px;
+  border-radius: 14px;
+  color: var(--t-293c32, #293c32);
+}
+.confirm-dialog > .modal-header {
+  min-height: 0;
+  padding: 14px var(--confirm-padding);
+  border-bottom: 0;
+}
+.confirm-dialog .modal-header h2 {
+  font-size: 16px;
+  line-height: 1.45;
+  color: inherit;
+}
+.confirm-dialog-body {
+  padding: 0 var(--confirm-padding) 20px;
+}
+.confirm-dialog > .n-dialog-footer {
+  padding: 14px var(--confirm-padding);
+}
+.confirm-dialog .n-button {
+  min-width: 76px;
+  min-height: 40px;
+  font-size: 13px;
+}
 @media (max-width: 600px), (max-height: 500px) {
   div.modal-backdrop {
     padding: 12px;

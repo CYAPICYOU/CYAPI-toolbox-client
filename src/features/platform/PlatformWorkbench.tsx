@@ -30,10 +30,11 @@ import {
   PlatformError,
   removeUnsubmittedWorkflowDraft,
   removeWorkflowUpload,
+  type WorkflowQuote,
   type WorkflowTask,
 } from './api';
 import { addKey, loadKeys, maskKey, saveKeys, type StoredKeyState } from './keyStore';
-import { Modal } from '../../components/Primitives';
+import { ConfirmDialog, Modal } from '../../components/Primitives';
 import {
   loadDraftState,
   saveDraftState,
@@ -56,7 +57,7 @@ import { WorkflowLibrary } from './WorkflowLibrary';
 import { WorkflowPage } from './WorkflowPage';
 import { createEditorLauncher, editorLaunchPending, type EditorLaunchState } from './editorLaunch';
 import type { EditorLaunchNoticeState } from './EditorLaunchNotice';
-import { logWorkflowLaunch } from '../../lib/api/diagnostics';
+import { logFrontendEvent, logWorkflowLaunch } from '../../lib/api/diagnostics';
 import { useWorkflowTasks } from './useWorkflowTasks';
 import { WorkflowTaskQueue } from './WorkflowTaskQueue';
 import { WorkflowResults } from './WorkflowResults';
@@ -89,6 +90,11 @@ export function PlatformWorkbench({
   const [keys, setKeys] = useState<StoredKeyState>(() => loadKeys());
   const [draft, setDraft] = useState('');
   const [keyDialog, setKeyDialog] = useState(false);
+  const [submitConfirm, setSubmitConfirm] = useState<{
+    quote: WorkflowQuote;
+    direct: boolean;
+    resolve: (confirmed: boolean) => void;
+  } | null>(null);
   const [keyNotice, setKeyNotice] = useState('');
   const [keyError, setKeyError] = useState('');
   const [category, setCategory] = useState('all');
@@ -178,6 +184,10 @@ export function PlatformWorkbench({
   }, [visible, catalogRetry]);
 
   useEffect(() => {
+    if (submitConfirm) {
+      setSubmitConfirm(null);
+      submitConfirm.resolve(false);
+    }
     setEditor(null);
     setCreating(false);
     setDraftError('');
@@ -340,22 +350,41 @@ export function PlatformWorkbench({
       onViewChange('drafts');
     } else if (blobDraftId) void deleteBlobDraft(blobDraftId).catch(() => {});
   }
+  function confirmSubmit(quote: WorkflowQuote, direct: boolean) {
+    return new Promise<boolean>((resolve) => setSubmitConfirm({ quote, direct, resolve }));
+  }
+  function dismissSubmitConfirm(confirmed: boolean) {
+    const entry = submitConfirm;
+    if (!entry) return;
+    setSubmitConfirm(null);
+    entry.resolve(confirmed);
+  }
   async function submitRun() {
     const item = editor;
-    if (!item?.template || submitting) return;
+    logFrontendEvent('info', 'workflow-submit', `click: template=${item?.template?.id ?? 'none'} source=${item?.template?.source ?? '-'} hasPrompt=${Boolean(item?.prompt)} hasFile=${Boolean(item?.fileData)} submitting=${submitting}`);
+    if (!item?.template || submitting) {
+      logFrontendEvent('warn', 'workflow-submit', `early return: hasTemplate=${Boolean(item?.template)} submitting=${submitting}`);
+      return;
+    }
     const template = item.template;
     const validation = validateDraft(item);
     if (validation) {
+      logFrontendEvent('warn', 'workflow-submit', `validation: ${validation || 'ok'}`);
       setDraftError(validation);
       return;
     }
-    if (!requireKey()) return;
+    if (!requireKey()) {
+      logFrontendEvent('warn', 'workflow-submit', 'early return: requireKey failed');
+      return;
+    }
     if (template.source === 'personal') {
+      logFrontendEvent('warn', 'workflow-submit', 'early return: personal workflow');
       setDraftError('个人工作流暂不支持从此处直接运行，请打开 ComfyUI 编辑器运行。');
       return;
     }
     setSubmitting(true);
     setDraftError('');
+    logFrontendEvent('info', 'workflow-submit', 'submitting started');
     let createdDraftId: string | undefined;
     let submitted = false;
     const uploadedIds: string[] = [];
@@ -364,6 +393,7 @@ export function PlatformWorkbench({
       // template, fill the prompt, quote, then submit the full graph to ComfyUI.
       const draft = await createWorkflowDraft(activeKey, template.id);
       createdDraftId = draft.id;
+      logFrontendEvent('info', 'workflow-submit', `draft created: ${draft.id}`);
       const localFiles = item.files?.length
         ? item.files
         : item.fileData
@@ -432,32 +462,27 @@ export function PlatformWorkbench({
         markup,
         params: item.params ?? {},
       });
+      logFrontendEvent('info', 'workflow-submit', `draft saved: revision=${saved.revision}`);
       const direct = template.transport === 'bridge';
       const quote = direct
         ? await quoteBridgeDraft(activeKey, draft.id)
         : await quoteWorkflowDraft(activeKey, draft.id);
-      const priceDetails = direct
-        ? formatImagePriceDetails(quote.bridgeQuote?.priceDetails) || formatVideoPriceDetails(quote.bridgeQuote?.priceDetails)
-        : quote.items.map((item) => {
-            const detail = formatImagePriceDetails(item.priceDetails) || formatVideoPriceDetails(item.priceDetails);
-            return detail ? `${item.title ?? item.classType}：${detail}` : '';
-          }).filter(Boolean).join('\n');
+      logFrontendEvent('info', 'workflow-submit', `quote ready: amount=${quote.amount} mode=${quote.mode}`);
       if (taskIdentity.current !== activeKey) throw new Error('Key 已更换，请重新操作');
-      if (
-        !window.confirm(
-          direct
-            ? `将由 CYAPI Bridge 直接调用真实 AI。\nAI 节点预估费用：${formatWorkflowUsd(quote.amount)}${priceDetails ? `\n${priceDetails}` : ''}\n节点实际费用受确认报价上限约束。是否继续？`
-            : `将由 Worker ComfyUI 执行完整工作流。\nAI 节点预估费用：${formatWorkflowUsd(quote.amount)}\n工作流执行费：${formatWorkflowUsd(quote.runFee ?? 0)}${priceDetails ? `\n${priceDetails}` : ''}\n节点实际费用受确认报价上限约束。是否继续？`,
-        )
-      )
-        return;
+      const confirmed = await confirmSubmit(quote, direct);
+      logFrontendEvent('info', 'workflow-submit', `price confirm result: ${confirmed}`);
+      if (!confirmed) return;
+      if (taskIdentity.current !== activeKey) throw new Error('Key 已更换，请重新操作');
       try {
         // Once submission is attempted its outcome may be unknown; never
         // delete the draft or inputs until the original task is reconciled.
         submitted = true;
-        if (direct) await runBridgeDraft(activeKey, draft.id, saved.revision, quote);
-        else await runWorkflowDraft(activeKey, draft.id, saved.revision, quote);
+        const task = direct
+          ? await runBridgeDraft(activeKey, draft.id, saved.revision, quote)
+          : await runWorkflowDraft(activeKey, draft.id, saved.revision, quote);
+        logFrontendEvent('info', 'workflow-submit', `run accepted: task=${task?.id ?? 'none'}`);
       } catch (cause) {
+        logFrontendEvent('error', 'workflow-submit', `run request failed: ${errorText(cause)}`);
         throw new Error(
           `${errorText(cause)}。提交状态可能未知，请先检查任务列表和工作区队列，勿重复运行以免重复扣费。`,
         );
@@ -471,6 +496,7 @@ export function PlatformWorkbench({
       onViewChange('queue');
       await loadTasks();
     } catch (cause) {
+      logFrontendEvent('error', 'workflow-submit', `submit error: ${errorText(cause)} identityChanged=${taskIdentity.current !== activeKey}`);
       if (taskIdentity.current === activeKey) setDraftError(errorText(cause));
     } finally {
       if (!submitted && createdDraftId) {
@@ -839,6 +865,14 @@ export function PlatformWorkbench({
           if (file) void runImport(file);
         }}
       />
+      {submitConfirm && (
+        <WorkflowSubmitDialog
+          quote={submitConfirm.quote}
+          direct={submitConfirm.direct}
+          onCancel={() => dismissSubmitConfirm(false)}
+          onConfirm={() => dismissSubmitConfirm(true)}
+        />
+      )}
       {keyDialog && (
         <Modal
           title="Key 管理"
@@ -944,5 +978,52 @@ export function PlatformWorkbench({
         </Modal>
       )}
     </section>
+  );
+}
+
+function WorkflowSubmitDialog({
+  quote,
+  direct,
+  onCancel,
+  onConfirm,
+}: {
+  quote: WorkflowQuote;
+  direct: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const runFee = direct ? 0 : (quote.runFee ?? 0);
+  const formatDetail = (value: unknown) =>
+    formatImagePriceDetails(value) || formatVideoPriceDetails(value);
+  const details = direct
+    ? [formatDetail(quote.bridgeQuote?.priceDetails)].filter(Boolean)
+    : quote.items.flatMap((item) => {
+        const detail = formatDetail(item.priceDetails);
+        return detail ? [`${item.title ?? item.classType}：${detail}`] : [];
+      });
+  return (
+    <ConfirmDialog
+      title="即将发起调用请求"
+      description={
+        <p className="pfx-submit-estimate">
+          <span>费用预估</span>
+          <strong>{formatWorkflowUsd(quote.amount + runFee)}</strong>
+        </p>
+      }
+      confirmLabel="确认调用"
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+    >
+      {(runFee > 0 || details.length > 0) && (
+        <details className="pfx-submit-details">
+          <summary>费用明细</summary>
+          {runFee > 0 && <p>工作流执行费：{formatWorkflowUsd(runFee)}</p>}
+          {runFee > 0 && quote.amount > 0 && <p>AI 节点费用：{formatWorkflowUsd(quote.amount)}</p>}
+          {details.map((detail, index) => (
+            <p key={index}>{detail}</p>
+          ))}
+        </details>
+      )}
+    </ConfirmDialog>
   );
 }

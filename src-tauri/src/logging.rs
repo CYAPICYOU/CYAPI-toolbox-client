@@ -368,6 +368,18 @@ pub fn log_frontend_error(message: String) {
     }
 }
 
+/// Record frontend diagnostics into the bounded local log store. Messages are
+/// short, redacted strings; this path carries no requests or responses.
+#[tauri::command]
+pub fn log_frontend_event(level: String, source: String, message: String) {
+    let level = match level.as_str() {
+        "warn" => "warn",
+        "error" => "error",
+        _ => "info",
+    };
+    event(level, &source, message);
+}
+
 /// Record fixed workflow lifecycle messages in the existing bounded, redacted
 /// local log store. Remote editor windows still have no IPC capability.
 #[tauri::command]

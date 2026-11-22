@@ -96,6 +96,39 @@
   }
 }
 
+.pfx-submit-estimate {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 12px 14px;
+  color: var(--workspace-tint-ink);
+  background: var(--workspace-tint);
+  border: 1px solid var(--workspace-tint-border);
+  border-radius: 8px;
+  line-height: 1.4;
+}
+.pfx-submit-estimate strong {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.pfx-submit-details {
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.pfx-submit-details summary {
+  width: fit-content;
+  color: var(--workspace-accent);
+  cursor: pointer;
+}
+.pfx-submit-details p {
+  margin: 6px 0 0;
+}
+
 /* Workflow library */
 .pfx-key-manager span {
   padding-left: 8px;

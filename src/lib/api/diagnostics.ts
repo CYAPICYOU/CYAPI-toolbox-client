@@ -66,6 +66,10 @@ export async function diagnosticCall<T>(
 export function logsSnapshot(afterId?: string): Promise<LogSnapshot> {
   return invoke<LogSnapshot>('logs_snapshot', { afterId });
 }
+/** Diagnostics only: short frontend messages recorded in the local toolbox log store. */
+export function logFrontendEvent(level: 'info' | 'warn' | 'error', source: string, message: string) {
+  void invoke('log_frontend_event', { level, source, message }).catch(() => {});
+}
 export function openLogs(operationId?: string) {
   window.dispatchEvent(new CustomEvent('toolbox-open-logs', { detail: { operationId } }));
 }

@@ -222,13 +222,16 @@ test('workflow reference prices accept only the matching verified USD catalog va
   assert.equal(formatWorkflowUsd(0), '$0 USD');
 });
 
-test('workflow execution uses the complete Worker pipeline and asks for confirmation', () => {
+test('both workflow execution paths wait for the shared fee confirmation', () => {
   const api = read('src/features/platform/api.ts');
   const page = read('src/features/platform/PlatformWorkbench.tsx');
+  const dialog = read('src/components/Primitives.tsx');
   assert.match(api, /\/pipeline-quote/);
   assert.match(api, /\/pipeline-run/);
-  assert.match(page, /将由 Worker ComfyUI/);
-  assert.match(page, /CYAPI Bridge 直接调用真实 AI/);
+  assert.match(page, /await confirmSubmit\(quote, direct\)[\s\S]*?if \(!confirmed\) return;[\s\S]*?await runBridgeDraft[\s\S]*?await runWorkflowDraft/);
+  assert.match(page, /<ConfirmDialog\s+title="即将发起调用请求"/);
+  assert.match(page, /费用预估/);
+  assert.match(dialog, /className="n-dialog-footer"\s*>\s*<button[^>]+onClick=\{onCancel\}/);
   assert.match(page, /提交状态可能未知/);
   assert.match(page, /个人工作流暂不支持/);
   assert.match(api, /\/uploads\/base64/);

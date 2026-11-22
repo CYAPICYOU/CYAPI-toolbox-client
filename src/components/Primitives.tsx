@@ -102,6 +102,45 @@ export function Modal({
   );
 }
 
+export function ConfirmDialog({
+  title,
+  description,
+  children,
+  confirmLabel,
+  onConfirm,
+  onCancel,
+}: {
+  title: ReactNode;
+  description: ReactNode;
+  children?: ReactNode;
+  confirmLabel: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const descriptionId = useId();
+  return (
+    <Modal
+      title={title}
+      onClose={onCancel}
+      className="confirm-dialog"
+      descriptionId={descriptionId}
+    >
+      <div className="confirm-dialog-body">
+        <div id={descriptionId}>{description}</div>
+        {children}
+      </div>
+      <div className="n-dialog-footer">
+        <button type="button" className="n-button" onClick={onCancel}>
+          取消
+        </button>
+        <button type="button" className="n-button n-primary" onClick={onConfirm}>
+          {confirmLabel}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 export function RestartPrompt({
   target,
   onClose,

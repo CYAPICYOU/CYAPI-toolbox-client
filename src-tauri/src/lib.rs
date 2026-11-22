@@ -705,6 +705,7 @@ pub fn run() {
             usage::usage_stats,
             logging::logs_snapshot,
             logging::log_frontend_error,
+            logging::log_frontend_event,
             logging::log_workflow_launch,
             diagnostics::diagnostics,
             codex_logs::codex_logs,

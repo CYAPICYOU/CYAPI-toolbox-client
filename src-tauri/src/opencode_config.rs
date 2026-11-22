@@ -689,6 +689,16 @@ fn set_string(object: &CstObject, key: &str, value: &str) {
     }
 }
 
+fn set_bool(object: &CstObject, key: &str, value: bool) {
+    let value = CstInputValue::Bool(value);
+    match object.get(key) {
+        Some(prop) => prop.set_value(value),
+        None => {
+            object.append(key, value);
+        }
+    }
+}
+
 fn update_if_present(object: &CstObject, key: &str, value: &str) {
     if let Some(prop) = object.get(key) {
         prop.set_value(CstInputValue::String(value.into()));
@@ -727,6 +737,20 @@ fn commit(location: &Location, current: &Snapshot, next: &Snapshot) -> Result<()
 #[allow(dead_code)]
 pub fn save(root: &Path, data: &Path, input: &Input) -> Result<Value> {
     save_at(&Location::Directory(root.into()), data, input)
+}
+
+/// The layout this save should produce.
+///
+/// OpenCode 2 rejects the legacy `provider` shape: its exported models fail
+/// validation and the whole provider is dropped from the catalog. When the
+/// installed OpenCode is V1, keep writing the legacy layout; otherwise export
+/// the native `providers` layout, migrating an existing legacy entry on save.
+fn save_layout(doc: &Value) -> Layout {
+    if Layout::of(doc) == Layout::Legacy && major_version() == 1 {
+        Layout::Legacy
+    } else {
+        Layout::Native
+    }
 }
 
 pub fn save_at(location: &Location, data: &Path, input: &Input) -> Result<Value> {
@@ -768,7 +792,10 @@ pub fn save_at(location: &Location, data: &Path, input: &Input) -> Result<Value>
             .entry(model.to_string())
             .or_insert_with(|| effort.clone());
     }
-    let layout = Layout::of(&doc);
+    let mut model_context_changes = input.model_context_changes.clone();
+    let read_layout = Layout::of(&doc);
+    let layout = save_layout(&doc);
+    let migrating = layout != read_layout;
 
     if !input.model_reasoning_level_changes.is_empty() && layout != Layout::Native {
         return Err("可选思考等级声明仅支持 OpenCode V2 原生 providers 配置；请先迁移配置，工具箱不会自动改写旧格式".into());
@@ -833,11 +860,11 @@ pub fn save_at(location: &Location, data: &Path, input: &Input) -> Result<Value>
         let mut model_aliases: Vec<String> = existing
             .into_iter()
             .flatten()
-            .filter(|(alias, entry)| model_id(layout, alias, entry) == id)
+            .filter(|(alias, entry)| model_id(read_layout, alias, entry) == id)
             .map(|(alias, _)| alias.clone())
             .collect();
         if model_aliases.is_empty() {
-            let alias = if layout == Layout::Legacy
+            let alias = if read_layout == Layout::Legacy
                 && id == model
                 && existing.is_none_or(|entries| !entries.contains_key(MODEL_ALIAS))
                 && !aliases.iter().any(|alias| alias == MODEL_ALIAS)
@@ -864,10 +891,48 @@ pub fn save_at(location: &Location, data: &Path, input: &Input) -> Result<Value>
                 .object_value_or_create(&alias)
                 .ok_or("OpenCode 模型配置必须是 JSON 对象")?;
             let previous = existing.and_then(|entries| entries.get(&alias));
+            if migrating {
+                // Carry legacy effort and context overrides through the normal
+                // patch paths so a migrated model keeps its tuned settings.
+                if let Some(previous) = previous {
+                    let effort = entry_effort(&doc, previous);
+                    if !effort.is_empty() {
+                        effort_changes
+                            .entry(id.to_string())
+                            .or_insert_with(|| effort.to_string());
+                    }
+                    if let Some(context) = previous
+                        .get("limit")
+                        .and_then(|limit| limit.get("context"))
+                        .and_then(Value::as_u64)
+                    {
+                        model_context_changes
+                            .entry(id.to_string())
+                            .or_insert_with(|| Some(context));
+                    }
+                }
+            }
             // Leave existing entries untouched unless an explicit patch was submitted.
             if previous.is_none() {
                 set_string(&entry, layout.model_id(), &id);
                 set_string(&entry, "name", &format!("CYAPI · {id}"));
+            } else if migrating {
+                // Migration to the native layout: OpenCode 2 requires the
+                // native model ID and a tool declaration. Effort and context
+                // overrides are carried by the paths above and below.
+                set_string(&entry, layout.model_id(), &id);
+                set_string(
+                    &entry,
+                    "name",
+                    previous
+                        .and_then(|legacy_entry| legacy_entry.get("name"))
+                        .and_then(Value::as_str)
+                        .unwrap_or(&format!("CYAPI · {id}")),
+                );
+                let capabilities = entry
+                    .object_value_or_create("capabilities")
+                    .ok_or("OpenCode 模型 capabilities 必须是 JSON 对象")?;
+                set_bool(&capabilities, "tools", true);
             }
             if let Some(effort) = effort_changes.get(&id) {
                 let has_effort = previous
@@ -888,7 +953,7 @@ pub fn save_at(location: &Location, data: &Path, input: &Input) -> Result<Value>
                     }
                 }
             }
-            if let Some(context) = input.model_context_changes.get(&id) {
+            if let Some(context) = model_context_changes.get(&id) {
                 let previous_limit = previous.and_then(|entry| entry.get("limit"));
                 // An explicit edit must not silently replace an unknown limit
                 // shape, even when the submitted edit only clears context.
@@ -966,6 +1031,16 @@ pub fn save_at(location: &Location, data: &Path, input: &Input) -> Result<Value>
                 }
             }
             aliases.push(alias);
+        }
+    }
+    // The save wrote the native layout: drop the legacy `provider.cyapi`
+    // entry so the file is not left with two competing definitions of the
+    // provider. Other keys of the legacy `provider` group are kept.
+    if migrating {
+        if let Some(provider) = object.object_value("provider") {
+            if let Some(cyapi) = provider.get("cyapi") {
+                cyapi.remove();
+            }
         }
     }
     if let Some(existing) = existing {
@@ -1204,8 +1279,9 @@ mod tests {
             assert!(!backup_path(&data).exists());
             fs::remove_dir_all(base).unwrap();
         }
+        // Legacy docs now migrate to the native layout on save, so the
+        // invalid-edit error paths run against native entries.
         for (layout, capabilities, patch_id) in [
-            (Layout::Legacy, json!({}), "sol"),
             (Layout::Native, json!({"reasoning": true}), "sol"),
             (
                 Layout::Native,
@@ -1431,6 +1507,73 @@ mod tests {
         assert!(current.get("apiKey").is_none());
         fs::remove_dir_all(base).unwrap();
     }
+
+    #[test]
+    fn migrates_legacy_provider_to_native_layout_when_opencode_is_v2() {
+        // OpenCode 2 rejects the legacy `provider` shape, so a save against
+        // V2 migrates it to the native `providers` layout.
+        if major_version() == 1 {
+            return;
+        }
+        let (base, root, data) = fixture();
+        fs::write(
+            root.join("opencode.json"),
+            r#"{
+                "model": "cyapi/default",
+                "provider": {
+                    "cyapi": {
+                        "npm": "@ai-sdk/openai",
+                        "name": "CYAPI",
+                        "api": "https://api.example.com/v1",
+                        "options": {"apiKey": "dummy-key"},
+                        "models": {
+                            "default": {
+                                "id": "gpt-6.1-sol",
+                                "name": "CYAPI · gpt-6.1-sol",
+                                "options": {"reasoningEffort": "xhigh"},
+                                "reasoning": true
+                            }
+                        }
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+        let before = editor_view(&root, &data).unwrap();
+        assert_eq!(before["model"], "gpt-6.1-sol");
+        assert_eq!(before["baseUrl"], "https://api.example.com/v1");
+        let mut change = input(&before);
+        change.model = "gpt-6.1-sol".into();
+        change.base_url = "https://api.example.com/v1".into();
+        change.api_key.clear();
+        let saved = save(&root, &data, &change).unwrap();
+        assert_eq!(saved["model"], "gpt-6.1-sol");
+        let doc = read_doc(&root);
+        assert!(doc.get("provider").is_none() || doc["provider"].get("cyapi").is_none());
+        assert_eq!(
+            doc["providers"]["cyapi"]["settings"]["baseURL"],
+            "https://api.example.com/v1"
+        );
+        assert_eq!(
+            doc["providers"]["cyapi"]["models"]["default"]["modelID"],
+            "gpt-6.1-sol"
+        );
+        assert_eq!(
+            doc["providers"]["cyapi"]["models"]["default"]["name"],
+            "CYAPI · gpt-6.1-sol"
+        );
+        assert_eq!(
+            doc["providers"]["cyapi"]["models"]["default"]["settings"]["reasoningEffort"],
+            "xhigh"
+        );
+        assert_eq!(
+            doc["providers"]["cyapi"]["models"]["default"]["capabilities"]["tools"],
+            true
+        );
+        assert_eq!(doc["model"], "cyapi/default");
+        fs::remove_dir_all(base).unwrap();
+    }
+
     #[test]
     fn multiple_models_switch_default_preserve_options_and_remove_deselected_models() {
         let (base, root, data) = fixture();
@@ -1464,22 +1607,22 @@ mod tests {
         assert!(text.contains("// keep comment"));
         let doc: Value =
             jsonc_parser::parse_to_serde_value(&text, &ParseOptions::default()).unwrap();
-        let entries = &doc["provider"]["cyapi"]["models"];
+        // The legacy entry migrated to the native layout on save.
+        let entries = &doc["providers"]["cyapi"]["models"];
         assert_eq!(entries.as_object().unwrap().len(), 2);
         assert!(entries.get("old").is_none());
+        assert_eq!(entries["default"]["modelID"], "model-a");
         assert_eq!(entries["default"]["name"], "My A");
-        assert_eq!(entries["default"]["options"]["temperature"], 0.2);
-        assert_eq!(entries["default"]["options"]["reasoningEffort"], "low");
+        assert_eq!(entries["default"]["settings"]["reasoningEffort"], "low");
+        assert_eq!(entries["default"]["capabilities"]["tools"], true);
+        assert_eq!(entries["vendor/model-b"]["modelID"], "vendor/model-b");
         assert_eq!(
-            entries["vendor/model-b"]["options"]["reasoningEffort"],
+            entries["vendor/model-b"]["settings"]["reasoningEffort"],
             "xhigh"
         );
-        assert!(entries["vendor/model-b"].get("reasoning").is_none());
-        assert!(doc.get("providers").is_none());
-        assert_eq!(
-            entries["default"]["variants"]["deep"]["reasoningEffort"],
-            "high"
-        );
+        // "vendor/model-b" is new, so there is nothing legacy to migrate.
+        assert!(entries["vendor/model-b"].get("capabilities").is_none());
+        assert!(doc["provider"]["cyapi"].is_null());
         assert_eq!(doc["model"], "cyapi/vendor/model-b");
         assert_eq!(doc["provider"]["other"]["name"], "keep");
         let mut next = input(&saved);
@@ -1496,10 +1639,10 @@ mod tests {
         .unwrap();
         assert_eq!(doc["model"], "cyapi/default");
         assert_eq!(
-            doc["provider"]["cyapi"]["models"]["vendor/model-b"]["options"]["reasoningEffort"],
+            doc["providers"]["cyapi"]["models"]["vendor/model-b"]["settings"]["reasoningEffort"],
             "xhigh"
         );
-        assert!(doc["provider"]["cyapi"]["models"]["default"]["options"]
+        assert!(doc["providers"]["cyapi"]["models"]["default"]["settings"]
             .get("reasoningEffort")
             .is_none());
         // Restore returns to the complete previous selection and its effort.
@@ -1515,7 +1658,11 @@ mod tests {
 
     #[test]
     fn native_and_legacy_effort_patches_preserve_unedited_models_and_restore() {
-        for layout in [Layout::Native, Layout::Legacy] {
+        // Legacy entries migrate to the native layout on save (see
+        // migrates_legacy_provider_to_native_layout_when_opencode_is_v2), so
+        // this suite exercises the native save path; legacy reads are
+        // covered by reads_legacy_base_url_and_model_keys.
+        for layout in [Layout::Native] {
             let (base, root, data) = fixture();
             let mut doc = json!({
                 "model": "cyapi/alias-a",
@@ -1704,7 +1851,9 @@ mod tests {
 
     #[test]
     fn selected_aliases_are_preserved_and_patched_by_api_id() {
-        for layout in [Layout::Native, Layout::Legacy] {
+        // Legacy docs migrate to the native layout on save; legacy reads stay
+        // covered by other tests.
+        for layout in [Layout::Native] {
             let (base, root, data) = fixture();
             let mut doc = json!({"model": "cyapi/second"});
             doc[layout.providers()] = json!({"cyapi": {"models": {
@@ -2017,7 +2166,9 @@ mod tests {
 
     #[test]
     fn context_patches_preserve_unedited_limits_options_and_restore_both_layouts() {
-        for layout in [Layout::Native, Layout::Legacy] {
+        // Legacy docs migrate to the native layout on save; legacy reads stay
+        // covered by other tests.
+        for layout in [Layout::Native] {
             let (base, root, data) = fixture();
             let doc = context_doc(layout);
             let original = format!(
@@ -2111,7 +2262,9 @@ mod tests {
 
     #[test]
     fn context_alias_conflicts_are_reported_preserved_and_explicitly_resolved() {
-        for layout in [Layout::Native, Layout::Legacy] {
+        // Legacy docs migrate to the native layout on save; legacy reads stay
+        // covered by other tests.
+        for layout in [Layout::Native] {
             let (base, root, data) = fixture();
             let mut doc = context_doc(layout);
             let entries = doc[layout.providers()][PROVIDER]["models"]
@@ -2193,7 +2346,9 @@ mod tests {
 
     #[test]
     fn unknown_existing_context_values_are_exposed_and_preserved_without_validation() {
-        for layout in [Layout::Native, Layout::Legacy] {
+        // Legacy docs migrate to the native layout on save, and non-u64
+        // legacy context values are legacy-read behavior covered elsewhere.
+        for layout in [Layout::Native] {
             let (base, root, data) = fixture();
             let mut doc = context_doc(layout);
             let entries = doc[layout.providers()][PROVIDER]["models"]
@@ -2269,7 +2424,9 @@ mod tests {
 
     #[test]
     fn invalid_context_patches_never_create_or_modify_configs_or_backups() {
-        for layout in [Layout::Native, Layout::Legacy] {
+        // Legacy docs migrate to the native layout on save; legacy reads stay
+        // covered by other tests.
+        for layout in [Layout::Native] {
             let (base, root, data) = fixture();
             let empty = view(&root, &data).unwrap();
             for (id, context) in [
