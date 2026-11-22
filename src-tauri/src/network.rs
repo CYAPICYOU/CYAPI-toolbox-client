@@ -9,11 +9,10 @@
 //! The node itself is chosen once (see `service::route_priority`) and every
 //! request reuses it, so a request normally costs exactly one connection.
 
-use reqwest::{blocking::Client, redirect::Policy, Method, Url};
+use reqwest::{redirect::Policy, Client, Method, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
-    io::Read,
     net::SocketAddr,
     time::{Duration, Instant},
 };
@@ -24,6 +23,8 @@ use crate::service::{
 };
 
 const MAX_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
+const DOWNLOAD_IDLE_TIMEOUT: Duration = Duration::from_secs(20);
+const EDITOR_TOKEN_PATH: &str = "/workflow/platform/api/workspace/editor-token";
 
 type Result<T> = std::result::Result<T, String>;
 
@@ -99,11 +100,19 @@ fn parse_method(method: &str) -> Result<Method> {
     Method::from_bytes(method.as_bytes()).map_err(|_| "API 请求方法无效".into())
 }
 
-fn client_for(route: Route, url: &Url, timeout: Duration) -> Result<Client> {
+fn client_for(
+    route: Route,
+    url: &Url,
+    timeout: Duration,
+    idle_timeout: Option<Duration>,
+) -> Result<Client> {
     let mut builder = Client::builder()
         .timeout(timeout)
         .connect_timeout(Duration::from_secs(5).min(timeout))
         .redirect(Policy::none());
+    if let Some(idle_timeout) = idle_timeout {
+        builder = builder.read_timeout(idle_timeout.min(timeout));
+    }
     if let Some(proxy) = route.proxy() {
         // Beijing is only reachable through the local tunnel proxy; reqwest
         // keeps the URL/SNI as the official hostname and the proxy carries the
@@ -158,7 +167,7 @@ fn describe(error: &(dyn std::error::Error + 'static)) -> String {
 fn transport_error(error: reqwest::Error) -> TransportError {
     let interrupted = error.is_body() || error.is_decode();
     TransportError {
-        route_failed: interrupted || error.is_connect() || error.is_request(),
+        route_failed: interrupted || error.is_connect() || error.is_request() || error.is_timeout(),
         interrupted,
         message: describe(&error),
     }
@@ -174,12 +183,13 @@ struct RawResponse {
     bytes: Vec<u8>,
 }
 
-fn send_raw(
+async fn send_raw(
     base: &Url,
     route: Route,
     request: &HttpRequest,
     timeout: Duration,
     max: u64,
+    idle_timeout: Option<Duration>,
 ) -> std::result::Result<RawResponse, TransportError> {
     let url = base
         .join(request.path.trim_start_matches('/'))
@@ -188,11 +198,12 @@ fn send_raw(
             route_failed: false,
             interrupted: false,
         })?;
-    let client = client_for(route, &url, timeout).map_err(|message| TransportError {
-        message,
-        route_failed: false,
-        interrupted: false,
-    })?;
+    let client =
+        client_for(route, &url, timeout, idle_timeout).map_err(|message| TransportError {
+            message,
+            route_failed: false,
+            interrupted: false,
+        })?;
     let method = parse_method(&request.method).map_err(|message| TransportError {
         message,
         route_failed: false,
@@ -206,7 +217,7 @@ fn send_raw(
     if let Some(body) = request.body.as_ref() {
         outgoing = outgoing.json(body);
     }
-    let response = outgoing.send().map_err(transport_error)?;
+    let mut response = outgoing.send().await.map_err(transport_error)?;
     let status = response.status().as_u16();
     let content_type = response
         .headers()
@@ -218,10 +229,7 @@ fn send_raw(
         .unwrap_or("application/octet-stream")
         .trim()
         .to_string();
-    if response
-        .content_length()
-        .is_some_and(|length| length > max)
-    {
+    if response.content_length().is_some_and(|length| length > max) {
         return Err(TransportError {
             message: "API 响应过大".into(),
             route_failed: false,
@@ -229,24 +237,21 @@ fn send_raw(
         });
     }
     let mut bytes = Vec::new();
-    response
-        .take(max + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|error| TransportError {
-            // A body read only fails once the transfer itself broke: the
-            // connection dropped, the line cut it off, or the read stalled.
-            // The node sent a status line, but it cannot finish the artifact,
-            // so retry on the next route and stop trusting this one.
+    loop {
+        let chunk = response.chunk().await.map_err(|error| TransportError {
             message: describe(&error),
             route_failed: true,
             interrupted: true,
         })?;
-    if bytes.len() as u64 > max {
-        return Err(TransportError {
-            message: "API 响应过大".into(),
-            route_failed: false,
-            interrupted: false,
-        });
+        let Some(chunk) = chunk else { break };
+        if bytes.len() as u64 + chunk.len() as u64 > max {
+            return Err(TransportError {
+                message: "API 响应过大".into(),
+                route_failed: false,
+                interrupted: false,
+            });
+        }
+        bytes.extend_from_slice(&chunk);
     }
     Ok(RawResponse {
         status,
@@ -261,7 +266,16 @@ fn send_once(
     request: &HttpRequest,
     timeout: Duration,
 ) -> std::result::Result<HttpResponse, TransportError> {
-    let raw = send_raw(base, route, request, timeout, MAX_RESPONSE_BYTES)?;
+    // These sync entry points run on blocking workers (desktop IPC and MCP).
+    // The async HTTP client bounds the entire transfer, not each blocking read.
+    let raw = tauri::async_runtime::block_on(send_raw(
+        base,
+        route,
+        request,
+        timeout,
+        MAX_RESPONSE_BYTES,
+        None,
+    ))?;
     let text = String::from_utf8_lossy(&raw.bytes).into_owned();
     let body = serde_json::from_slice(&raw.bytes).unwrap_or(Value::Null);
     let is_text_body = matches!(body, Value::Null);
@@ -304,7 +318,7 @@ fn attempt(
     }
     let started = Instant::now();
     match send_once(base, route, request, remaining) {
-        Ok(response) if retryable_status(response.status) => {
+        Ok(response) if should_retry_response(request, &response) => {
             crate::logging::event(
                 "warn",
                 "network",
@@ -354,6 +368,36 @@ fn attempt(
     }
 }
 
+fn should_retry_response(request: &HttpRequest, response: &HttpResponse) -> bool {
+    // A structured editor error comes from the workspace service. Trying
+    // another network route won't change worker capacity/availability and
+    // may hide the reason behind a later gateway error.
+    retryable_status(response.status)
+        && !(request.path == EDITOR_TOKEN_PATH
+            && response
+                .body
+                .pointer("/error/code")
+                .and_then(Value::as_str)
+                .is_some())
+}
+
+fn first_attempt_deadline(request: &HttpRequest, official: bool, deadline: Instant) -> Instant {
+    if official && (request.method.eq_ignore_ascii_case("GET") || request.path == EDITOR_TOKEN_PATH)
+    {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        // Leave time for probing and a real second attempt instead of using
+        // the entire operation timeout on a route which isn't responding.
+        let reserve = if remaining < Duration::from_secs(45) {
+            remaining / 2
+        } else {
+            remaining / 3
+        };
+        deadline - reserve
+    } else {
+        deadline
+    }
+}
+
 fn official_base(base: &Url) -> bool {
     base.scheme() == "https"
         && base.host_str() == Some(route_priority::API_HOST)
@@ -385,7 +429,12 @@ pub(crate) fn request(server_url: &str, request: HttpRequest) -> Result<HttpResp
         Route::Cloudflare
     };
 
-    let first_failure = match attempt(&base, first, &request, deadline) {
+    let first_failure = match attempt(
+        &base,
+        first,
+        &request,
+        first_attempt_deadline(&request, official, deadline),
+    ) {
         Ok(response) => return Ok(response),
         Err(failure) => failure,
     };
@@ -407,11 +456,7 @@ pub(crate) fn request(server_url: &str, request: HttpRequest) -> Result<HttpResp
     crate::logging::event(
         "warn",
         "network",
-        format!(
-            "{}请求失败，已重新选择{}",
-            first.label(),
-            second.label()
-        ),
+        format!("{}请求失败，已重新选择{}", first.label(), second.label()),
     );
 
     match attempt(&base, second, &request, deadline) {
@@ -456,7 +501,14 @@ fn attempt_download(
         });
     }
     let started = Instant::now();
-    match send_raw(base, route, request, remaining, max) {
+    match tauri::async_runtime::block_on(send_raw(
+        base,
+        route,
+        request,
+        remaining,
+        max,
+        Some(DOWNLOAD_IDLE_TIMEOUT),
+    )) {
         Ok(raw) if retryable_status(raw.status) => {
             crate::logging::event(
                 "warn",
@@ -514,10 +566,7 @@ fn attempt_download(
 
 /// Downloads a private workflow artifact.  Private result URLs only accept a
 /// Bearer Key, so the renderer receives the bytes and turns them into a blob.
-pub(crate) fn download(
-    server_url: &str,
-    request: DownloadRequest,
-) -> Result<DownloadResponse> {
+pub(crate) fn download(server_url: &str, request: DownloadRequest) -> Result<DownloadResponse> {
     use base64::Engine as _;
     validate_path(&request.path)?;
     let base = base_url_from(server_url)?;
@@ -554,9 +603,8 @@ pub(crate) fn download(
     } else {
         Route::Cloudflare
     };
-    // Each attempt gets its own budget. reqwest's blocking timeout is per read,
-    // so a body that broke off after minutes has already spent the first
-    // budget; sharing one deadline would make the retry fail before it starts.
+    // Each attempt gets a total budget plus a shorter no-data timeout, so a
+    // dead stream switches lines while a healthy large file can keep loading.
     let first_failure = match attempt_download(&base, first, &http, Instant::now() + budget, max) {
         Ok(raw) => return finish(raw),
         Err(failure) => failure,
@@ -659,5 +707,73 @@ mod tests {
         assert!(retryable_status(504));
         assert!(!retryable_status(401));
         assert!(!retryable_status(429));
+    }
+
+    #[test]
+    fn editor_keeps_worker_errors_but_retries_gateway_errors() {
+        let request = HttpRequest {
+            path: EDITOR_TOKEN_PATH.into(),
+            method: "POST".into(),
+            key: None,
+            body: None,
+            timeout_ms: Some(180_000),
+        };
+        let mut response = HttpResponse {
+            status: 503,
+            route: "cloudflare".into(),
+            body: serde_json::json!({"error": {"code": "worker_unavailable"}}),
+            text: String::new(),
+        };
+        assert!(!should_retry_response(&request, &response));
+        response.body = Value::Null;
+        assert!(should_retry_response(&request, &response));
+
+        let deadline = Instant::now() + Duration::from_secs(180);
+        let first = first_attempt_deadline(&request, true, deadline);
+        assert!(deadline - first >= Duration::from_secs(59));
+        assert_eq!(first_attempt_deadline(&request, false, deadline), deadline);
+    }
+
+    #[test]
+    fn stalled_download_body_is_retryable_before_its_total_deadline() {
+        use std::{
+            io::{Read, Write},
+            net::TcpListener,
+        };
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(4)))
+                .unwrap();
+            let mut read = [0u8; 4096];
+            assert!(stream.read(&mut read).unwrap() > 0);
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\nx")
+                .unwrap();
+            // Leave the body incomplete until the client drops its stream.
+            while stream.read(&mut read).is_ok_and(|count| count != 0) {}
+        });
+        let request = HttpRequest {
+            path: "/result".into(),
+            method: "GET".into(),
+            key: None,
+            body: None,
+            timeout_ms: None,
+        };
+        let start = Instant::now();
+        let result = tauri::async_runtime::block_on(send_raw(
+            &base,
+            Route::Cloudflare,
+            &request,
+            Duration::from_secs(4),
+            1024,
+            Some(Duration::from_millis(300)),
+        ));
+        assert!(matches!(result, Err(error) if error.interrupted && error.route_failed));
+        assert!(start.elapsed() < Duration::from_secs(3));
+        server.join().unwrap();
     }
 }

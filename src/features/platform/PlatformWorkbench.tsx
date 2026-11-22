@@ -58,6 +58,7 @@ import { WorkflowPage } from './WorkflowPage';
 import { createEditorLauncher, editorLaunchPending, type EditorLaunchState } from './editorLaunch';
 import type { EditorLaunchNoticeState } from './EditorLaunchNotice';
 import { logFrontendEvent, logWorkflowLaunch } from '../../lib/api/diagnostics';
+import { nativeAvailable } from '../../lib/api/native';
 import { useWorkflowTasks } from './useWorkflowTasks';
 import { WorkflowTaskQueue } from './WorkflowTaskQueue';
 import { WorkflowResults } from './WorkflowResults';
@@ -148,7 +149,8 @@ export function PlatformWorkbench({
       editorLaunch
         ? {
             state: editorLaunch,
-            onRetry: () => void editorLauncher.retry(),
+            onRetry: () => void editorLauncher.retry(editorLaunch.inBrowser),
+            onOpenInBrowser: nativeAvailable ? () => void editorLauncher.retry(true) : undefined,
             onDismiss: () => editorLauncher.reset(),
           }
         : null,
@@ -252,13 +254,13 @@ export function PlatformWorkbench({
     setDraftError('');
     onViewChange('library');
   }
-  async function launchEditor(template: WorkflowTemplate, prompt = '') {
+  async function launchEditor(template: WorkflowTemplate, prompt = '', inBrowser = false) {
     if (!requireKey()) return;
     if (editorStarting) return;
     try {
       const document = workflowDocument(template, prompt);
       if (!document) throw new Error('此工作流的节点流程尚未发布。');
-      await editorLauncher.launch(activeKey, template.title, document);
+      await editorLauncher.launch(activeKey, template.title, document, inBrowser);
     } catch (cause) {
       setError(errorText(cause));
     }
@@ -685,6 +687,7 @@ export function PlatformWorkbench({
             onSave={saveDraft}
             onSubmit={submitRun}
             onEditor={() => void launchEditor(editor.template!, editor.prompt)}
+            onEditorInBrowser={nativeAvailable ? () => void launchEditor(editor.template!, editor.prompt, true) : undefined}
             error={draftError}
             busy={busy || submitting}
             editorStarting={editorStarting}

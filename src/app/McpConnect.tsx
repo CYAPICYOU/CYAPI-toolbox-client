@@ -38,16 +38,25 @@ export function McpConnect() {
 
   // The first read also syncs the catalog, so the card works after a fresh
   // install when the per-workspace page has not been opened yet.
-  async function load(target: Workspace): Promise<McpView> {
-    if (catalogLoaded.current) return nativeCall<McpView>('mcp-view', { workspace: target });
+  async function load(target: Workspace, forceRefresh = false): Promise<McpView> {
+    if (catalogLoaded.current && !forceRefresh)
+      return nativeCall<McpView>('mcp-view', { workspace: target });
     try {
-      const next = await nativeCall<McpView>('mcp-catalog-read', { workspace: target });
+      let next = await nativeCall<McpView>(forceRefresh ? 'mcp-refresh' : 'mcp-catalog-read', {
+        workspace: target,
+      });
+      // A still-fresh cache can predate the toolbox entry; refresh once before
+      // telling the user that this client is not available in the directory.
+      if (!forceRefresh && !next.catalog.servers.some((item) => item.id === CYAPI_SERVER)) {
+        next = await nativeCall<McpView>('mcp-refresh', { workspace: target });
+      }
       catalogLoaded.current = true;
       return next;
-    } catch {
+    } catch (error) {
       // The local configuration stays readable while the catalog is offline.
       catalogLoaded.current = true;
-      return nativeCall<McpView>('mcp-view', { workspace: target });
+      const localView = await nativeCall<McpView>('mcp-view', { workspace: target });
+      return { ...localView, catalogError: errorText(error) };
     }
   }
 
@@ -69,7 +78,7 @@ export function McpConnect() {
     let active = true;
     setBusy('read');
     setNotice(undefined);
-    void load(workspace)
+    void load(workspace, attempt > 0)
       .then((next) => {
         if (!active) return;
         setView(next);
@@ -217,7 +226,11 @@ export function McpConnect() {
           {!descriptor && !busy && (
             <div className="n-offline-note" role="status">
               <CircleHelp size={16} />
-              <span>MCP 目录暂不可用，无法读取可用客户端。</span>
+              <span>
+                {view?.catalogError
+                  ? `MCP 目录读取失败：${view.catalogError}`
+                  : 'MCP 目录中未找到工具箱接入项，无法读取可用客户端。'}
+              </span>
               <button
                 onClick={() => {
                   catalogLoaded.current = false;

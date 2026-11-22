@@ -50,27 +50,11 @@ pub mod tunnel;
 use artifact_save::artifact_save_dialog;
 use models::Request;
 use service::Service;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 struct AppService(Arc<Mutex<Result<Service, String>>>);
 
-static EDITOR_ROUTE: OnceLock<Mutex<Option<String>>> = OnceLock::new();
-
-fn editor_route_state() -> &'static Mutex<Option<String>> {
-    EDITOR_ROUTE.get_or_init(|| Mutex::new(None))
-}
-
-/// A stable WKWebsiteDataStore identifier per editor line. The store carries
-/// the webview's proxy configuration, so sharing it with the main window or
-/// another line would leak that route beyond the editor.
-#[cfg(target_os = "macos")]
-fn editor_route_store_id(route: &str) -> [u8; 16] {
-    use sha2::{Digest, Sha256};
-    let digest = Sha256::digest(format!("cyapi-editor-{route}").as_bytes());
-    let mut id = [0u8; 16];
-    id.copy_from_slice(&digest[..16]);
-    id
-}
+static EDITOR_OPEN: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// Only the packaged (or dev-server) main WebView can call native commands.
 fn trusted_caller(view: &tauri::Webview) -> bool {
@@ -256,6 +240,7 @@ async fn open_workflow_editor(
     app: tauri::AppHandle,
     url: String,
     route: Option<String>,
+    in_browser: Option<bool>,
 ) -> Result<(), String> {
     use tauri::Manager;
     let parsed = tauri::Url::parse(&url).map_err(|_| "编辑器地址无效".to_string())?;
@@ -295,36 +280,63 @@ async fn open_workflow_editor(
     if host != "api.cyapi.cyou" && !loopback {
         return Err("编辑器地址不在允许的范围内".into());
     }
+    if in_browser.unwrap_or(false) {
+        if loopback || scheme != "https" || parsed.port_or_known_default() != Some(443) {
+            return Err("浏览器只允许打开官方 HTTPS 编辑器地址".into());
+        }
+        #[cfg(target_os = "macos")]
+        {
+            // The one-shot URL stays out of the command line and process list.
+            let url = objc2_foundation::NSURL::URLWithString(&objc2_foundation::NSString::from_str(parsed.as_str()))
+                .ok_or_else(|| "编辑器地址无效".to_string())?;
+            return if objc2_app_kit::NSWorkspace::sharedWorkspace().openURL(&url) {
+                Ok(())
+            } else {
+                Err("无法在默认浏览器中打开编辑器".into())
+            };
+        }
+        #[cfg(not(target_os = "macos"))]
+        return platform::open_url(parsed.as_str());
+    }
     if route_ip.is_some() && loopback {
         return Err("本地编辑器不能使用公网线路覆盖".into());
     }
 
-    const LABEL: &str = "workflow-editor";
-    if let Some(window) = app.get_webview_window(LABEL) {
-        let same_route = editor_route_state()
-            .lock()
-            .ok()
-            .and_then(|value| value.clone())
-            .is_some_and(|value| value == route);
-        if same_route {
-            window
-                .navigate(parsed)
-                .map_err(|error| format!("无法打开编辑器：{error}"))?;
-            let _ = window.show();
-            let _ = window.set_focus();
-            return Ok(());
+    let _opening = EDITOR_OPEN.try_lock().map_err(|_| "已有编辑器窗口正在打开，请稍后重试")?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(12);
+    // The route's proxy is fixed at construction. Label each environment so a
+    // route switch doesn't recreate a label before the old window is destroyed.
+    const LABELS: [&str; 3] = ["workflow-editor", "workflow-editor-line-1", "workflow-editor-line-2"];
+    let label = match route.as_str() {
+        "beijing" => LABELS[1],
+        "hongkong" => LABELS[2],
+        _ => LABELS[0],
+    };
+    let navigate = |window: &tauri::WebviewWindow| -> Result<(), String> {
+        // If creation was stuck, don't navigate a late window after the user
+        // may already have chosen the browser fallback with a newer token.
+        if std::time::Instant::now() >= deadline {
+            return Err("编辑器窗口打开超时，可以改用浏览器打开".into());
         }
-        // The route is baked into the window environment (WebView2 arguments
-        // or the WKWebView proxy), so a failed API route that selects another
-        // origin has to rebuild the child window.
-        let _ = window.close();
-        if let Ok(mut value) = editor_route_state().lock() {
-            *value = None;
+        window.navigate(parsed.clone()).map_err(|_| "无法加载编辑器地址")?;
+        window.show().map_err(|_| "无法显示编辑器窗口")?;
+        let _ = window.set_focus();
+        for other in LABELS.into_iter().filter(|other| *other != label) {
+            if let Some(stale) = app.get_webview_window(other) {
+                let _ = stale.destroy();
+            }
         }
+        Ok(())
+    };
+    if let Some(window) = app.get_webview_window(label) {
+        return navigate(&window);
     }
 
-    let mut builder =
-        tauri::WebviewWindowBuilder::new(&app, LABEL, tauri::WebviewUrl::External(parsed));
+    // Initialize the native window before navigating to the one-shot URL.
+    // The child is never a local app WebView, even while blank.
+    let mut builder = tauri::WebviewWindowBuilder::new(
+        &app, label, tauri::WebviewUrl::External("about:blank".parse().unwrap()),
+    ).visible(false);
     #[cfg(target_os = "windows")]
     if route_ip.is_some() {
         // WebView2 refuses to start when two environments share a user data
@@ -365,23 +377,22 @@ async fn open_workflow_editor(
         // WKWebView cannot rewrite DNS answers, but macOS 14+ applies a proxy
         // per webview. The loopback proxy keeps `api.cyapi.cyou` as the
         // hostname, Host header and TLS SNI while the socket goes to the
-        // selected node. A dedicated data store per line keeps the proxy
-        // configuration away from the main window and the other lines.
+        // selected node. Use an isolated ephemeral store: no shared proxy
+        // settings or persisted editor session, the fresh token signs it in.
         let proxy = tunnel::line_proxy_url(&route)
             .and_then(|url| tauri::Url::parse(&url).ok())
             .ok_or_else(|| "无法建立编辑器线路".to_string())?;
-        builder = builder
-            .data_store_identifier(editor_route_store_id(&route))
-            .proxy_url(proxy);
+        builder = builder.incognito(true).proxy_url(proxy);
     }
-    builder
+    let window = builder
         .title("CYAPI 工作流")
         .inner_size(1440.0, 900.0)
         .min_inner_size(1024.0, 700.0)
         .build()
-        .map_err(|error| format!("无法打开编辑器：{error}"))?;
-    if let Ok(mut value) = editor_route_state().lock() {
-        *value = Some(route);
+        .map_err(|error| format!("无法创建编辑器窗口：{error}"))?;
+    if let Err(error) = navigate(&window) {
+        let _ = window.destroy();
+        return Err(error);
     }
     Ok(())
 }

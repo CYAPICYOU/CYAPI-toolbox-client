@@ -8,6 +8,8 @@ export interface EditorLaunchState {
   startedAt: number;
   finishedAt: number | null;
   error: string;
+  inBrowser: boolean;
+  windowFailed: boolean;
 }
 
 export const editorLaunchPending = (state: EditorLaunchState | null) =>
@@ -23,13 +25,14 @@ export function createEditorLauncher({
   onEvent = () => {},
   now = Date.now,
   timeoutMs = 180_000,
+  openTimeoutMs = 15_000,
 }: {
   token: (
     key: string,
     document: Record<string, unknown>,
     signal: AbortSignal,
   ) => Promise<{ url: string; route?: EditorLaunchRoute }>;
-  open: (url: string, route?: EditorLaunchRoute) => Promise<void>;
+  open: (url: string, route?: EditorLaunchRoute, inBrowser?: boolean) => Promise<void>;
   onChange: (state: EditorLaunchState | null) => void;
   onEvent?: (
     operationId: string,
@@ -38,6 +41,7 @@ export function createEditorLauncher({
   ) => void;
   now?: () => number;
   timeoutMs?: number;
+  openTimeoutMs?: number;
 }) {
   let current: {
     controller: AbortController;
@@ -47,7 +51,7 @@ export function createEditorLauncher({
   } | null = null;
   let last: { key: string; title: string; document: Record<string, unknown> } | null = null;
 
-  async function launch(key: string, title: string, document: Record<string, unknown>) {
+  async function launch(key: string, title: string, document: Record<string, unknown>, inBrowser = false) {
     // This lock is synchronous, so even two clicks before React rerenders coalesce.
     if (current) return false;
     last = { key, title, document: structuredClone(document) };
@@ -62,6 +66,7 @@ export function createEditorLauncher({
       startedAt,
     };
     current = operation;
+    let opening = false;
     const publish = (phase: EditorLaunchPhase, error = '') => {
       if (current !== operation) return;
       onChange({
@@ -71,6 +76,8 @@ export function createEditorLauncher({
         startedAt,
         finishedAt: phase === 'opened' || phase === 'failed' ? now() : null,
         error,
+        inBrowser,
+        windowFailed: phase === 'failed' && opening && !inBrowser,
       });
       onEvent(operationId, phase, Math.max(0, Math.floor((now() - startedAt) / 1000)));
     };
@@ -80,8 +87,17 @@ export function createEditorLauncher({
       if (current !== operation) return false;
       if (controller.signal.aborted) throw new Error('timeout');
       clearTimeout(operation.timer);
+      opening = true;
       publish('opening');
-      await open(session.url, session.route);
+      await Promise.race([
+        open(session.url, session.route, inBrowser),
+        new Promise<never>((_resolve, reject) => {
+          operation.timer = setTimeout(
+            () => reject(new Error(inBrowser ? '等待默认浏览器响应超时。' : '编辑器窗口打开超时，可以改用浏览器打开。')),
+            openTimeoutMs,
+          );
+        }),
+      ]);
       if (current !== operation) return false;
       publish('opened');
       // Retrying must request a fresh token, not reuse the consumed URL.
@@ -104,8 +120,8 @@ export function createEditorLauncher({
 
   return {
     launch,
-    retry() {
-      return last ? launch(last.key, last.title, last.document) : Promise.resolve(false);
+    retry(inBrowser = false) {
+      return last ? launch(last.key, last.title, last.document, inBrowser) : Promise.resolve(false);
     },
     reset() {
       const operation = current;

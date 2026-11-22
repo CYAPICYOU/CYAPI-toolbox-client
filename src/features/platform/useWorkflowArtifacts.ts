@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { nativeAvailable } from '../../lib/api/native';
 import {
@@ -19,7 +19,7 @@ const saveMessage = (saved: boolean) =>
       : '已取消保存。'
     : '已发起浏览器下载，请查看浏览器下载列表。';
 
-/** A queued artifact fetch; `id` deduplicates it while queued or in flight. */
+/** A fetch of either an output or a reference. */
 interface DownloadJob {
   id: string;
   load: () => Promise<string>;
@@ -37,6 +37,7 @@ export function useWorkflowArtifacts(activeKey: string, tasks: WorkflowTask[], e
   const [references, setReferences] = useState<Record<string, string>>({});
   const [referenceErrors, setReferenceErrors] = useState<Record<string, string>>({});
   const [imageHashes, setImageHashes] = useState<Record<string, string>>({});
+  const [visibleTasks, setVisibleTasks] = useState<ReadonlySet<string>>(() => new Set());
   const [saveNotice, setSaveNotice] = useState('');
   const [zipTaskId, setZipTaskId] = useState('');
   const pending = useRef(new Set<string>());
@@ -44,13 +45,21 @@ export function useWorkflowArtifacts(activeKey: string, tasks: WorkflowTask[], e
   const generation = useRef(0);
   const zipBusy = useRef(false);
   const queue = useRef<DownloadJob[]>([]);
-  const activeDownloads = useRef(0);
+
+  const setTaskVisible = useCallback((id: string, visible: boolean) => {
+    setVisibleTasks((current) => {
+      if (current.has(id) === visible) return current;
+      const next = new Set(current);
+      if (visible) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
 
   useEffect(
     () => () => {
       generation.current++;
       queue.current = [];
-      activeDownloads.current = 0;
       for (const url of urls.current) URL.revokeObjectURL(url);
       urls.current = [];
       pending.current.clear();
@@ -60,9 +69,9 @@ export function useWorkflowArtifacts(activeKey: string, tasks: WorkflowTask[], e
 
   function pumpDownloads() {
     const request = generation.current;
-    while (activeDownloads.current < MAX_PARALLEL_DOWNLOADS && queue.current.length) {
+    while (pending.current.size < MAX_PARALLEL_DOWNLOADS && queue.current.length) {
       const job = queue.current.shift()!;
-      activeDownloads.current += 1;
+      pending.current.add(job.id);
       void job
         .load()
         .then((url) => {
@@ -80,27 +89,31 @@ export function useWorkflowArtifacts(activeKey: string, tasks: WorkflowTask[], e
           // An unmounted generation abandons its slot; the cleanup reset it.
           if (request !== generation.current) return;
           pending.current.delete(job.id);
-          activeDownloads.current -= 1;
           pumpDownloads();
         });
     }
   }
 
-  function enqueueDownload(job: DownloadJob) {
-    if (pending.current.has(job.id)) return;
-    pending.current.add(job.id);
-    queue.current.push(job);
-    pumpDownloads();
-  }
-
   useEffect(() => {
+    // Replace unstarted work as the user scrolls. History outside the viewport
+    // doesn't occupy the queue, and visible outputs go before reference images.
+    queue.current = [];
     if (!enabled || !activeKey) return;
-    for (const task of tasks) {
-      if (task.status !== 'succeeded') continue;
+    const candidates = tasks.filter(
+      (task) => task.status === 'succeeded' && visibleTasks.has(task.id),
+    );
+    const scheduled = new Set(pending.current);
+    function schedule(job: DownloadJob) {
+      if (scheduled.has(job.id)) return;
+      scheduled.add(job.id);
+      queue.current.push(job);
+    }
+
+    for (const task of candidates) {
       for (const output of task.outputs) {
         const id = output.download;
         if (artifacts[id] || artifactErrors[id]) continue;
-        enqueueDownload({
+        schedule({
           id,
           load: () => downloadWorkflowArtifact(activeKey, id),
           commit: (url) => setArtifacts((current) => ({ ...current, [id]: url })),
@@ -108,17 +121,11 @@ export function useWorkflowArtifacts(activeKey: string, tasks: WorkflowTask[], e
         });
       }
     }
-  }, [tasks, enabled, activeKey, artifacts, artifactErrors]);
 
-  // Reference images belong to the finished task's input, not its outputs, so
-  // they are loaded from the Key-scoped upload route the same way.
-  useEffect(() => {
-    if (!enabled || !activeKey) return;
-    for (const task of tasks) {
-      if (task.status !== 'succeeded') continue;
+    for (const task of candidates) {
       for (const id of task.references ?? []) {
         if (references[id] || referenceErrors[id]) continue;
-        enqueueDownload({
+        schedule({
           id,
           load: () => downloadWorkflowUpload(activeKey, id),
           commit: (url) => setReferences((current) => ({ ...current, [id]: url })),
@@ -126,7 +133,8 @@ export function useWorkflowArtifacts(activeKey: string, tasks: WorkflowTask[], e
         });
       }
     }
-  }, [tasks, enabled, activeKey, references, referenceErrors]);
+    pumpDownloads();
+  }, [tasks, enabled, activeKey, visibleTasks, artifacts, artifactErrors, references, referenceErrors]);
 
   useEffect(() => {
     let cancelled = false;
@@ -224,6 +232,7 @@ export function useWorkflowArtifacts(activeKey: string, tasks: WorkflowTask[], e
     imageHashes,
     saveNotice,
     zipTaskId,
+    setTaskVisible,
     saveOutput,
     saveTaskZip,
     retryArtifact,

@@ -41,6 +41,7 @@ pub struct Descriptor {
     pub name: String,
     pub version: String,
     pub description: String,
+    #[serde(default)]
     pub homepage: String,
     #[serde(default)]
     pub capabilities: Vec<String>,
@@ -229,7 +230,7 @@ fn validate_descriptor(server: &Descriptor, ids: &mut HashSet<String>, local: bo
         || !clean_text(&server.name, 100)
         || !clean_text(&server.version, 40)
         || !clean_text(&server.description, 800)
-        || (!local && !server.homepage.starts_with("https://"))
+        || (!local && !server.homepage.is_empty() && !server.homepage.starts_with("https://"))
         || server.homepage.len() > 240
         || server.capabilities.len() > 12
         || server.steps.len() > 12
@@ -2410,6 +2411,59 @@ mod tests {
             app_data: home.join("AppData/Roaming"),
         };
         (base, context)
+    }
+
+    #[test]
+    fn catalog_accepts_entries_without_optional_homepage() {
+        let bytes = br#"{
+            "schema": 1,
+            "generatedAt": "2026-10-20T00:00:00Z",
+            "servers": [
+                {
+                    "id": "orbit-ssh",
+                    "name": "Orbit SSH",
+                    "version": "2.0+",
+                    "description": "SSH MCP",
+                    "capabilities": ["SSH"],
+                    "steps": ["Start the service."],
+                    "transport": {
+                        "type": "http",
+                        "url": "http://127.0.0.1:8765/mcp",
+                        "tokenSource": "orbit-ssh"
+                    },
+                    "workspaces": ["codex"]
+                },
+                {
+                    "id": "cyapi-toolbox",
+                    "name": "CYAPI Toolbox",
+                    "version": "3.0+",
+                    "description": "Connect the local toolbox.",
+                    "homepage": "https://tool.cyapi.cyou/",
+                    "transport": {
+                        "type": "http",
+                        "url": "http://127.0.0.1:18733/mcp",
+                        "tokenSource": "cyapi-toolbox"
+                    },
+                    "workspaces": ["codex", "claude", "opencode"]
+                }
+            ]
+        }"#;
+
+        let catalog = validate_catalog_bytes(bytes).unwrap();
+        assert!(catalog
+            .servers
+            .iter()
+            .any(|server| { server.id == "orbit-ssh" && server.homepage.is_empty() }));
+        assert!(catalog
+            .servers
+            .iter()
+            .any(|server| server.id == "cyapi-toolbox"));
+
+        let invalid_homepage = String::from_utf8(bytes.to_vec()).unwrap().replace(
+            "\"id\": \"orbit-ssh\",",
+            "\"id\": \"orbit-ssh\",\n                    \"homepage\": \"http://example.com\",",
+        );
+        assert!(validate_catalog_bytes(invalid_homepage.as_bytes()).is_err());
     }
 
     /// The revision of the entry an action writes to.

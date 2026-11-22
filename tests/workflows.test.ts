@@ -389,6 +389,16 @@ test('missing result previews stay isolated from task queue and drafts', () => {
   assert.doesNotMatch(artifacts, /setTaskError/);
 });
 
+test('result previews only queue nearby cards, with outputs before reference images', () => {
+  const results = read('src/features/platform/WorkflowResults.tsx');
+  const artifacts = read('src/features/platform/useWorkflowArtifacts.ts');
+  assert.match(results, /IntersectionObserver/);
+  assert.match(results, /onVisibility=\{setTaskVisible\}/);
+  assert.match(artifacts, /queue\.current = \[\];\s*if \(!enabled \|\| !activeKey\)/);
+  assert.match(artifacts, /visibleTasks\.has\(task\.id\)/);
+  assert.ok(artifacts.indexOf('load: () => downloadWorkflowArtifact') < artifacts.indexOf('load: () => downloadWorkflowUpload'));
+});
+
 test('task responses and visible results are scoped to the active Key', () => {
   const page = read('src/features/platform/PlatformWorkbench.tsx');
   assert.match(
@@ -813,6 +823,62 @@ test('native window errors surface inline and the retry can recover', async () =
   assert.equal(await launcher.retry(), true);
   assert.equal(states.at(-1)?.phase, 'opened');
   launcher.reset();
+});
+
+test('a stalled native window unlocks the browser fallback with a fresh token', async () => {
+  const states: (EditorLaunchState | null)[] = [];
+  const attempts: { url: string; inBrowser?: boolean }[] = [];
+  let issued = 0;
+  const launcher = createEditorLauncher({
+    token: async () => ({ url: `https://example.test/?t=token-${++issued}` }),
+    open: (url, _route, inBrowser) => {
+      attempts.push({ url, inBrowser });
+      return inBrowser ? Promise.resolve() : new Promise(() => {});
+    },
+    openTimeoutMs: 10,
+    onChange: (state) => states.push(state),
+  });
+  assert.equal(await launcher.launch('key', '窗口卡住', { nodes: [] }), false);
+  assert.equal(states.at(-1)?.windowFailed, true);
+  assert.match(states.at(-1)?.error ?? '', /窗口打开超时/);
+  assert.equal(await launcher.retry(true), true);
+  assert.equal(states.at(-1)?.inBrowser, true);
+  assert.deepEqual(attempts, [
+    { url: 'https://example.test/?t=token-1', inBrowser: false },
+    { url: 'https://example.test/?t=token-2', inBrowser: true },
+  ]);
+});
+
+test('the workflow page can open the same workflow in a browser after native window success', async () => {
+  const page = read('src/features/platform/WorkflowPage.tsx');
+  assert.match(page, /\{onEditorInBrowser && \(\s*<button\s+className="pfx-ghost"\s+disabled=\{busy \|\| editorStarting \|\| !hasDocument\}\s+onClick=\{onEditorInBrowser\}\s*>\s*在浏览器中打开/);
+  const workbench = read('src/features/platform/PlatformWorkbench.tsx');
+  assert.match(workbench, /onEditorInBrowser=\{nativeAvailable \? \(\) => void launchEditor\(editor\.template!, editor\.prompt, true\) : undefined\}/);
+  assert.match(workbench, /editorLauncher\.launch\(activeKey, template\.title, document, inBrowser\)/);
+
+  const requests: { key: string; document: Record<string, unknown> }[] = [];
+  const opened: { url: string; inBrowser?: boolean }[] = [];
+  const states: (EditorLaunchState | null)[] = [];
+  const launcher = createEditorLauncher({
+    token: async (key, document) => {
+      requests.push({ key, document });
+      return { url: `https://example.test/editor?t=token-${requests.length}` };
+    },
+    open: async (url, _route, inBrowser) => { opened.push({ url, inBrowser }); },
+    onChange: (state) => states.push(state),
+  });
+  const document = { nodes: [{ id: 1 }] };
+  assert.equal(await launcher.launch('test-key', '测试工作流', document), true);
+  assert.equal(states.at(-1)?.phase, 'opened');
+  assert.equal(editorLaunchPending(states.at(-1)!), false);
+  assert.equal(states.at(-1)?.windowFailed, false, 'the browser entry does not depend on a native failure');
+  launcher.reset(); // The transient success notice is gone, and retry state is cleared.
+  assert.equal(await launcher.launch('test-key', '测试工作流', document, true), true);
+  assert.deepEqual(requests, Array.from({ length: 2 }, () => ({ key: 'test-key', document })));
+  assert.deepEqual(opened, [
+    { url: 'https://example.test/editor?t=token-1', inBrowser: false },
+    { url: 'https://example.test/editor?t=token-2', inBrowser: true },
+  ]);
 });
 
 test('startup progress stays outside a modal and only editor launch controls are disabled', () => {

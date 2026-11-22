@@ -688,6 +688,12 @@
   align-items: center;
   gap: 14px;
 }
+.pfx-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
 .pfx-workflow-title h1,
 .pfx-create-page h1 {
   margin: 0;

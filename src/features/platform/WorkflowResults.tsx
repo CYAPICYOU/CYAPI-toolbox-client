@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { LoaderCircle, Maximize2, Play, Trash2 } from 'lucide-react';
 import { Modal } from '../../components/Primitives';
 import type { WorkflowTask } from './api';
@@ -7,6 +7,37 @@ import type { WorkflowTemplate } from './library';
 import { taskParameters } from './taskParameters';
 import { useWorkflowArtifacts } from './useWorkflowArtifacts';
 import { WorkflowTaskLogs } from './WorkflowTaskLogs';
+
+function ResultCard({
+  id,
+  visible,
+  onVisibility,
+  children,
+}: {
+  id: string;
+  visible: boolean;
+  onVisibility: (id: string, visible: boolean) => void;
+  children: ReactNode;
+}) {
+  const card = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!visible || !card.current) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      onVisibility(id, true);
+      return () => onVisibility(id, false);
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => onVisibility(id, entry.isIntersecting),
+      { rootMargin: '200px 0px' },
+    );
+    observer.observe(card.current);
+    return () => {
+      observer.disconnect();
+      onVisibility(id, false);
+    };
+  }, [id, visible, onVisibility]);
+  return <article ref={card} className="pfx-card pfx-task-result">{children}</article>;
+}
 
 // Mounted with the active Key as React key: previews and pending downloads belong to one identity.
 export function WorkflowResults({
@@ -34,6 +65,7 @@ export function WorkflowResults({
     imageHashes,
     saveNotice,
     zipTaskId,
+    setTaskVisible,
     saveOutput,
     saveTaskZip,
     retryArtifact,
@@ -67,7 +99,7 @@ export function WorkflowResults({
         const parameterList = taskParameters(task, templates.find((item) => item.id === task.templateId));
         const referenceIds = task.references ?? [];
         return (
-          <article key={task.id} className="pfx-card pfx-task-result">
+          <ResultCard key={task.id} id={task.id} visible={visible} onVisibility={setTaskVisible}>
             <div className="pfx-task-row">
               <strong>{task.name}</strong>
               <div className="pfx-result-meta">
@@ -281,7 +313,7 @@ export function WorkflowResults({
               </small>
             )}
             <WorkflowTaskLogs task={task} activeKey={activeKey} visible={visible} />
-          </article>
+          </ResultCard>
         );
       })}
       {preview && (

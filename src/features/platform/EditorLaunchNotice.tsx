@@ -6,18 +6,16 @@ import { openLogs } from '../../lib/api/diagnostics';
 export interface EditorLaunchNoticeState {
   state: EditorLaunchState;
   onRetry: () => void;
+  onOpenInBrowser?: () => void;
   onDismiss: () => void;
 }
 
 export function EditorLaunchNotice({
   state,
   onRetry,
+  onOpenInBrowser,
   onDismiss,
-}: {
-  state: EditorLaunchState;
-  onRetry: () => void;
-  onDismiss: () => void;
-}) {
+}: EditorLaunchNoticeState) {
   const [now, setNow] = useState(Date.now);
   const pending = editorLaunchPending(state);
   const dismiss = useRef(onDismiss);
@@ -37,8 +35,8 @@ export function EditorLaunchNotice({
   const elapsed = Math.max(0, Math.floor(((state.finishedAt ?? now) - state.startedAt) / 1000));
   const label = {
     starting: '正在启动 ComfyUI',
-    opening: '服务已就绪，正在打开编辑器',
-    opened: '编辑器窗口已打开',
+    opening: state.inBrowser ? '服务已就绪，正在打开默认浏览器' : '服务已就绪，正在打开编辑器',
+    opened: state.inBrowser ? '已在默认浏览器中打开' : '编辑器窗口已打开',
     failed: 'ComfyUI 未能打开',
   }[state.phase];
   return (
@@ -68,6 +66,9 @@ export function EditorLaunchNotice({
             <RotateCw size={14} />
             重新尝试
           </button>
+        )}
+        {state.windowFailed && onOpenInBrowser && (
+          <button className="pfx-ghost" onClick={onOpenInBrowser}>在浏览器中打开</button>
         )}
         {!pending && (
           <button className="pfx-icon-button" aria-label="关闭启动提示" onClick={onDismiss}>

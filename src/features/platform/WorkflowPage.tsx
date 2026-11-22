@@ -33,6 +33,7 @@ export function WorkflowPage({
   onSave,
   onSubmit,
   onEditor,
+  onEditorInBrowser,
   error,
   busy,
   editorStarting,
@@ -46,6 +47,7 @@ export function WorkflowPage({
   onSave: () => void;
   onSubmit: () => void;
   onEditor: () => void;
+  onEditorInBrowser?: () => void;
   error: string;
   busy: boolean;
   editorStarting: boolean;
@@ -252,19 +254,30 @@ export function WorkflowPage({
             <p>{template.description}</p>
           </div>
         </div>
-        <button
-          className="pfx-secondary"
-          disabled={busy || editorStarting || !hasDocument}
-          title={hasDocument ? '将此工作流载入 ComfyUI 编辑器' : '此模板的节点流程尚未发布'}
-          onClick={onEditor}
-        >
-          {editorStarting ? (
-            <LoaderCircle size={14} className="pfx-spin" />
-          ) : (
-            <ExternalLink size={14} />
+        <div className="pfx-editor-actions">
+          <button
+            className="pfx-secondary"
+            disabled={busy || editorStarting || !hasDocument}
+            title={hasDocument ? '将此工作流载入 ComfyUI 编辑器' : '此模板的节点流程尚未发布'}
+            onClick={onEditor}
+          >
+            {editorStarting ? (
+              <LoaderCircle size={14} className="pfx-spin" />
+            ) : (
+              <ExternalLink size={14} />
+            )}
+            {editorStarting ? 'ComfyUI 正在后台启动…' : '在 ComfyUI 中打开'}
+          </button>
+          {onEditorInBrowser && (
+            <button
+              className="pfx-ghost"
+              disabled={busy || editorStarting || !hasDocument}
+              onClick={onEditorInBrowser}
+            >
+              在浏览器中打开
+            </button>
           )}
-          {editorStarting ? 'ComfyUI 正在后台启动…' : '在 ComfyUI 中打开'}
-        </button>
+        </div>
       </div>
       <div className="pfx-page-tabs" role="tablist" aria-label="工作流视图">
         <button role="tab" aria-selected={tab === 'inputs'} onClick={() => onTab('inputs')}>

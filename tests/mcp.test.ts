@@ -69,6 +69,8 @@ test('settings connects the toolbox server through the shared install action', (
   // still refuses a configuration that changed after the card was rendered.
   assert.match(connect, /configurationRevision: entry\.revision/);
   assert.match(connect, /'mcp-catalog-read'/);
+  assert.match(connect, /'mcp-refresh'/);
+  assert.match(connect, /MCP 目录读取失败/);
   assert.match(connect, /'mcp-view'/);
   assert.doesNotMatch(connect, /接管|mcp-remove|mcp-adopt/);
 });

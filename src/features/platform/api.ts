@@ -482,10 +482,10 @@ export async function downloadWorkflowArtifact(key: string, path: string): Promi
 }
 
 /** Opens the hosted ComfyUI editor in a separate desktop WebView. */
-export async function openEditorWindow(url: string, route: HostedRoute = 'cloudflare') {
+export async function openEditorWindow(url: string, route: HostedRoute = 'cloudflare', inBrowser = false) {
   if (nativeAvailable) {
     try {
-      await invoke('open_workflow_editor', { url, route });
+      await invoke('open_workflow_editor', { url, route, inBrowser });
     } catch (cause) {
       // Tauri rejects with a plain string; surface it as a real Error so the
       // caller can show the reason instead of a generic "please retry".
